@@ -1,0 +1,270 @@
+/* ==========================================================================
+   多页签条（features/tabs）
+   只补 base.css 里没有的：拖拽落点、未读徽标、更多状态点颜色、新建面板、确认框。
+   ========================================================================== */
+
+.ts-tabstrip {
+  position: relative;
+}
+
+.ts-tabstrip__tabs {
+  /* 页签多到溢出时横向滚动，而不是把工具栏挤出去 */
+  scrollbar-width: none;
+}
+
+.ts-tabstrip__tabs::-webkit-scrollbar {
+  height: 0;
+}
+
+.ts-tab {
+  /* 拖拽重排：整个页签是拖拽源，落点靠 --drop-target 高亮 */
+  user-select: none;
+  cursor: default;
+}
+
+.ts-tab--drop-target {
+  box-shadow: inset 2px 0 0 0 var(--ts-accent);
+}
+
+.ts-tab__dot--idle {
+  background: var(--ts-text-muted);
+  opacity: 0.55;
+}
+
+.ts-tab__dot--reconnecting {
+  background: var(--ts-status-warn);
+  animation: ts-pulse 1.1s ease-in-out infinite;
+}
+
+.ts-tab__dot--closed {
+  background: var(--ts-text-muted);
+}
+
+.ts-tab__unread {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--ts-accent);
+  color: var(--ts-accent-contrast);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+@keyframes ts-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ==========================================================================
+   新建页签面板
+   ========================================================================== */
+
+.ts-picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 8px;
+  z-index: 40;
+  width: 320px;
+  max-height: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--ts-border-strong);
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-bg-elevated);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+  /* 面板浮在终端之上，不能被 -webkit-app-region: drag 吃掉点击 */
+  -webkit-app-region: no-drag;
+}
+
+.ts-picker__tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.ts-picker__tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--ts-radius-sm);
+  background: transparent;
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-sm);
+  cursor: pointer;
+}
+
+.ts-picker__tab--active {
+  border-color: var(--ts-border-strong);
+  background: var(--ts-bg-surface);
+  color: var(--ts-text-primary);
+}
+
+.ts-picker__search {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-primary);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-picker__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ts-picker__empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 2px;
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-picker__error {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: var(--ts-radius-sm);
+  background: color-mix(in srgb, var(--ts-status-error) 18%, transparent);
+  color: var(--ts-status-error);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-picker__host {
+  display: grid;
+  grid-template-columns: 3px auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--ts-radius-sm);
+  background: transparent;
+  color: var(--ts-text-primary);
+  font-size: var(--ts-font-size-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ts-picker__host:hover {
+  background: var(--ts-bg-surface);
+}
+
+.ts-picker__host-color {
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--ts-border-strong);
+}
+
+.ts-picker__host-label {
+  font-weight: 500;
+}
+
+.ts-picker__host-meta {
+  color: var(--ts-text-muted);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-sm);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ts-picker__form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ts-picker .ts-field__label,
+.ts-picker__form .ts-field > span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-picker .ts-field input {
+  width: 100%;
+}
+
+.ts-spin {
+  animation: ts-spin 0.9s linear infinite;
+}
+
+@keyframes ts-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ==========================================================================
+   关闭确认框
+   ========================================================================== */
+
+.ts-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ts-bg-overlay);
+}
+
+.ts-confirm__panel {
+  width: min(420px, calc(100vw - 48px));
+  padding: 18px 20px 16px;
+  border: 1px solid var(--ts-border-strong);
+  border-radius: var(--ts-radius-lg);
+  background: var(--ts-bg-elevated);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.ts-confirm__title {
+  margin: 0 0 8px;
+  font-size: var(--ts-font-size-lg);
+  font-weight: 600;
+  color: var(--ts-text-primary);
+}
+
+.ts-confirm__body {
+  margin: 0 0 16px;
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-base);
+  line-height: 1.5;
+}
+
+.ts-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ts-confirm .ts-btn--danger {
+  background: var(--ts-status-error);
+  color: var(--ts-text-inverse);
+}
+
+.ts-confirm .ts-btn--danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
