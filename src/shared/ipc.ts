@@ -178,7 +178,8 @@ export interface IpcInvokeContract {
   'groups:update': { request: { groupId: string; patch: GroupInput }; response: GroupRecord }
   'groups:delete': { request: { groupId: string }; response: void }
 
-  /* credentials（safeStorage；明文只进不出，永不返回给渲染层） */
+  /* credentials（本机 SecretBox：safeStorage 优先，退化文件密钥。主机密码/passphrase 不在这里——它们随
+     vault.enc 的 payload.secrets 同步；这里放 git:token 首次 clone 兜底与会话密钥。明文只进不出） */
   'credentials:set': { request: { reference: string; secret: string }; response: { reference: string } }
   'credentials:clear': { request: { reference: string }; response: void }
 

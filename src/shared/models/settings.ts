@@ -6,7 +6,8 @@ import { conflictStrategySchema } from './vault'
 /**
  * 应用设置契约。
  *
- * 设置只存「可同步的偏好」：不含任何密钥/密码/指纹内容（那些走 safeStorage 与 vault）。
+ * 设置只存「可同步的偏好」：不含任何密钥/密码/指纹内容（主机密码与 AI key 在 vault.enc 密文包里；
+ * 本机 SecretBox 只放会话密钥与 git:token 兜底）。
  * 所有字段都必须有 DEFAULT_SETTINGS 兜底，渲染层读设置永远不用做 undefined 判断。
  * 新增字段流程：加 schema → 加 default → 旧配置文件靠 `settings:migrate` 补默认值（缺失即补）。
  */

@@ -5,9 +5,13 @@ import { isoTimestampSchema } from './app'
  * 主机库数据模型。
  *
  * 安全约束（不可协商）：
- * - **密码 / passphrase / API key 一律不落在这个模型里**，只存 `credentialRef`（指向 safeStorage 密文条目）。
- *   主机库整体会进 Git 同步，明文凭据一旦进模型就等于进仓库。
- * - `privateKeyPath` 只存路径，不存私钥内容；私钥本身永不参与同步。
+ * - **密码 / passphrase / AI key 不作为字段存在**，模型里只有 `credentialRef`。
+ *   `credentialRef` 指向密文包内的 `payload.secrets[ref]`（`vault.enc`，随 Git 同步、端到端加密），
+ *   不是本机钥匙串条目；明文凭据不进 `HostRecord`，也不进仓库、日志、渲染层。
+ *   这也正是 A→B 迁移的前提：B 机用同一主口令解包即可直接连接；若把密码退回「只存本机」，
+ *   B 机会看到条目却连不上，等于废条目。
+ * - `privateKeyPath` 只存路径（IdentityFile 引用）；私钥**文件本体**永不进 vault.enc、永不进 Git，
+ *   B 机缺文件时连接前明确报错，由用户在本机补齐。
  */
 
 export const hostIdSchema = z.uuid()
@@ -50,7 +54,7 @@ export const hostInputSchema = z.object({
   authMethod: authMethodSchema,
   /** 私钥路径（本地路径，不同步私钥内容） */
   privateKeyPath: z.string().nullable(),
-  /** safeStorage 密文条目 id；密码/passphrase 文本永远不在这里 */
+  /** 密文包里的凭据引用（`payload.secrets[ref]`，即 vault.enc 内）；明文密码/passphrase 永远不在这里 */
   credentialRef: z.string().nullable(),
   /** 跳板机：引用另一台主机，而不是内联地址 */
   jumpHostId: hostIdSchema.nullable(),

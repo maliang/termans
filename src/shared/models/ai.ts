@@ -6,7 +6,9 @@ import { hostIdSchema } from './host'
  * AI 辅助契约。
  *
  * 安全约束（不可协商，SPEC.md 有对应判据）：
- * - API key 只存 safeStorage（`apiKeyRef`），永不进主机库、永不进 Git 同步包、永不回传渲染层明文。
+ * - API key **随端到端加密包同步**：与主机密码同一份 `vault.enc` 里的 `payload.integrations.aiApiKeys`
+ *   （scrypt + AES-256-GCM，主口令不在仓库，Git 里 grep 不到明文）。适配器经 `manager.getAiApiKey()` 取值，
+ *   `apiKeyRef` 只是模型里的引用槽位（不是存储位置）。明文 key 不落主机库、不落日志、不回传渲染层。
  * - AI 产出的命令**必须**经用户二次确认才允许写入终端（`AiCommandSuggestion.requiresConfirmation` 恒为 true）。
  * - 发送给供应商的终端上下文由用户显式开启（`autoContext`），并只取最近 N 行且做脱敏。
  */
@@ -20,7 +22,7 @@ export const aiProviderSchema = z.object({
   kind: aiProviderKindSchema,
   baseUrl: z.string().url(),
   model: z.string().min(1),
-  /** safeStorage 密文条目 id；ollama 等本地供应商可为 null */
+  /** 密文包里的 key 引用槽位（写 uuid）；ollama 等本地供应商可为 null。明文 key 在 vault.enc 的 aiApiKeys 里 */
   apiKeyRef: z.string().nullable(),
   temperature: z.number().min(0).max(2),
   maxTokens: z.number().int().min(1).max(200_000),
