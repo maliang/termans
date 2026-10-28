@@ -1,0 +1,516 @@
+/*
+ * vault / unlock 的样式。
+ *
+ * 只允许用 `src/renderer/styles/tokens.css` 里已声明的 `--ts-*` 变量（52 个设计 token + 2 个布局变量），
+ * 不新增变量、不写裸颜色——`tests/contract/theme-tokens.test.ts` 会守住 `:root` 的 token 集合，
+ * 组件级颜色必须走 `var(--ts-*)`。
+ */
+
+.ts-vault {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 8px;
+  padding: 10px 10px 8px;
+  border-right: 1px solid var(--ts-border);
+  background: var(--ts-bg-surface);
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-ui);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-vault__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ts-vault__title {
+  margin: 0;
+  font-size: var(--ts-font-size-base);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.ts-vault__count {
+  margin-left: auto;
+  padding: 1px 7px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  color: var(--ts-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ts-vault__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ts-vault__search {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-muted);
+}
+
+.ts-vault__search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ts-text-primary);
+  font: inherit;
+  outline: none;
+}
+
+.ts-vault__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ts-vault__tree {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 8px;
+}
+
+.ts-vault__group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-sm);
+  text-transform: none;
+}
+
+.ts-vault__hosts {
+  margin: 2px 0 0;
+  padding: 0 0 0 10px;
+  list-style: none;
+}
+
+.ts-vault__host {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--ts-radius-sm);
+  background: transparent;
+  color: var(--ts-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ts-vault__host:hover {
+  background: var(--ts-bg-elevated);
+}
+
+.ts-vault__host--active {
+  border-color: var(--ts-accent);
+  background: var(--ts-bg-elevated);
+}
+
+.ts-vault__host-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ts-text-muted);
+}
+
+.ts-vault__host-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ts-vault__host-addr {
+  margin-left: auto;
+  color: var(--ts-text-muted);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-vault__locked {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px 12px;
+  color: var(--ts-text-muted);
+  text-align: center;
+}
+
+.ts-vault__foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--ts-border);
+}
+
+.ts-vault__spacer {
+  flex: 1;
+}
+
+.ts-vault__hint {
+  margin: 0;
+  color: var(--ts-text-muted);
+  line-height: 1.45;
+}
+
+.ts-vault__mono {
+  margin: 0;
+  color: var(--ts-text-secondary);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-sm);
+  word-break: break-all;
+}
+
+.ts-vault__ok {
+  margin: 0;
+  color: var(--ts-status-ok);
+}
+
+.ts-vault__error {
+  margin: 0;
+  color: var(--ts-status-error);
+}
+
+.ts-vault__notice {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-secondary);
+  line-height: 1.45;
+}
+
+.ts-vault__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ts-vault__row--tight {
+  gap: 4px;
+}
+
+.ts-vault__row--tight input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-primary);
+  font: inherit;
+}
+
+.ts-vault__check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ts-text-secondary);
+  cursor: pointer;
+}
+
+.ts-vault__danger {
+  color: var(--ts-status-error);
+}
+
+.ts-vault__modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--ts-bg-overlay);
+}
+
+.ts-vault__card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(560px, 92vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 16px 18px;
+  border: 1px solid var(--ts-border-strong);
+  border-radius: var(--ts-radius-lg);
+  background: var(--ts-bg-elevated);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 45%);
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-ui);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-vault__card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--ts-font-size-lg);
+  font-weight: 600;
+}
+
+.ts-vault__subtitle {
+  margin: 0 0 4px;
+  font-size: var(--ts-font-size-sm);
+  font-weight: 600;
+  color: var(--ts-text-secondary);
+}
+
+.ts-vault__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 10px;
+}
+
+.ts-vault__grid .ts-field--narrow {
+  max-width: 120px;
+}
+
+.ts-vault__grid .ts-field--wide,
+.ts-vault__grid .ts-field:not(.ts-field--narrow) {
+  min-width: 0;
+}
+
+.ts-vault__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.ts-vault__meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.ts-vault__meta dt {
+  color: var(--ts-text-muted);
+}
+
+.ts-vault__meta dd {
+  margin: 0;
+  color: var(--ts-text-secondary);
+}
+
+.ts-vault__conflicts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ts-vault__conflict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--ts-border);
+  border-left: 3px solid var(--ts-status-warn);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+}
+
+.ts-vault__conflict-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ts-vault__conflict-values {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  color: var(--ts-text-secondary);
+}
+
+.ts-vault__conflict-values em {
+  display: block;
+  color: var(--ts-text-muted);
+  font-style: normal;
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-vault__guide {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--ts-amber);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-amber-soft);
+  color: var(--ts-text-primary);
+}
+
+.ts-vault__guide-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ts-vault__paste {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ts-vault__paste textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-sm);
+  resize: vertical;
+}
+
+.ts-vault__code {
+  display: block;
+  padding: 8px 10px;
+  border: 1px dashed var(--ts-border-strong);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-base);
+  letter-spacing: 0.06em;
+  word-break: break-all;
+}
+
+.ts-vault__recovery {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ---------------------------------------------------------------- unlock */
+
+.ts-unlock {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--ts-bg-app);
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-ui);
+}
+
+.ts-unlock__card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(420px, 92vw);
+  padding: 20px 22px;
+  border: 1px solid var(--ts-border-strong);
+  border-radius: var(--ts-radius-lg);
+  background: var(--ts-bg-surface);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 50%);
+}
+
+.ts-unlock__head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ts-unlock__icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-bg-elevated);
+  color: var(--ts-accent);
+}
+
+.ts-unlock__title {
+  margin: 0;
+  font-size: var(--ts-font-size-lg);
+  font-weight: 600;
+}
+
+.ts-unlock__subtitle {
+  margin: 4px 0 0;
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-sm);
+  line-height: 1.45;
+}
+
+.ts-unlock__form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ts-unlock__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ts-unlock__warn {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--ts-amber);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-amber-soft);
+  color: var(--ts-text-primary);
+  line-height: 1.45;
+}
+
+.ts-unlock__error {
+  margin: 0;
+  color: var(--ts-status-error);
+}
+
+.ts-unlock__code {
+  display: block;
+  padding: 10px 12px;
+  border: 1px dashed var(--ts-border-strong);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-base);
+  letter-spacing: 0.08em;
+  word-break: break-all;
+}
+
+.ts-unlock__foot {
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
