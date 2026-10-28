@@ -1,0 +1,778 @@
+import { Client, type ClientChannel, type ConnectConfig } from 'ssh2'
+import type {
+  HostKeyChallenge,
+  HostKeyDecision,
+  SshClosedEvent,
+  SshSession as SshSessionInfo,
+  SshStateEvent,
+  SshPhase,
+  TerminalSize
+} from '@shared'
+import { buildAuthConfig, type KeyboardPrompt } from './auth'
+import { DEFAULT_BACKOFF, computeBackoffDelay, type BackoffPolicy } from './backoff'
+import { SshError, asSshError, normalizeSshError } from './errors'
+import { fingerprintSha256FromKey, keyTypeFromPublicKeyBlob, needsUserConfirmation, verifyHostKey } from './known-hosts'
+import { OutputPacer } from './pacer'
+import { runCommand, type ExecOptions, type ExecResult } from './exec'
+import { SftpClient } from './sftp'
+import { createConsoleLogger, createRedactingLogger } from './redact'
+import { credentialSecrets, type SshCredential, type SshEngineDeps, type SshTarget } from './types'
+
+/**
+ * 一条 SSH 终端会话（一个 sessionId = 一条连接 = 一个页签的主通道）。
+ *
+ * 生命周期（与 shared 的 sshPhase 一一对应）：
+ *   idle → connecting → [host-key-verification] → authenticating → connected
+ *        → reconnecting* → connected
+ *        → closed / error
+ *
+ * 两个关键设计：
+ * 1. **两阶段校验主机密钥**。先用一条「只拿到 host key 就掐断」的探测连接做校验/等用户确认，
+ *    再在真正认证的连接里用 `hostVerifier` 断言指纹与探测到的一致。
+ *    少这一步的话，用户确认的是 A 指纹、实际认证用的是 B 密钥（中间人在两次连接之间换掉），
+ *    而且没人会发现——这是 SSH 客户端最经典的 TOFU 漏洞。
+ * 2. **输出整形与背压**在 pacer 里（切片 ≤8KB + 流式 UTF-8 + 高水位 pause 通道），
+ *    绝不把 ssh2 的一大块 Buffer 直接塞进 `webContents.send`。
+ */
+
+/** TERM：xterm-256color 是 xterm.js 的能力上限，也是远端 vim/htop 配色的前提 */
+export const TERMINAL_TYPE = 'xterm-256color'
+
+/** keepalive 连续无响应次数上限（ssh2 默认 3；超过即判定链路死亡） */
+const KEEPALIVE_COUNT_MAX = 3
+
+export interface SshSessionOptions {
+  sessionId: string
+  target: SshTarget
+  size: TerminalSize
+  /** 一次性启动命令（覆盖主机设置），连上后写入 shell */
+  startupCommand: string | null
+  deps: SshEngineDeps
+  /** 询问用户是否信任该主机密钥（由 manager 实现：发事件 + 等 answerHostKey） */
+  requestHostKeyDecision(challenge: HostKeyChallenge): Promise<HostKeyDecision>
+  /** 会话进入终态（exit/error/disconnected/user）时通知 manager 从列表里摘掉 */
+  onClosed?(sessionId: string, reason: SshClosedEvent['reason']): void
+}
+
+interface ProbeResult {
+  key: Buffer
+  keyType: string
+  fingerprintSha256: string
+}
+
+export class SshSession {
+  readonly sessionId: string
+  readonly target: SshTarget
+
+  phase: SshPhase = 'idle'
+  lastError: string | null = null
+  openedAt: string | null = null
+  hostKeyFingerprint: string | null = null
+  hostKeyDecision: 'trusted' | 'accepted-now' | 'not-verified' = 'not-verified'
+
+  private readonly deps: SshEngineDeps
+  private readonly options: SshSessionOptions
+  private readonly log: (level: 'debug' | 'info' | 'warn' | 'error', message: string, meta?: Record<string, unknown>) => void
+  private readonly secrets: string[] = []
+
+  private client: Client | null = null
+  private channel: ClientChannel | null = null
+  private pacer: OutputPacer | null = null
+  private sftpClient: SftpClient | null = null
+
+  private size: TerminalSize
+  private exitCode: number | null = null
+  private exitSignal: string | null = null
+
+  private closedByUser = false
+  private disposed = false
+  private closingTransport = false
+  private reconnectLoopActive = false
+  private closedEmitted = false
+  private cancelSleep: (() => void) | null = null
+  /** 本次会话内用户选择「只信任这一次、不写 known_hosts」的指纹 */
+  private sessionTrustedFingerprint: string | null = null
+  /** 探测阶段之外的 MITM 证据（探测指纹 ≠ 认证阶段指纹） */
+  private mismatchDetected: { expected: string; actual: string; keyType: string } | null = null
+
+  constructor(options: SshSessionOptions) {
+    this.options = options
+    this.sessionId = options.sessionId
+    this.target = options.target
+    this.deps = options.deps
+    this.size = options.size
+    const base = options.deps.log ?? createConsoleLogger()
+    this.log = createRedactingLogger(base, () => this.secrets)
+  }
+
+  /* ---------------------------------------------------------------- 对外 API */
+
+  /** 建立连接（含指纹校验）。失败时已 setPhase('error') 并抛出 SshError */
+  async open(): Promise<void> {
+    try {
+      await this.establish()
+    } catch (error) {
+      const sshError = asSshError(error)
+      this.lastError = sshError.message
+      this.teardownTransport()
+      this.setPhase('error', sshError.message)
+      this.log('error', `connect failed: ${sshError.message}`, { code: sshError.code })
+      throw sshError
+    }
+  }
+
+  toInfo(): SshSessionInfo {
+    return {
+      sessionId: this.sessionId,
+      hostId: this.target.hostId,
+      hostLabel: this.target.label,
+      phase: this.phase,
+      openedAt: this.openedAt,
+      lastError: this.lastError
+    }
+  }
+
+  get isReady(): boolean {
+    return this.phase === 'connected' && this.channel !== null && this.client !== null
+  }
+
+  get isReconnecting(): boolean {
+    return this.reconnectLoopActive
+  }
+
+  write(data: string): void {
+    if (!this.channel || !this.isReady) {
+      throw new SshError('closed', `Session ${this.sessionId} is not connected (phase=${this.phase})`, {
+        details: { sessionId: this.sessionId, phase: this.phase }
+      })
+    }
+    this.channel.write(data)
+  }
+
+  /** 本地终端尺寸变化 → 远端 PTY。重连成功后会用最后保存的尺寸重放一次 */
+  resize(size: TerminalSize): void {
+    this.size = size
+    if (this.channel) {
+      // ssh2 API 是 setWindow(rows, cols, height, width)，与直觉的 cols/rows 顺序相反
+      this.channel.setWindow(size.rows, size.cols, 0, 0)
+      return
+    }
+    if (this.phase !== 'connecting' && this.phase !== 'authenticating' && this.phase !== 'reconnecting') {
+      throw new SshError('closed', `Session ${this.sessionId} is not connected (phase=${this.phase})`, {
+        details: { sessionId: this.sessionId, phase: this.phase }
+      })
+    }
+    // 连接中：新尺寸会在开 shell 时用上
+  }
+
+  /** 在已认证连接上跑一次性命令（AI / 一键操作复用） */
+  async exec(command: string, options: ExecOptions = {}): Promise<ExecResult> {
+    const client = this.client
+    if (!client || !this.isReady) {
+      throw new SshError('closed', `Session ${this.sessionId} is not connected`, {
+        details: { sessionId: this.sessionId, phase: this.phase }
+      })
+    }
+    return runCommand(client, command, { timers: this.deps.timers, ...options })
+  }
+
+  /** 懒开 SFTP 子系统；连接断开后缓存自动失效 */
+  async sftp(): Promise<SftpClient> {
+    if (this.sftpClient) return this.sftpClient
+    const client = this.client
+    if (!client || !this.isReady) {
+      throw new SshError('closed', `Session ${this.sessionId} is not connected`, {
+        details: { sessionId: this.sessionId }
+      })
+    }
+    const opened = await SftpClient.open(client)
+    this.sftpClient = opened
+    return opened
+  }
+
+  /** 用户主动断开（不再重连）。closed 事件在 disconnect 里发出 */
+  async close(): Promise<void> {
+    if (this.closedByUser) return
+    this.closedByUser = true
+    this.cancelSleep?.()
+    this.teardownTransport()
+    this.setPhase('closed', null)
+    this.emitClosed('user', this.exitCode, this.exitSignal)
+  }
+
+  dispose(): void {
+    this.disposed = true
+    this.cancelSleep?.()
+    this.teardownTransport()
+  }
+
+  /* ------------------------------------------------------------- 建立连接 */
+
+  private async establish(): Promise<void> {
+    this.closedEmitted = false
+    this.mismatchDetected = null
+    this.exitCode = null
+    this.exitSignal = null
+
+    const settings = this.deps.getSettings()
+    const connectTimeoutMs = settings.connectTimeoutMs
+
+    this.setPhase('connecting', null)
+    const probe = await this.probeHostKey(connectTimeoutMs)
+    this.hostKeyFingerprint = probe.fingerprintSha256
+    const decision = await this.applyHostKeyPolicy(probe)
+    this.hostKeyDecision = decision
+
+    this.setPhase('authenticating', null)
+    const credential = await this.loadCredential()
+    const client = await this.connectClient(probe, credential, connectTimeoutMs)
+    this.client = client
+    this.attachLifecycle(client)
+
+    await this.openShell(client)
+    this.openedAt = new Date(this.now()).toISOString()
+    this.lastError = null
+    this.setPhase('connected', null)
+  }
+
+  /**
+   * 只验证 host key 的探测连接：拿到密钥就销毁 socket，不做认证。
+   * 这样「未知主机」的确认对话框不会顺带泄露任何凭据。
+   */
+  private probeHostKey(timeoutMs: number): Promise<ProbeResult> {
+    return new Promise<ProbeResult>((resolve, reject) => {
+      const client = new Client()
+      let settled = false
+      let cancelDeadline: (() => void) | null = null
+
+      const cleanup = (): void => {
+        cancelDeadline?.()
+        cancelDeadline = null
+      }
+      const fail = (error: unknown): void => {
+        if (settled) return
+        settled = true
+        cleanup()
+        client.destroy()
+        reject(
+          error instanceof SshError
+            ? error
+            : normalizeSshError(error, { host: this.target.hostname, port: this.target.port, phase: 'connecting' })
+        )
+      }
+
+      client.on('error', fail)
+      client.on('close', () => {
+        // 探测连接被我们自己掐断是正常路径（此时 settled 已为 true）
+        fail(new SshError('closed', 'Connection closed during host key probe'))
+      })
+
+      cancelDeadline = this.after(timeoutMs, () => {
+        fail(
+          new SshError('timeout', `Timed out after ${timeoutMs}ms waiting for host key from ${this.target.hostname}:${this.target.port}`, {
+            details: { host: this.target.hostname, port: this.target.port, timeoutMs }
+          })
+        )
+      })
+
+      client.connect({
+        host: this.target.hostname,
+        port: this.target.port,
+        username: this.target.username,
+        readyTimeout: timeoutMs,
+        hostVerifier: (key: Buffer, verify: (valid: boolean) => void): void => {
+          if (settled) {
+            verify(false)
+            return
+          }
+          settled = true
+          cleanup()
+          const result: ProbeResult = {
+            key: Buffer.from(key),
+            keyType: keyTypeFromPublicKeyBlob(key),
+            fingerprintSha256: fingerprintSha256FromKey(key)
+          }
+          // 拒绝这次认证并销毁连接：我们只要 host key
+          verify(false)
+          client.destroy()
+          resolve(result)
+        }
+      })
+    })
+  }
+
+  /**
+   * 主机密钥策略。返回本次连接最终认定的信任状态（写进 SshConnectResult）。
+   *
+   * - mismatch：硬失败（E_HOST_KEY_UNVERIFIED），details 同时带旧/新指纹；
+   * - accept-new：未知主机静默写入 known_hosts（TOFU），不再打扰用户；
+   * - strict/ask：未知（strict 下还有 trusted）走用户确认；
+   * - 用户选「只信任一次」：记在本会话里，重连不再问，但不落盘。
+   */
+  private async applyHostKeyPolicy(probe: ProbeResult): Promise<'trusted' | 'accepted-now' | 'not-verified'> {
+    const settings = this.deps.getSettings()
+    const observation = {
+      host: this.target.hostname,
+      port: this.target.port,
+      keyType: probe.keyType,
+      fingerprintSha256: probe.fingerprintSha256
+    }
+
+    if (this.sessionTrustedFingerprint === probe.fingerprintSha256) return 'accepted-now'
+
+    const verdict = await verifyHostKey(this.deps.knownHosts, observation)
+
+    const isMismatch = verdict.status === 'mismatch'
+
+    if (isMismatch) {
+      const previous = verdict.entry?.fingerprintSha256 ?? null
+      this.log('error', 'host key mismatch', {
+        host: observation.host,
+        port: observation.port,
+        keyType: observation.keyType,
+        previousFingerprintSha256: previous,
+        fingerprintSha256: observation.fingerprintSha256
+      })
+      throw new SshError(
+        'host-key-mismatch',
+        `Host key for ${observation.host}:${observation.port} changed (${verdict.entry?.keyType ?? observation.keyType})`,
+        {
+          details: {
+            host: observation.host,
+            port: observation.port,
+            keyType: observation.keyType,
+            previousFingerprintSha256: previous,
+            fingerprintSha256: observation.fingerprintSha256,
+            reason: 'mismatch'
+          }
+        }
+      )
+    }
+
+    if (!needsUserConfirmation(settings.knownHostsPolicy, verdict.status)) {
+      if (verdict.status === 'unknown') {
+        // accept-new：首次见到即记录（用户已在设置里明确接受 TOFU）
+        await this.deps.knownHosts.trust({
+          host: observation.host,
+          port: observation.port,
+          keyType: observation.keyType,
+          fingerprintSha256: observation.fingerprintSha256,
+          replaceExisting: false
+        })
+        return 'accepted-now'
+      }
+      return 'trusted'
+    }
+
+    this.setPhase('host-key-verification', `Waiting for host key confirmation (${probe.fingerprintSha256})`)
+    const answer = await this.options.requestHostKeyDecision({
+      sessionId: this.sessionId,
+      host: observation.host,
+      port: observation.port,
+      keyType: observation.keyType,
+      fingerprintSha256: observation.fingerprintSha256,
+      previousFingerprintSha256: verdict.entry?.fingerprintSha256 ?? null,
+      reason: isMismatch ? 'mismatch' : 'unknown'
+    })
+
+    if (answer.decision !== 'accept') {
+      throw new SshError('host-key-unverified', `Host key for ${observation.host}:${observation.port} was rejected by the user`, {
+        details: {
+          host: observation.host,
+          port: observation.port,
+          keyType: observation.keyType,
+          fingerprintSha256: observation.fingerprintSha256,
+          reason: 'rejected'
+        }
+      })
+    }
+
+    if (answer.remember) {
+      await this.deps.knownHosts.trust({
+        host: observation.host,
+        port: observation.port,
+        keyType: observation.keyType,
+        fingerprintSha256: observation.fingerprintSha256,
+        replaceExisting: isMismatch
+      })
+    } else {
+      this.sessionTrustedFingerprint = probe.fingerprintSha256
+    }
+    return 'accepted-now'
+  }
+
+  private async loadCredential(): Promise<SshCredential | null> {
+    const ref = this.target.credentialRef
+    if (!ref) return null
+    const secret = await this.deps.resolveSecret(ref)
+    if (secret === null) {
+      this.log('warn', 'credentialRef not resolvable (vault locked?)', { credentialRef: ref })
+      return null
+    }
+    this.secrets.push(secret)
+    // 同一个 credentialRef 既可能是密码也可能是私钥 passphrase，取决于 authMethod
+    return { password: secret, passphrase: secret }
+  }
+
+  /**
+   * 真正的认证连接。`hostVerifier` 断言「这次握手拿到的密钥就是刚刚探测/确认过的那把」，
+   * 不一致即判定 MITM：宁可断开也不降级。
+   */
+  private connectClient(probe: ProbeResult, credential: SshCredential | null, timeoutMs: number): Promise<Client> {
+    return new Promise<Client>((resolve, reject) => {
+      const client = new Client()
+      let settled = false
+      let cancelDeadline: (() => void) | null = null
+
+      const auth = buildAuthConfig({ target: this.target, credential, deps: this.deps })
+      this.secrets.push(...auth.secrets)
+      if (auth.privateKeyPath) this.log('debug', 'using private key', { path: auth.privateKeyPath })
+
+      const settings = this.deps.getSettings()
+      const config: ConnectConfig = {
+        ...auth.config,
+        readyTimeout: timeoutMs,
+        // keepalive：0 = 关闭（主机设置里显式关掉，或设置段为 0）
+        keepaliveInterval: this.target.keepaliveSeconds > 0 ? this.target.keepaliveSeconds * 1000 : 0,
+        keepaliveCountMax: KEEPALIVE_COUNT_MAX,
+        hostVerifier: (key: Buffer, verify: (valid: boolean) => void): void => {
+          const actual = fingerprintSha256FromKey(key)
+          if (actual === probe.fingerprintSha256) {
+            verify(true)
+            return
+          }
+          this.mismatchDetected = {
+            expected: probe.fingerprintSha256,
+            actual,
+            keyType: keyTypeFromPublicKeyBlob(key)
+          }
+          verify(false)
+        }
+      }
+      void settings
+
+      if (auth.keyboardAnswers) {
+        const answers = auth.keyboardAnswers
+        client.on(
+          'keyboard-interactive',
+          (
+            _name: string,
+            _instructions: string,
+            _lang: string,
+            prompts: { prompt: string; echo?: boolean }[],
+            finish: (responses: string[]) => void
+          ): void => {
+            const normalized: KeyboardPrompt[] = prompts.map((prompt) => ({
+              prompt: prompt.prompt,
+              echo: prompt.echo === true
+            }))
+            this.log('debug', 'keyboard-interactive prompts', { count: normalized.length })
+            finish(answers(normalized))
+          }
+        )
+      }
+
+      const fail = (error: unknown): void => {
+        if (settled) return
+        settled = true
+        cancelDeadline?.()
+        cancelDeadline = null
+        client.removeAllListeners()
+        client.destroy()
+        if (this.mismatchDetected) {
+          reject(
+            new SshError('host-key-mismatch', 'Host key changed between verification and authentication (possible MITM)', {
+              details: {
+                host: this.target.hostname,
+                port: this.target.port,
+                keyType: this.mismatchDetected.keyType,
+                previousFingerprintSha256: this.mismatchDetected.expected,
+                fingerprintSha256: this.mismatchDetected.actual
+              }
+            })
+          )
+          return
+        }
+        reject(
+          error instanceof SshError
+            ? error
+            : normalizeSshError(error, { host: this.target.hostname, port: this.target.port, phase: 'authenticating' })
+        )
+      }
+
+      client.on('ready', () => {
+        if (settled) return
+        settled = true
+        cancelDeadline?.()
+        cancelDeadline = null
+        resolve(client)
+      })
+      client.on('error', fail)
+      client.on('close', () => fail(new SshError('network', 'Connection closed during SSH handshake')))
+
+      cancelDeadline = this.after(timeoutMs, () => {
+        fail(
+          new SshError('timeout', `Timed out after ${timeoutMs}ms connecting to ${this.target.hostname}:${this.target.port}`, {
+            details: { host: this.target.hostname, port: this.target.port, timeoutMs }
+          })
+        )
+      })
+
+      this.log('info', `connecting to ${this.target.hostname}:${this.target.port}`, {
+        username: this.target.username,
+        authMethod: this.target.authMethod
+      })
+      client.connect(config)
+    })
+  }
+
+  private openShell(client: Client): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const pty = {
+        term: TERMINAL_TYPE,
+        cols: this.size.cols,
+        rows: this.size.rows,
+        width: 0,
+        height: 0
+      }
+      client.shell(pty, { env: this.target.env }, (error, channel) => {
+        if (error) {
+          reject(
+            new SshError('pty-failed', `Cannot open PTY shell: ${error.message}`, {
+              cause: error,
+              details: { host: this.target.hostname, port: this.target.port, term: TERMINAL_TYPE }
+            })
+          )
+          return
+        }
+        this.attachShell(client, channel)
+        resolve()
+      })
+    })
+  }
+
+  private attachShell(client: Client, channel: ClientChannel): void {
+    this.channel = channel
+    const pacer = new OutputPacer({
+      onData: (data) => this.deps.emit('ssh:data', { sessionId: this.sessionId, data }),
+      onPause: () => channel.pause(),
+      onResume: () => channel.resume()
+    })
+    this.pacer = pacer
+
+    channel.on('data', (chunk: Buffer) => pacer.push(chunk))
+    // 注意：ssh2 的 stderr 不是 channel 事件，而是 channel 上的可读流（SSH_MSG_CHANNEL_EXTENDED_DATA）。
+    // 写成 channel.on('stderr') 永远收不到数据——这是实测踩到的坑。
+    // PTY 会话里远端通常把 stderr 合并进 stdout；若服务器仍单独发扩展数据，同样转发给终端。
+    channel.stderr?.on('data', (chunk: Buffer) => pacer.push(chunk))
+    channel.on('exit', (code: number | null, signal: string | null) => {
+      this.exitCode = code ?? null
+      this.exitSignal = signal ?? null
+    })
+    channel.on('close', () => this.handleShellClose())
+    channel.on('error', (error: Error) => {
+      this.lastError = error.message
+      this.log('warn', 'shell channel error', { message: error.message })
+    })
+
+    const startup = this.options.startupCommand ?? this.target.startupCommand
+    if (startup && startup.trim().length > 0) {
+      channel.write(`${startup}\n`)
+    }
+    void client
+  }
+
+  /** 连接级事件：socket 关闭 / 传输错误 → 判定是否重连 */
+  private attachLifecycle(client: Client): void {
+    client.on('error', (error: Error) => {
+      this.lastError = error.message
+      const normalized = normalizeSshError(error, {
+        host: this.target.hostname,
+        port: this.target.port,
+        phase: this.phase
+      })
+      this.log('warn', 'transport error', { code: normalized.code, message: normalized.message })
+      this.handleTransportClose()
+    })
+    client.on('close', () => this.handleTransportClose())
+    // 'end' 只表示对端不再发送；真正清理在 close
+    client.on('end', () => {
+      this.log('debug', 'transport end')
+    })
+  }
+
+  /* --------------------------------------------------------------- 断开处理 */
+
+  private handleShellClose(): void {
+    if (this.disposed || this.closedByUser || this.closingTransport) return
+    // exit-status 已到达 = 远端 shell 自己退出（用户敲了 exit、或 disown 后 shell 结束）
+    if (this.exitCode !== null || this.exitSignal !== null) {
+      this.log('info', 'remote shell exited', { code: this.exitCode, signal: this.exitSignal })
+      this.pacer?.end()
+      this.pacer = null
+      this.channel = null
+      this.setPhase('closed', null)
+      this.emitClosed('exit', this.exitCode, this.exitSignal)
+      this.teardownTransport()
+      return
+    }
+    this.handleTransportClose()
+  }
+
+  private handleTransportClose(): void {
+    if (this.disposed || this.closedByUser || this.closingTransport || this.reconnectLoopActive) return
+    this.log('info', 'transport closed', { phase: this.phase })
+    this.pacer?.end()
+    this.pacer = null
+    this.channel = null
+    this.sftpClient = null
+    this.closingTransport = true
+    void this.scheduleReconnect()
+  }
+
+  /**
+   * 自动重连：指数退避 + 次数上限 + 可取消。
+   * 重连成功后**重放 resize**（用户可能在断开期间改过窗口大小，随后又改回来了），
+   * 并通过 state 事件的 message 告知 UI「已重连、尺寸已重放」。
+   */
+  private async scheduleReconnect(): Promise<void> {
+    const settings = this.deps.getSettings()
+    const policy: BackoffPolicy = {
+      ...DEFAULT_BACKOFF,
+      ...(this.deps.reconnect ?? {}),
+      maxAttempts: settings.autoReconnectAttempts
+    }
+
+    if (policy.maxAttempts <= 0) {
+      this.closingTransport = false
+      this.setPhase('closed', null)
+      this.emitClosed('disconnected', null, null)
+      this.teardownTransport()
+      return
+    }
+
+    this.reconnectLoopActive = true
+    let lastError: SshError | null = null
+
+    for (let attempt = 1; attempt <= policy.maxAttempts; attempt += 1) {
+      if (this.closedByUser || this.disposed) {
+        this.reconnectLoopActive = false
+        return
+      }
+      this.teardownTransport()
+      const delay = computeBackoffDelay(attempt, policy, this.deps.random)
+      this.setPhase('reconnecting', `reconnect ${attempt}/${policy.maxAttempts} in ${delay}ms`)
+      const cancelled = await this.sleep(delay)
+      if (cancelled || this.closedByUser || this.disposed) {
+        this.reconnectLoopActive = false
+        return
+      }
+      try {
+        await this.establish()
+        this.reconnectLoopActive = false
+        this.closingTransport = false
+        const replayed = this.size
+        this.channel?.setWindow(replayed.rows, replayed.cols, 0, 0)
+        this.setPhase('connected', `reconnected (attempt ${attempt}); terminal size replayed ${replayed.cols}x${replayed.rows}`)
+        this.log('info', 'reconnected', { attempt, cols: replayed.cols, rows: replayed.rows })
+        return
+      } catch (error) {
+        const sshError = asSshError(error)
+        lastError = sshError
+        this.lastError = sshError.message
+        this.log('warn', 'reconnect attempt failed', { attempt, code: sshError.code })
+        // 主机密钥变了：绝不重试，也绝不自动信任
+        if (sshError.code === 'host-key-mismatch' || sshError.code === 'host-key-unverified') {
+          this.reconnectLoopActive = false
+          this.closingTransport = false
+          this.setPhase('error', sshError.message)
+          this.emitClosed('error', null, null)
+          this.teardownTransport()
+          return
+        }
+      }
+    }
+
+    this.reconnectLoopActive = false
+    this.closingTransport = false
+    this.lastError = lastError?.message ?? 'reconnect failed'
+    this.setPhase('error', this.lastError)
+    this.emitClosed('error', null, null)
+    this.teardownTransport()
+  }
+
+  /* ----------------------------------------------------------------- 工具 */
+
+  private after(ms: number, fn: () => void): () => void {
+    if (this.deps.timers) return this.deps.timers.after(ms, fn)
+    const handle = setTimeout(fn, ms)
+    return () => clearTimeout(handle)
+  }
+
+  /** 可取消的等待：用户点「断开」时立刻返回，不等退避时间走完 */
+  private sleep(ms: number): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      let settled = false
+      const finish = (cancelled: boolean): void => {
+        if (settled) return
+        settled = true
+        this.cancelSleep = null
+        resolve(cancelled)
+      }
+      const cancelTimer = this.after(ms, () => finish(false))
+      this.cancelSleep = () => {
+        cancelTimer()
+        finish(true)
+      }
+    })
+  }
+
+  private now(): number {
+    return this.deps.now ? this.deps.now() : Date.now()
+  }
+
+  private setPhase(phase: SshPhase, message: string | null): void {
+    this.phase = phase
+    const payload: SshStateEvent = { sessionId: this.sessionId, phase, message }
+    this.deps.emit('ssh:state-changed', payload)
+  }
+
+  private emitClosed(reason: SshClosedEvent['reason'], exitCode: number | null, signal: string | null): void {
+    if (this.closedEmitted) return
+    this.closedEmitted = true
+    this.deps.emit('ssh:closed', { sessionId: this.sessionId, exitCode, signal, reason })
+    this.options.onClosed?.(this.sessionId, reason)
+  }
+
+  private teardownTransport(): void {
+    const channel = this.channel
+    const client = this.client
+    this.channel = null
+    this.client = null
+    this.pacer?.dispose()
+    this.pacer = null
+    this.sftpClient?.close()
+    this.sftpClient = null
+    if (channel) {
+      try {
+        channel.close()
+      } catch {
+        /* 已关闭 */
+      }
+    }
+    if (client) {
+      try {
+        client.removeAllListeners()
+        // removeAllListeners 之后底层 socket 的 ECONNRESET 会因为没有 'error' 监听者
+        // 变成 unhandled 'error'（Node 直接抛异常）。收尾阶段必须挂一个空监听器吃掉它。
+        client.on('error', () => {})
+        client.end()
+        client.destroy()
+      } catch {
+        /* 已关闭 */
+      }
+    }
+  }
+}
+
+export { credentialSecrets }
