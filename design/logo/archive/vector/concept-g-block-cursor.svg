@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Termans · concept G · Block Cursor</title>
+  <defs>
+    <linearGradient id="inkG" x1="0.15" y1="0" x2="0.75" y2="1">
+      <stop offset="0" stop-color="#1B2542"/>
+      <stop offset="0.55" stop-color="#0D1424"/>
+      <stop offset="1" stop-color="#05080E"/>
+    </linearGradient>
+    <linearGradient id="amberG" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#FFDE9B"/>
+      <stop offset="0.45" stop-color="#F8AB24"/>
+      <stop offset="1" stop-color="#D9670A"/>
+    </linearGradient>
+    <radialGradient id="sheenG" cx="0.5" cy="0" r="0.85">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.12"/>
+      <stop offset="0.65" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glowG" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="38"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" rx="232" fill="url(#inkG)"/>
+  <rect width="1024" height="1024" rx="232" fill="url(#sheenG)"/>
+  <rect x="300" y="352" width="264" height="320" rx="66" fill="#F8AB24" opacity="0.18" filter="url(#glowG)"/>
+
+  <!-- cursor block -->
+  <rect x="300" y="352" width="264" height="320" rx="66" fill="url(#amberG)"/>
+  <!-- prompt caret carved into the block -->
+  <path d="M374 438 L458 512 L374 586" fill="none" stroke="#0A0F1A" stroke-width="46"
+        stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>
+  <!-- input line -->
+  <rect x="608" y="494" width="164" height="36" rx="18" fill="#E8932A" opacity="0.55"/>
+  <!-- live host node -->
+  <circle cx="810" cy="512" r="36" fill="#4ADE9B"/>
+
+  <rect width="1024" height="1024" rx="232" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="6"/>
+</svg>

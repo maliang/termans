@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Termans · concept B · Monogram T</title>
+  <defs>
+    <linearGradient id="amberB" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#FFDE9B"/>
+      <stop offset="0.45" stop-color="#F8AB24"/>
+      <stop offset="1" stop-color="#D9670A"/>
+    </linearGradient>
+    <linearGradient id="inkB" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#141C30"/>
+      <stop offset="1" stop-color="#05080E"/>
+    </linearGradient>
+    <radialGradient id="sheenB" cx="0.5" cy="0" r="0.9">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.24"/>
+      <stop offset="0.7" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1024" height="1024" rx="232" fill="url(#amberB)"/>
+  <rect width="1024" height="1024" rx="232" fill="url(#sheenB)"/>
+
+  <!-- carved T: crossbar + stem ending in a caret notch -->
+  <path fill="url(#inkB)" d="
+    M282 286
+    H742
+    C 762 286 774 298 774 318
+    V 372
+    C 774 392 762 404 742 404
+    H 590
+    V 690
+    L 512 774
+    L 434 690
+    V 404
+    H 282
+    C 262 404 250 392 250 372
+    V 318
+    C 250 298 262 286 282 286
+    Z"/>
+  <!-- key-bit cut on the right of the crossbar -->
+  <rect x="700" y="286" width="26" height="70" fill="url(#amberB)" opacity="0.95"/>
+  <!-- AI / live node -->
+  <circle cx="700" cy="610" r="34" fill="#0B1220" opacity="0.9"/>
+
+  <rect width="1024" height="1024" rx="232" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="6"/>
+</svg>

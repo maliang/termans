@@ -1,0 +1,7 @@
+{
+  "panel.title": "AI assistant",
+  "empty.title": "AI is not configured",
+  "empty.body": "Add a provider and API key in Settings. Suggestions are never executed without your confirmation.",
+  "input.placeholder": "Ask about this session…",
+  "action.send": "Send"
+}

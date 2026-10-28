@@ -1,0 +1,9 @@
+{
+  "sidebar.title": "Host library",
+  "sidebar.search": "Search hosts",
+  "action.new": "New host",
+  "action.import": "Import",
+  "action.newGroup": "New group",
+  "empty.title": "No hosts yet",
+  "empty.body": "Add a host or import your existing ~/.ssh/config. Everything stays encrypted and syncs through your own Git repo."
+}

@@ -1,0 +1,603 @@
+/**
+ * 基础样式与外壳布局（纯 CSS，不引 Tailwind/UI 库）。
+ *
+ * 约定：类名统一 `ts-` 前缀 + BEM 风格（`.ts-block__element--modifier`）。
+ * 所有颜色/尺寸都走 `var(--ts-*)`，不要出现散落的 #hex —— 换主题时才不会漏。
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--ts-font-ui);
+  font-size: var(--ts-font-size-base);
+  line-height: 1.45;
+  color: var(--ts-text-primary);
+  background: var(--ts-bg-app);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+input,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  user-select: text;
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ts-border-strong);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ts-focus-ring);
+  outline-offset: 1px;
+}
+
+/* ==========================================================================
+   外壳栅格：主机库 | 工作区（页签条 + 终端） | AI 面板，底部状态条
+   ========================================================================== */
+
+.ts-app {
+  display: grid;
+  grid-template-columns: var(--ts-sidebar-width) minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'sidebar workspace ai'
+    'statusbar statusbar statusbar';
+  height: 100vh;
+  background: var(--ts-bg-app);
+}
+
+/* macOS 内嵌标题栏：红绿灯浮在左上角，侧栏顶部让位 */
+.ts-app[data-platform='darwin'] .ts-sidebar {
+  padding-top: 26px;
+}
+
+/* ==========================================================================
+   主机库侧栏
+   ========================================================================== */
+
+.ts-sidebar {
+  grid-area: sidebar;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 10px;
+  padding: 12px 10px 10px;
+  background: var(--ts-bg-surface);
+  border-right: 1px solid var(--ts-border);
+}
+
+.ts-sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 2px 4px 6px;
+}
+
+.ts-brand-mark {
+  flex: none;
+  border-radius: var(--ts-radius-sm);
+}
+
+.ts-sidebar__brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ts-sidebar__brand-name {
+  font-size: var(--ts-font-size-lg);
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.ts-sidebar__brand-tagline {
+  font-size: 10px;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  color: var(--ts-text-muted);
+}
+
+.ts-sidebar__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-muted);
+}
+
+.ts-sidebar__search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  color: var(--ts-text-primary);
+}
+
+.ts-sidebar__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.ts-sidebar__actions .ts-btn--primary {
+  flex: 1;
+}
+
+.ts-sidebar__tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border-radius: var(--ts-radius-sm);
+}
+
+.ts-sidebar__footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ts-border);
+}
+
+.ts-sidebar__locale {
+  margin-left: auto;
+  font-size: var(--ts-font-size-sm);
+  color: var(--ts-text-muted);
+}
+
+/* ==========================================================================
+   工作区：页签条 + 终端
+   ========================================================================== */
+
+.ts-workspace {
+  grid-area: workspace;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--ts-bg-app);
+}
+
+.ts-tabstrip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--ts-titlebar-height);
+  padding: 0 8px;
+  background: var(--ts-bg-surface);
+  border-bottom: 1px solid var(--ts-border);
+  /* 页签条即标题栏：空白处可拖动窗口；交互元素单独 no-drag */
+  -webkit-app-region: drag;
+}
+
+.ts-tabstrip__tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ts-tabstrip__tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.ts-tabstrip__tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  -webkit-app-region: no-drag;
+}
+
+.ts-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 200px;
+  height: 26px;
+  padding: 0 6px 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--ts-radius-sm);
+  color: var(--ts-text-secondary);
+  cursor: default;
+  -webkit-app-region: no-drag;
+}
+
+.ts-tab:hover {
+  background: var(--ts-bg-elevated);
+}
+
+.ts-tab--active {
+  background: var(--ts-bg-elevated);
+  border-color: var(--ts-border);
+  color: var(--ts-text-primary);
+}
+
+.ts-tab__title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-tab__dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ts-text-muted);
+}
+.ts-tab__dot--connecting {
+  background: var(--ts-status-warn);
+}
+.ts-tab__dot--connected {
+  background: var(--ts-status-ok);
+}
+.ts-tab__dot--error {
+  background: var(--ts-status-error);
+}
+
+.ts-tab__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ts-text-muted);
+  cursor: default;
+}
+.ts-tab__close:hover {
+  background: var(--ts-border-strong);
+  color: var(--ts-text-primary);
+}
+
+.ts-terminal {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.ts-terminal__mounted {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--ts-border-strong);
+  border-radius: var(--ts-radius-md);
+  /* xterm 挂载点：必须给确定高度，否则 fit addon 的 rows 会算成 1 */
+}
+
+.ts-terminal__placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--ts-text-muted);
+}
+
+/* ==========================================================================
+   AI 面板
+   ========================================================================== */
+
+.ts-ai-panel {
+  grid-area: ai;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: var(--ts-ai-panel-width);
+  background: var(--ts-bg-surface);
+  border-left: 1px solid var(--ts-border);
+}
+
+.ts-ai-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: var(--ts-titlebar-height);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--ts-border);
+  font-weight: 600;
+  color: var(--ts-text-secondary);
+}
+
+.ts-ai-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 12px;
+}
+
+.ts-ai-panel__composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--ts-border);
+}
+
+.ts-ai-panel__composer textarea {
+  resize: none;
+  padding: 8px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-primary);
+  outline: none;
+}
+
+/* ==========================================================================
+   状态条
+   ========================================================================== */
+
+.ts-statusbar {
+  grid-area: statusbar;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 24px;
+  padding: 0 12px;
+  font-size: 11px;
+  color: var(--ts-text-muted);
+  background: var(--ts-bg-surface);
+  border-top: 1px solid var(--ts-border);
+}
+
+.ts-statusbar__spacer {
+  flex: 1;
+}
+
+.ts-statusbar__item--error {
+  color: var(--ts-status-error);
+}
+
+/* ==========================================================================
+   通用控件
+   ========================================================================== */
+
+.ts-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 27px;
+  padding: 0 10px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-primary);
+  font-size: var(--ts-font-size-sm);
+  cursor: default;
+  white-space: nowrap;
+}
+.ts-btn:hover:not(:disabled) {
+  border-color: var(--ts-border-strong);
+}
+.ts-btn:disabled {
+  opacity: 0.45;
+}
+
+.ts-btn--primary {
+  border-color: transparent;
+  background: var(--ts-accent);
+  color: var(--ts-accent-contrast);
+  font-weight: 600;
+}
+.ts-btn--primary:hover:not(:disabled) {
+  background: var(--ts-accent-strong);
+}
+
+.ts-btn--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ts-text-secondary);
+}
+.ts-btn--ghost:hover:not(:disabled) {
+  background: var(--ts-bg-elevated);
+}
+
+.ts-btn--block {
+  width: 100%;
+}
+
+.ts-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--ts-radius-sm);
+  background: transparent;
+  color: var(--ts-text-secondary);
+  cursor: default;
+}
+.ts-icon-btn:hover {
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-primary);
+}
+
+.ts-link {
+  border: 0;
+  background: transparent;
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-sm);
+  text-decoration: underline;
+  cursor: default;
+}
+.ts-link:hover {
+  color: var(--ts-accent);
+}
+
+.ts-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+}
+
+.ts-field__label {
+  font-size: var(--ts-font-size-sm);
+  color: var(--ts-text-secondary);
+}
+
+.ts-field input {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-primary);
+  outline: none;
+}
+.ts-field input:focus {
+  border-color: var(--ts-accent);
+  box-shadow: 0 0 0 3px var(--ts-focus-ring);
+}
+
+.ts-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
+  color: var(--ts-text-muted);
+}
+
+.ts-empty--compact {
+  gap: 5px;
+  padding: 18px 10px;
+}
+
+.ts-empty__title {
+  margin: 0;
+  font-size: var(--ts-font-size-base);
+  color: var(--ts-text-secondary);
+}
+
+.ts-empty__body {
+  margin: 0;
+  max-width: 34ch;
+  font-size: var(--ts-font-size-sm);
+  line-height: 1.5;
+}
+
+/* ==========================================================================
+   解锁屏（覆盖整个窗口，但不是拆除 UI：底下会话保持挂载）
+   ========================================================================== */
+
+.ts-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ts-bg-overlay);
+  backdrop-filter: blur(8px);
+}
+
+.ts-lock__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 360px;
+  padding: 28px 26px 22px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-lg);
+  background: var(--ts-bg-surface);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+
+.ts-lock__title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.ts-lock__subtitle {
+  margin: 0;
+  text-align: center;
+  font-size: var(--ts-font-size-sm);
+  color: var(--ts-text-secondary);
+}
+
+.ts-lock__error {
+  margin: 0;
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: var(--ts-radius-sm);
+  background: color-mix(in srgb, var(--ts-status-error) 14%, transparent);
+  color: var(--ts-status-error);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-lock__notice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px dashed var(--ts-border-strong);
+  border-radius: var(--ts-radius-sm);
+  font-size: var(--ts-font-size-sm);
+  color: var(--ts-text-secondary);
+}
+.ts-lock__notice p {
+  margin: 0;
+}
+
+/* ==========================================================================
+   轻提示
+   ========================================================================== */
+
+.ts-toast {
+  position: fixed;
+  right: 14px;
+  bottom: 34px;
+  z-index: 60;
+  max-width: 44ch;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--ts-status-error) 45%, transparent);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-elevated);
+  color: var(--ts-status-error);
+  font-size: var(--ts-font-size-sm);
+}

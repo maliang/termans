@@ -1,0 +1,20 @@
+node_modules/
+out/
+dist/
+release/
+artifacts/
+coverage/
+*.log
+.DS_Store
+.env
+.env.local
+!.env.example
+
+# 本地运行时数据（真实用户目录在 app.getPath('userData')，这里兜底开发期产物）
+.data/
+.vite/
+playwright-report/
+test-results/
+
+# 团队协作状态不入库
+.agent-teams/

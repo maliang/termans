@@ -1,0 +1,5 @@
+{
+  "generic": "出错了。",
+  "notImplemented": "该模块尚未接线（E_NOT_IMPLEMENTED）。",
+  "vaultLocked": "加密包已锁定。"
+}

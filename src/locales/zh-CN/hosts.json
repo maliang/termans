@@ -1,0 +1,9 @@
+{
+  "sidebar.title": "主机库",
+  "sidebar.search": "搜索主机",
+  "action.new": "新建主机",
+  "action.import": "导入",
+  "action.newGroup": "新建分组",
+  "empty.title": "还没有主机",
+  "empty.body": "新建一台主机，或导入已有的 ~/.ssh/config。所有数据加密存储，并通过你自己的 Git 仓库同步。"
+}

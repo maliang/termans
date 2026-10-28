@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Termans">
+  <rect width="1024" height="1024" rx="232" fill="#0D1424"/>
+  <g transform="translate(-124.0 0.0)">
+    <path d="M401.9 352 L622.1 512 L401.9 672" fill="none" stroke="#F8AB24" stroke-width="100" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="684.1" y="622.0" width="236" height="100" rx="50.0" fill="#F8AB24"/>
+  </g>
+</svg>

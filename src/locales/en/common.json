@@ -1,0 +1,13 @@
+{
+  "app.name": "Termans",
+  "app.tagline": "SSH · SYNC · AI",
+  "action.lock": "Lock",
+  "action.unlock": "Unlock",
+  "action.settings": "Settings",
+  "action.closeTab": "Close tab",
+  "action.cancel": "Cancel",
+  "action.save": "Save",
+  "state.loading": "Loading…",
+  "state.vault": "vault: {{state}}",
+  "state.tabs": "tabs: {{count}}"
+}

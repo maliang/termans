@@ -1,0 +1,7 @@
+{
+  "panel.title": "AI 助手",
+  "empty.title": "AI 尚未配置",
+  "empty.body": "在设置里添加供应商与 API key。AI 给出的命令一律需要你确认后才会执行。",
+  "input.placeholder": "就当前会话提问…",
+  "action.send": "发送"
+}

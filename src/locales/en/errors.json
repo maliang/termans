@@ -1,0 +1,5 @@
+{
+  "generic": "Something went wrong.",
+  "notImplemented": "This module is not wired yet (E_NOT_IMPLEMENTED).",
+  "vaultLocked": "The vault is locked."
+}

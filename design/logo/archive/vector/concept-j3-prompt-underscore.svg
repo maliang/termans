@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Termans . J3 Prompt >_</title>
+  <defs>
+    <linearGradient id="ink" x1="0.15" y1="0" x2="0.75" y2="1">
+      <stop offset="0" stop-color="#1B2542"/><stop offset="0.55" stop-color="#0D1424"/><stop offset="1" stop-color="#05080E"/>
+    </linearGradient>
+    <linearGradient id="amber" gradientUnits="userSpaceOnUse" x1="280" y1="290" x2="700" y2="730">
+      <stop offset="0" stop-color="#FFE0A3"/><stop offset="0.42" stop-color="#F8AB24"/><stop offset="1" stop-color="#D4600A"/>
+    </linearGradient>
+    <linearGradient id="mint" gradientUnits="userSpaceOnUse" x1="360" y1="660" x2="670" y2="710">
+      <stop offset="0" stop-color="#8CF3B6"/><stop offset="1" stop-color="#1B9663"/>
+    </linearGradient>
+    <radialGradient id="sheen" cx="0.5" cy="0" r="0.85">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.13"/><stop offset="0.65" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="42"/></filter>
+  </defs>
+  <rect width="1024" height="1024" rx="232" fill="url(#ink)"/>
+  <rect width="1024" height="1024" rx="232" fill="url(#sheen)"/>
+  
+  <ellipse cx="500" cy="510" rx="300" ry="230" fill="#F8AB24" opacity="0.08" filter="url(#glow)"/>
+  <path d="M398 330 L556 470 L398 610" fill="none" stroke="url(#amber)" stroke-width="82"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="378" y="668" width="286" height="40" rx="20" fill="url(#mint)"/>
+  <rect width="1024" height="1024" rx="232" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="6"/>
+</svg>

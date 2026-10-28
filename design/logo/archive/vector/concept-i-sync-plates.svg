@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Termans · concept I · Sync Plates</title>
+  <defs>
+    <linearGradient id="inkI" x1="0.15" y1="0" x2="0.75" y2="1">
+      <stop offset="0" stop-color="#1B2542"/>
+      <stop offset="0.55" stop-color="#0D1424"/>
+      <stop offset="1" stop-color="#05080E"/>
+    </linearGradient>
+    <linearGradient id="amberI" x1="0" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#FFDA92"/>
+      <stop offset="0.5" stop-color="#F8AB24"/>
+      <stop offset="1" stop-color="#DB6C0B"/>
+    </linearGradient>
+    <linearGradient id="mintI" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7BEFA8"/>
+      <stop offset="1" stop-color="#1E9D68"/>
+    </linearGradient>
+    <radialGradient id="sheenI" cx="0.5" cy="0" r="0.85">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.12"/>
+      <stop offset="0.65" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glowI" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="36"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" rx="232" fill="url(#inkI)"/>
+  <rect width="1024" height="1024" rx="232" fill="url(#sheenI)"/>
+  <rect x="286" y="422" width="180" height="180" rx="46" fill="#F8AB24" opacity="0.16" filter="url(#glowI)"/>
+
+  <!-- source host (filled) -->
+  <rect x="286" y="422" width="180" height="180" rx="46" fill="url(#amberI)"/>
+  <!-- target host (outline) -->
+  <rect x="558" y="422" width="180" height="180" rx="46" fill="none" stroke="url(#mintI)" stroke-width="40"/>
+  <!-- bidirectional sync between them -->
+  <g fill="none" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="22" stroke-linecap="round">
+    <path d="M492 490 H520"/>
+    <path d="M492 534 H520"/>
+  </g>
+  <path d="M516 468 l28 34 h-28 z" fill="#FFFFFF" fill-opacity="0.6"/>
+  <path d="M516 556 l-28 -34 h28 z" fill="#FFFFFF" fill-opacity="0.6"/>
+
+  <rect width="1024" height="1024" rx="232" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="6"/>
+</svg>

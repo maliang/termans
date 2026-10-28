@@ -1,0 +1,10 @@
+{
+  "title": "Settings",
+  "locale.label": "Language",
+  "theme.label": "Theme",
+  "themes.builtin.brightness": "Built-in light/dark themes",
+  "terminal.fontSize": "Font size",
+  "terminal.lineHeight": "Line height",
+  "sync.autoSync": "Sync automatically",
+  "security.autoLock": "Auto-lock after idle (minutes)"
+}

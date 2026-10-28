@@ -1,0 +1,6 @@
+{
+  "tab.new": "New tab",
+  "empty.title": "No session open",
+  "empty.body": "Pick a host on the left, or press ⌘T to open a new tab.",
+  "view.placeholder": "Terminal view — wired by integration"
+}

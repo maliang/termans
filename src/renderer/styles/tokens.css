@@ -1,0 +1,144 @@
+/**
+ * Termans 主题 token —— **唯一的样式变量清单**（契约）。
+ *
+ * 规范：
+ * - 变量一律 `--ts-` 前缀；清单与 `src/shared/theme.ts` 的 THEME_TOKENS 必须完全一致，
+ *   由 `tests/contract/theme-tokens.test.ts` 强制（多一个/少一个都会红）。
+ * - 语义层不直接写色值，只引用品牌层（`var(--ts-ink-800)`），这样换主题只改品牌值。
+ * - 写错的变量名不会报错、只会静默失效（`color: var(--ts-text-1)` 是无效声明），
+ *   所以组件里**只用清单内**的名字。
+ * - 琥珀色只用于「可操作」，薄荷绿只用于「状态正常」，红色只用于「错误」——这是 BRAND.md 的硬规则。
+ */
+
+:root,
+[data-theme='dark'] {
+  /* —— 品牌层（来自 design/BRAND.md） —— */
+  --ts-ink-900: #05080e;
+  --ts-ink-800: #0d1424;
+  --ts-ink-700: #1c2746;
+  --ts-ink-600: #253257;
+  --ts-amber: #f8ab24;
+  --ts-amber-soft: #ffe2a8;
+  --ts-amber-deep: #c86a08;
+  --ts-mint: #1d9663;
+  --ts-danger: #e0553b;
+
+  /* —— 语义层 —— */
+  --ts-bg-app: var(--ts-ink-900);
+  --ts-bg-surface: var(--ts-ink-800);
+  --ts-bg-elevated: var(--ts-ink-700);
+  --ts-bg-overlay: rgba(5, 8, 14, 0.72);
+  --ts-border: rgba(255, 255, 255, 0.08);
+  --ts-border-strong: rgba(255, 255, 255, 0.16);
+  --ts-text-primary: #e8edf7;
+  --ts-text-secondary: #9aa8c0;
+  --ts-text-muted: #63718c;
+  --ts-text-inverse: #05080e;
+  --ts-accent: var(--ts-amber);
+  --ts-accent-strong: var(--ts-amber-deep);
+  --ts-accent-contrast: #0b0f18;
+  --ts-focus-ring: rgba(248, 171, 36, 0.55);
+  --ts-selection: rgba(248, 171, 36, 0.24);
+  --ts-status-ok: var(--ts-mint);
+  --ts-status-warn: var(--ts-amber-soft);
+  --ts-status-error: var(--ts-danger);
+
+  /* —— ANSI 16（xterm ITheme 按索引取用；与品牌同色温） —— */
+  --ts-ansi-black: #0d1424;
+  --ts-ansi-red: #e0553b;
+  --ts-ansi-green: #1d9663;
+  --ts-ansi-yellow: #f8ab24;
+  --ts-ansi-blue: #4c7df0;
+  --ts-ansi-magenta: #a574e8;
+  --ts-ansi-cyan: #3fb6c8;
+  --ts-ansi-white: #c7d2e4;
+  --ts-ansi-bright-black: #3a4866;
+  --ts-ansi-bright-red: #ff7a63;
+  --ts-ansi-bright-green: #35c68a;
+  --ts-ansi-bright-yellow: #ffcb63;
+  --ts-ansi-bright-blue: #7ba0ff;
+  --ts-ansi-bright-magenta: #c79bf5;
+  --ts-ansi-bright-cyan: #6bd8e8;
+  --ts-ansi-bright-white: #f2f6ff;
+
+  /* —— 排版 —— */
+  --ts-font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue',
+    sans-serif;
+  --ts-font-mono: 'SF Mono', 'JetBrains Mono', 'Cascadia Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --ts-font-size-sm: 12px;
+  --ts-font-size-base: 13px;
+  --ts-font-size-lg: 15px;
+
+  /* —— 尺寸 —— */
+  --ts-radius-sm: 6px;
+  --ts-radius-md: 10px;
+  --ts-radius-lg: 14px;
+  --ts-titlebar-height: 38px;
+
+  /* —— 布局尺寸（非主题契约，改窗口栅格时用） —— */
+  --ts-sidebar-width: 264px;
+  --ts-ai-panel-width: 360px;
+}
+
+[data-theme='light'] {
+  --ts-ink-900: #f7f8fb;
+  --ts-ink-800: #ffffff;
+  --ts-ink-700: #edf0f7;
+  --ts-ink-600: #dde3ee;
+  --ts-amber: #f8ab24;
+  --ts-amber-soft: #7a4a08;
+  --ts-amber-deep: #c86a08;
+  --ts-mint: #16794f;
+  --ts-danger: #c23b22;
+
+  --ts-bg-app: var(--ts-ink-900);
+  --ts-bg-surface: var(--ts-ink-800);
+  --ts-bg-elevated: var(--ts-ink-700);
+  --ts-bg-overlay: rgba(247, 248, 251, 0.82);
+  --ts-border: rgba(16, 24, 40, 0.1);
+  --ts-border-strong: rgba(16, 24, 40, 0.2);
+  --ts-text-primary: #0d1424;
+  --ts-text-secondary: #4a5a78;
+  --ts-text-muted: #7c8aa3;
+  --ts-text-inverse: #ffffff;
+  --ts-accent: var(--ts-amber-deep);
+  --ts-accent-strong: #a85505;
+  --ts-accent-contrast: #ffffff;
+  --ts-focus-ring: rgba(200, 106, 8, 0.45);
+  --ts-selection: rgba(248, 171, 36, 0.35);
+  --ts-status-ok: var(--ts-mint);
+  --ts-status-warn: #a86a00;
+  --ts-status-error: var(--ts-danger);
+
+  --ts-ansi-black: #1c2746;
+  --ts-ansi-red: #b83b23;
+  --ts-ansi-green: #14724e;
+  --ts-ansi-yellow: #8a5a00;
+  --ts-ansi-blue: #2c56c8;
+  --ts-ansi-magenta: #7a3fc0;
+  --ts-ansi-cyan: #0f7280;
+  --ts-ansi-white: #58657e;
+  --ts-ansi-bright-black: #6b7891;
+  --ts-ansi-bright-red: #d1482c;
+  --ts-ansi-bright-green: #1a8c5f;
+  --ts-ansi-bright-yellow: #a86a00;
+  --ts-ansi-bright-blue: #3a6bd8;
+  --ts-ansi-bright-magenta: #8f52d8;
+  --ts-ansi-bright-cyan: #138a99;
+  --ts-ansi-bright-white: #2a3550;
+
+  --ts-font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue',
+    sans-serif;
+  --ts-font-mono: 'SF Mono', 'JetBrains Mono', 'Cascadia Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --ts-font-size-sm: 12px;
+  --ts-font-size-base: 13px;
+  --ts-font-size-lg: 15px;
+
+  --ts-radius-sm: 6px;
+  --ts-radius-md: 10px;
+  --ts-radius-lg: 14px;
+  --ts-titlebar-height: 38px;
+
+  --ts-sidebar-width: 264px;
+  --ts-ai-panel-width: 360px;
+}

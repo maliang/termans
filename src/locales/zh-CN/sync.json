@@ -1,0 +1,10 @@
+{
+  "status.off": "同步未开启",
+  "status.idle": "已是最新",
+  "action.syncNow": "立即同步",
+  "conflict.title": "解决冲突",
+  "conflict.keepLocal": "保留本地",
+  "conflict.keepRemote": "保留远端",
+  "conflict.keepBoth": "两边都留",
+  "migration.title": "迁移到另一台机器"
+}

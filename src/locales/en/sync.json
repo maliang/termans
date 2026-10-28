@@ -1,0 +1,10 @@
+{
+  "status.off": "Sync off",
+  "status.idle": "Up to date",
+  "action.syncNow": "Sync now",
+  "conflict.title": "Resolve conflict",
+  "conflict.keepLocal": "Keep local",
+  "conflict.keepRemote": "Keep remote",
+  "conflict.keepBoth": "Keep both",
+  "migration.title": "Migrate to another machine"
+}
