@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS, type AppPlatform, type TerminalSettings } from '@shar
 import { CloseTabDialog } from '../tabs/CloseTabDialog'
 import { registerTabCommandHooks, requestCloseTab, runMenuCommand, useTabStore, type TerminalTab } from '../tabs/tab-store'
 import { PasteWarningDialog } from './PasteWarningDialog'
+import { singleLineText } from './paste'
 import { TerminalSearchBar } from './TerminalSearchBar'
 import { TerminalToolbar } from './TerminalToolbar'
 import { XtermSurface } from './XtermSurface'
@@ -188,6 +189,11 @@ export function TerminalWorkspace({
               onCancel={() => setPastePrompt(null)}
               onConfirm={() => {
                 runtime.paste(pastePrompt.tabId, pastePrompt.inspection.text)
+                setPastePrompt(null)
+              }}
+              onInsertAsText={() => {
+                // 折成一行再粘：只落到命令行上，不回车执行（换行信息已由提示框告知）
+                runtime.paste(pastePrompt.tabId, singleLineText(pastePrompt.inspection.text))
                 setPastePrompt(null)
               }}
             />

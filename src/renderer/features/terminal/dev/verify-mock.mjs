@@ -76,13 +76,15 @@ async function openPage(url, { clipboard } = {}) {
   const bgBefore = await page.evaluate(() =>
     getComputedStyle(document.documentElement).getPropertyValue('--ts-bg-app').trim()
   )
-  await page.screenshot({ path: `${OUT}/t3-theme-before.png`, clip: { x: 820, y: 560, width: 60, height: 40 } })
+  // 用元素截图而不是写死 clip：clip 坐标随视口/布局漂移，之前截出来是一块纯色（145 字节）
+  const termShot = page.locator('[data-testid^="terminal-surface-"]:not([hidden]) .xterm-screen').first()
+  await termShot.screenshot({ path: `${OUT}/t3-theme-before.png` })
   const applied = await page.evaluate(() => window.__termansMockApplyTheme?.('termans-light'))
   await page.waitForTimeout(500)
   const bgAfter = await page.evaluate(() =>
     getComputedStyle(document.documentElement).getPropertyValue('--ts-bg-app').trim()
   )
-  await page.screenshot({ path: `${OUT}/t3-theme-after.png`, clip: { x: 820, y: 560, width: 60, height: 40 } })
+  await termShot.screenshot({ path: `${OUT}/t3-theme-after.png` })
   check('主题切换落到 DOM（--ts-bg-app 变化）', bgBefore !== bgAfter, `${applied}: ${bgBefore} → ${bgAfter}`)
   const activeAfter = await page.locator('[data-testid="terminal-workspace"]').isVisible()
   check('切主题后终端仍在（没有重建实例）', activeAfter)
@@ -174,6 +176,9 @@ async function openPage(url, { clipboard } = {}) {
   await page.locator('[data-testid^="tab-close-"]').first().click()
   await page.locator('[data-testid="close-tab-dialog"]').waitFor({ state: 'visible', timeout: 5000 })
   check('关闭活跃会话页签弹二次确认', await page.locator('[data-testid="close-tab-dialog"]').isVisible())
+  // i18n 参数名写错不会抛错，只会把 {{title}} 原样显示出来，所以这里做一次「未插值」守卫。
+  const closeText = await page.locator('[data-testid="close-tab-dialog"]').innerText()
+  check('二次确认文案已完成插值（无 {{占位符}} 残留）', !/\{\{/.test(closeText), closeText.replace(/\n/g, ' ').slice(0, 120))
   await page.screenshot({ path: `${OUT}/t3-terminal-tabs.png` })
   await page.locator('[data-testid="close-tab-cancel"]').click()
   check('取消后页签仍在', (await page.locator('[data-testid="tab-strip"] .ts-tab').count()) === 2)
@@ -183,8 +188,24 @@ async function openPage(url, { clipboard } = {}) {
   await page.locator('[data-testid="paste-dialog"]').waitFor({ state: 'visible', timeout: 5000 })
   const pasteLines = await page.locator('[data-testid="paste-lines"]').innerText()
   check('多行粘贴弹安全提示', await page.locator('[data-testid="paste-dialog"]').isVisible(), pasteLines.trim())
+  const pasteText = await page.locator('[data-testid="paste-dialog"]').innerText()
+  check('粘贴提示文案已完成插值（无 {{占位符}} 残留）', !/\{\{/.test(pasteText), pasteText.replace(/\n/g, ' ').slice(0, 120))
   await page.screenshot({ path: `${OUT}/t3-terminal-paste.png` })
-  await page.locator('[data-testid="paste-cancel"]').click()
+
+  // 「仅作为文本插入」：折成一行、只落到命令行上不回车——按钮真的起作用，不只是个装饰
+  await page.locator('[data-testid="paste-as-text"]').click()
+  await page.locator('[data-testid="paste-dialog"]').waitFor({ state: 'hidden', timeout: 5000 })
+  await page.waitForTimeout(300)
+  const afterInsert = await page
+    .locator('[data-testid^="terminal-surface-"]:not([hidden]) .xterm-rows')
+    .first()
+    .innerText()
+  check(
+    '「仅作为文本插入」把多行折成一行且不执行',
+    afterInsert.includes('first-line second-line') && !afterInsert.includes('first-line\nsecond-line'),
+    JSON.stringify(afterInsert.slice(-120))
+  )
+  check('插入文本后仍弹回安全提示前的状态（对话框已关闭）', (await page.locator('[data-testid="paste-dialog"]').count()) === 0)
 
   // captain 裁定：主题联动只能走主题模块的 registerXterm（我已删掉自己那份 MutationObserver）。
   // 证据用「文本前景色」：它来自 xterm 的 options.theme，不是我们的 CSS 类，

@@ -26,6 +26,19 @@ export function normalizeNewlines(text: string): string {
   return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 }
 
+/**
+ * 把多行文本折成一行（换行 → 空格）：用于「仅作为文本插入，不执行」。
+ *
+ * 为什么不是直接去掉换行：`for i in 1 2 3` 后面紧跟 `do` 那种脚本，去掉换行会粘成
+ * `do something`，语义彻底变样；换成空格至少还是同一串命令，用户能在命令行上接着改。
+ */
+export function singleLineText(text: string): string {
+  return normalizeNewlines(text)
+    .replace(/\n+/g, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim()
+}
+
 export function inspectPaste(rawText: string): PasteInspection {
   const text = normalizeNewlines(rawText)
   const hasTrailingNewline = text.endsWith('\n')

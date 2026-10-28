@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { inspectPaste, normalizeNewlines } from './paste'
+import { inspectPaste, normalizeNewlines, singleLineText } from './paste'
 
 /**
  * 粘贴安全检查单测。
@@ -54,5 +54,23 @@ describe('inspectPaste', () => {
     const result = inspectPaste('')
     expect(result.lineCount).toBe(0)
     expect(result.needsConfirm).toBe(false)
+  })
+})
+
+describe('singleLineText —— 「仅作为文本插入」用的折行', () => {
+  it('把换行折成空格，且不留连续空白', () => {
+    expect(singleLineText('ls -a\ncd /tmp\n')).toBe('ls -a cd /tmp')
+  })
+
+  it('CRLF 也按同样规则处理', () => {
+    expect(singleLineText('a\r\nb\r\n\r\nc')).toBe('a b c')
+  })
+
+  it('单行文本原样保留（不 trim 掉中间空格）', () => {
+    expect(singleLineText('echo hello world')).toBe('echo hello world')
+  })
+
+  it('空文本得到空串', () => {
+    expect(singleLineText('\n\n')).toBe('')
   })
 })

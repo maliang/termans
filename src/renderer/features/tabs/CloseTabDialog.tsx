@@ -30,9 +30,15 @@ export function CloseTabDialog({ tab, onConfirm, onCancel }: CloseTabDialogProps
           {t('terminal:tab.confirmClose.title', { defaultValue: 'Close this tab?' })}
         </h2>
         <p className="ts-confirm__body">
+          {/*
+            * 参数名必须和 locale 里的占位符一一对上（en/zh 都是 {{title}} + {{host}}）。
+            * 传错名字不会抛错，界面上会直接显示 “{{title}}” 原文——截图里抓到过一次。
+            */}
           {t('terminal:tab.confirmClose.body', {
-            name: tab.title,
-            defaultValue: '“{{name}}” still has an active SSH session. Closing it will disconnect.'
+            title: tab.title,
+            host: tab.hostLabel ?? tab.title,
+            defaultValue:
+              '“{{title}}” on {{host}} still has an active session. Closing the tab ends it.'
           })}
         </p>
         <div className="ts-confirm__actions">
