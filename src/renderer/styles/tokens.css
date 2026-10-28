@@ -103,7 +103,8 @@
   --ts-text-inverse: #ffffff;
   --ts-accent: var(--ts-amber-deep);
   --ts-accent-strong: #a85505;
-  --ts-accent-contrast: #ffffff;
+  /* 浅色：琥珀底配纯黑字（5.52:1）；白字只有 3.80:1，会让主按钮读不清 */
+  --ts-accent-contrast: #000000;
   --ts-focus-ring: rgba(200, 106, 8, 0.45);
   --ts-selection: rgba(248, 171, 36, 0.35);
   --ts-status-ok: var(--ts-mint);
