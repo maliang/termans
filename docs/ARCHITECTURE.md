@@ -162,7 +162,7 @@ type IpcResult<T> = { ok: true; data: T } | { ok: false; error: { code: IpcError
 | theme | `theme:list`、`theme:save`、`theme:delete` | 主题 CRUD（内置主题不可删） |
 | hosts | `hosts:list`、`hosts:create`、`hosts:update`、`hosts:delete`、`hosts:reorder` | 主机 CRUD + 排序 |
 | groups | `groups:create`、`groups:update`、`groups:delete` | 分组（列表随 hosts 返回） |
-| credentials | `credentials:set`、`credentials:clear` | 凭据写 safeStorage（**永不进 Git**） |
+| credentials | `credentials:set`、`credentials:clear` | **本机**密钥封装（SecretBox：safeStorage 优先，无 keychain 时退化本机文件密钥）。主机密码/passphrase 不在这里落明文——它们由 vault 写进 `vault.enc` 的 `secrets`；这里只放 `git:token` 兜底条目与会话密钥 |
 | ssh | `ssh:connect`、`ssh:input`、`ssh:resize`、`ssh:disconnect`、`ssh:list-sessions`、`ssh:answer-host-key` | 连接生命周期 + 终端数据/resize |
 | ssh-config | `ssh-config:default-paths`、`parse`、`write`、`import`、`export` | `~/.ssh/config` 双向解析/写回 |
 | known-hosts | `known-hosts:list`、`trust`、`remove` | 指纹信任与删除 |
@@ -198,14 +198,24 @@ type IpcResult<T> = { ok: true; data: T } | { ok: false; error: { code: IpcError
 
 ## 6. shared 数据模型（不变量）
 
-- **主机不含密钥/口令**：`hostInputSchema` 只有 `privateKeyPath` 与 `credentialRef`（指向 safeStorage 的键）。
-  解析时多余的 `password` 字段会被 zod 丢弃（`tests/contract/models.test.ts` 断言）。私钥**永不进入同步目录**。
+- **主机模型不含明文凭据**：`hostInputSchema` 只有 `privateKeyPath` 与 `credentialRef`（指向加密包 `payload.secrets` 的键）。
+  解析时多余的 `password` 字段会被 zod 丢弃（`tests/contract/models.test.ts` 断言）。
+- **密码/passphrase 随密文包同步，私钥文件不同步**：主机密码与私钥 passphrase 在 `vault.enc` 的
+  `payload.secrets[credentialRef]` 里（scrypt + AES-256-GCM，主口令不在仓库）；同步的只有
+  `host.privateKeyPath` 路径引用，`~/.ssh/id_*` 的**文件本体**永不出本机。AI 供应商 key
+  （`payload.integrations.aiApiKeys`）与 Git 远端 token（`payload.integrations.gitToken`）同理在密文包内，
+  本机 `credentials.json` 的 `git:token` 只是首次 clone / 未解锁时的兜底。**若把密码退回「只存本机
+  safeStorage」，A→B 迁移就只剩条目、连不上，等于废条目**——这是明文契约里被明确否决的旧口径。
 - **加密包内容策略是字面量**：`vaultContentPolicySchema` 里 `secretsExcluded: true`、`privateKeysExcluded: true`、
   `plaintextHostnamesInRepo: false` —— 传 `false`/`true` 会被 zod 拒绝，而不是「警告后继续」。这是安全开关不做成配置项的典型用法。
+  三者的语义都以「**仓库里的明文**」为准（密文内部当然有密码/指纹/主机名，那是设计前提）。
 - **AI 命令必须确认**：`aiCommandSuggestionSchema.requiresConfirmation` 与 `settings.ai.commandConfirmation` 都是字面量 `true`。
 - **终端数据在主进程已解码**：`ssh:data` 的 `data` 是 UTF-8 字符串（xterm 需要字符串；Buffer 无法跨 `contextBridge` 保序跨块）。
 - **known_hosts 默认严格**：`settings.ssh.knownHostsPolicy` 默认 `strict`；指纹不匹配走 `E_HOST_KEY_UNVERIFIED` + `ssh:host-key-challenge` 事件。
 - **设置整份读取**：渲染层拿到的永远是完整 `Settings`（`withDefaults()` 逐字段容错），不要写 `settings.ai?.enabled ?? false`。
+- **存储落点速查**（与 t4 实现一致）：同步仓库 = `manifest.json`（KDF/cipher/salt/revision，无明文主机信息）+ `vault.enc`（整份 payload 密文）+ `themes/*.json`（主题，非敏感、保留 git diff 可读性）；本机 = `userData/vault-local/`（`local.json`、`session.json`、`credentials.json`、`machine.key`、`conflicts/`）。
+  主机 / 分组 / known_hosts / **主机密码与 passphrase** / 设置 / ssh_config / AI key / Git token 全在 `vault.enc` 内；
+  私钥**文本**只在本机（SecretBox），仓库里只有 `privateKeyPath` 路径。细节见 `docs/VAULT-SYNC.md`。
 
 ---
 

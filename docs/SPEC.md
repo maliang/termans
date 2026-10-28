@@ -27,19 +27,19 @@
 
 ## 1. 主机管理（H）
 
-数据落点：`userData/library.json`（主机 + 分组，schemaVersion 1）。**不得**出现在同步目录之外的位置。
+数据落点：主机 + 分组存在同步仓库的 `vault.enc` 内（未启用同步时也可用，同一份 payload）；本机目录只有 `vault-local/`（会话、Git token 兜底、私钥文本）。**不得**出现明文主机名/密码落盘在仓库里。
 
 | 编号 | 判据 | 操作 | 落点 |
 | --- | --- | --- | --- |
 | H-01 | 新建主机：必填校验到位 | 点 `[data-testid="host-new"]` → 主机名留空提交 → 表单报错且**不**落库 | e2e 新增 `hosts.spec.ts` |
 | H-02 | 新建主机成功并出现在侧栏 | 填 label=`demo`、hostname=`127.0.0.1`、port=`2222`、user=`tester`、auth=`password` → 保存 → `[data-testid="host-tree"]` 内出现该 label | 同上 |
 | H-03 | 主机持久化 | 重启应用（关闭窗口再 `pnpm dev`）→ `demo` 仍在 | 同上（用两次 `_electron.launch`） |
-| H-04 | 编辑与删除 | 改 label 为 `demo2` → 树内显示 `demo2`；删除 → 树内消失且 `library.json` 不再含该 id | 同上 |
+| H-04 | 编辑与删除 | 改 label 为 `demo2` → 树内显示 `demo2`；删除 → 树内消失，`hosts:list` 不再返回该 id，重启后仍不返回（主机存在加密包 `vault.enc` 内，仓库里是密文、grep 不到 id） | 同上 |
 | H-05 | 分组与树形结构 | 新建分组 `lab`，把 `demo2` 拖入/移入 → 树内 `lab` 下出现 `demo2`；删分组时主机不被删除（移到根） | 同上 |
 | H-06 | 搜索过滤 | 侧栏搜索框输入 `dem` → 只剩匹配项；输入 `zzz` → 显示 `hosts:empty.title` | 同上 |
-| H-07 | 排序持久化 | 拖拽调整两台主机顺序 → 重启 → 顺序不变（`library.json` 的 `sortIndex` 与 UI 一致） | 同上 |
-| H-08 | **主机不保存明文口令/私钥** | 用密码认证保存主机后 `grep -i password userData/library.json` 无命中；`grep -i "PRIVATE KEY"` 无命中；`credentialRef` 有值 | vitest（模型层）+ shell 断言 |
-| H-09 | 凭据走 safeStorage | 设置密码后 `library.json` 不含明文口令，macOS 钥匙串出现 `Termans` 条目；清除凭据后再次连接要求重新输入 | M + shell |
+| H-07 | 排序持久化 | 拖拽调整两台主机顺序 → 重启 → 顺序不变（`hosts:list` 返回的 `sortIndex` 与 UI 一致；数据在密文包内） | 同上 |
+| H-08 | **主机模型不含明文口令/私钥** | 用密码认证保存主机后 `hosts:list` 的每条记录只有 `credentialRef`（无 `password`/`passphrase`/`privateKey` 字段）；`grep -ri "PRIVATE KEY" userData/` 无命中；`node -e` 解析 `vault.enc` 失败（密文） | vitest（模型层）+ shell 断言 |
+| H-09 | 凭据存放（本机 vs 密文包） | 设置密码后：仓库 `git grep -i "<明文密码>"` 无命中（口令在 `vault.enc` 的 `payload.secrets` 内，随端到端加密同步）；解锁态 `manager.resolveCredentials(hostId)` 返回口令明文、锁定后返回 null / `E_VAULT_LOCKED`；只有勾选「记住本机」时系统钥匙串（safeStorage）才出现会话条目（存的是包裹后的 VMK，**不是主口令本身**）；清除凭据后再连接要求重新输入 | M + shell |
 
 ---
 
@@ -83,7 +83,7 @@
 
 ## 4. AI 辅助（A）
 
-安全底线：**AI 输出的命令必须先展示、必须二次确认、默认不自动执行**；API key 存 safeStorage，**不进同步目录、不进日志**。
+安全底线：**AI 输出的命令必须先展示、必须二次确认、默认不自动执行**；API key 存在端到端加密包内（`payload.integrations.aiApiKeys`，换机可继续用），本机 `credentials.json` 只作未解锁时的兜底，明文**不进日志、不进渲染层、仓库里只有密文**。
 
 | 编号 | 判据 | 操作 | 落点 |
 | --- | --- | --- | --- |
@@ -104,11 +104,14 @@
 
 **安全模型（验收必须逐条确认）**
 
-1. 仓库里只有密文：`hosts.enc`、`groups.enc`、`settings.enc`、`known_hosts.enc`、`themes.enc`（+ `vault.json` 元数据：KDF 参数、cipher、salt，**无任何明文**）。
-2. **私钥不同步**：`~/.ssh/id_*` 永不复制进仓库；`library.json`/仓库内不含 `PRIVATE KEY` 字符串。
-3. **凭据不同步**：safeStorage 里的密码/口令/AI key 留在本机，仓库里只有 `credentialRef` 且指向本机条目。
+1. 仓库里只有密文：`vault.enc`（整份 payload 的 AES-256-GCM 密文）+ `manifest.json`（KDF 参数、cipher、salt、revision、`vaultKey` 包裹体，**无任何明文主机信息**）+ `themes/*.json`（主题，非敏感，保留 git diff 可读性）。
+2. **私钥文件不同步**：`~/.ssh/id_*` 的**文件本体**永不复制进仓库、也不进 `vault.enc`；同步的只是 `host.privateKeyPath`（IdentityFile 路径）。仓库内不含 `PRIVATE KEY` 字符串；B 机缺该文件时连接前明确报错并给出补文件入口。
+3. **密码/passphrase 随密文包同步**：主机密码与私钥 passphrase 存在 `payload.secrets`（key = `host.credentialRef`），被 scrypt + AES-256-GCM 整体加密，**主口令不在仓库**。理由：A 机 3 台主机同步到 B 机后，B 机用同一主口令解包即可连上；只存本机 keychain 的话 B 机看得见条目却连不上，等于废条目。模型层（`HostRecord`）仍只有 `credentialRef`，明文凭据永不进主机库模型。
+   - AI 供应商 key 进同一份密文包（`payload.integrations.aiApiKeys`）；
+   - Git 远端 token 亦在密文包内（`payload.integrations.gitToken`），本机 `credentials.json` 的 `git:token` 只是首次 clone / 未解锁时的兜底；
+   - 上述三类凭据都不允许以明文出现在仓库、日志或渲染层。
 4. 主口令只存在于内存与用户脑中；磁盘上只能有 KDF 派生出的密钥（且用主口令包裹）。
-5. 恢复码 = 一次性展示的高熵字符串，可用于重置主口令；轮换后旧恢复码失效。
+5. 恢复码 = 创建/轮换主口令时**只展示一次**的高熵字符串，可用于重置主口令；恢复码**可重复使用**（用恢复码重置主口令后恢复码本身不变，仍可用于下次恢复）；只有 `vault:rotate` 轮换主口令时才重新生成恢复码，旧码随之失效。
 
 | 编号 | 判据 | 操作 | 落点 |
 | --- | --- | --- | --- |
@@ -116,17 +119,17 @@
 | S-02 | 弱口令拒绝 | 主口令 `<12` 位 → 拒绝并提示；不落任何文件 | e2e |
 | S-03 | 锁定/解锁 | 点锁定（或 `autoLockMinutes` 到点）→ 出现 `[data-testid="lock-screen"]`，主机库不可见；输入正确主口令 → 恢复；错误口令 → 提示且**不**解锁、失败计数有节流 | e2e |
 | S-04 | 错误口令不丢数据 | 连续 5 次错误口令后，正确口令仍能解锁（无自毁、无数据损坏） | e2e |
-| S-05 | 仓库内容确为密文 | `git -C <clone> grep -i "127.0.0.1"` 无命中；`grep -r "PRIVATE KEY"` 无命中；`.enc` 文件不可被 `openssl` 直接读成 JSON；`vault.json` 不含 hostname | shell（**必做**） |
+| S-05 | 仓库内容确为密文 | `git -C <clone> grep -i "127.0.0.1"` 无命中；`grep -r "PRIVATE KEY"` 无命中；`git -C <clone> grep -i "<测试密码明文>"` 无命中（密码在包里但仓库里只有密文）；`vault.enc` 不能被 `openssl`/`JSON.parse` 直接读成 JSON；`manifest.json` 不含主机名/用户名/端口 | shell（**必做**） |
 | S-06 | 推送/拉取 | 本地 bare 仓库为 remote：push 后 `git log` 有新提交；改远端（第二工作副本）后 pull → 本地出现对方改动 | e2e + shell |
-| S-07 | **双机迁移 A→B** | 机器 A：创建 vault + 3 主机 + 主题 → push。机器 B（新 userData，`TERMANS_E2E_USER_DATA` 换目录）：`sync:bootstrap` 填 remote+branch+主口令 → 拉到 3 主机与主题；`ssh:list-sessions` 为空（不迁移会话）；本机凭据仍缺（提示重新输入） | e2e（两个 launch，不同 userData） |
-| S-08 | 恢复码重置主口令 | 忘记口令 → 用恢复码 `vault:recover` 设新口令 → 数据可解、可 push；旧口令解锁失败、旧恢复码失效（生成新恢复码） | e2e |
-| S-09 | 主口令轮换 | `vault:rotate`（当前口令 + 新口令）→ 重新加密并 push；新口令解锁成功，旧口令失败；恢复码同步轮换 | e2e |
+| S-07 | **双机迁移 A→B** | 机器 A：创建 vault + 3 主机（含密码）+ 主题 → push。机器 B（新 userData，`TERMANS_E2E_USER_DATA` 换目录）：`sync:bootstrap` 填 remote+branch+主口令 → 拉到 3 主机与主题，**密码随密文包解开并可用于连接**（`manager.resolveCredentials()` 返回 password 非空）；`ssh:list-sessions` 为空（不迁移会话）；私钥**文件**不迁移——B 机缺该文件时连接前明确报错并给补文件入口 | e2e（两个 launch，不同 userData） |
+| S-08 | 恢复码重置主口令 | 忘记口令 → 用恢复码 `vault:recover` 设新口令 → 数据可解、可 push；旧口令解锁失败；**恢复码仍有效**（可再次用于恢复，不是一次性；实现有意保留：`vault:recover` 响应只有 `VaultStatus`，换码会让用户「恢复成功却永久失去恢复码」）；换新恢复码只在 `vault:rotate` 时发生 | e2e |
+| S-09 | 主口令轮换 | `vault:rotate`（当前口令 + 新口令）→ 重新加密并 push；新口令解锁成功，旧口令失败；**恢复码同步轮换**（rotate 会重新生成，旧恢复码失效） | e2e |
 | S-10 | 冲突必须显式选择 | A、B 各改同一主机 → pull 出现冲突列表（local/remote 摘要 + 时间）；选 `local`/`remote`/`duplicate` 后结果符合选择；**不得静默覆盖** | e2e |
 | S-11 | 同步状态可见 | 状态条显示 `off/idle/syncing/ahead/behind/diverged/error`；断网时 `error` + 可重试，不崩 | e2e + M |
 | S-12 | 锁定态禁止同步 | 锁定后点同步 → `E_VAULT_LOCKED`，不发网络请求 | e2e |
 | S-13 | 明文不落临时目录 | 同步过程中 `userData/` 下无明文临时文件残留（`find userData -name "*.plain*"` 空） | shell |
-| S-14 | 密钥派生参数可见且合理 | `vault.json` 的 `kdf` = `{name:"scrypt",N>=2^15,r>=8,p>=1}`，salt 随机（两次初始化 salt 不同） | vitest/shell |
-| S-15 | 加密包不含 secretsPolicy 退让 | `vaultContentPolicySchema` 三字段恒为 `secretsExcluded:true`/`privateKeysExcluded:true`/`plaintextHostnamesInRepo:false`；尝试写入 `false` 被拒 | vitest |
+| S-14 | 密钥派生参数可见且合理 | `manifest.json` 的 `kdf` = `{name:"scrypt",N>=2^15,r>=8,p>=1}`，salt 随机（两次初始化 salt 不同） | vitest/shell |
+| S-15 | 加密包策略不退让 | `vaultContentPolicySchema` 三字段恒为 `secretsExcluded:true`/`privateKeysExcluded:true`/`plaintextHostnamesInRepo:false`；尝试写入 `false`/`true` 被 zod 拒绝。语义以「**仓库里的明文**」为准：`secretsExcluded` 指明文排除（密码/passphrase/AI key/Git token 只在 `vault.enc` 内），不是「不同步」 | vitest |
 | S-16 | ssh_config 导入 | 准备含 `Host`/`HostName`/`Port`/`User`/`IdentityFile`/`ProxyJump`/通配 `Host *` 的 `~/.ssh/config` → 导入列表显示可选项、通配被跳过（`reason:"wildcard"`）、重复被跳过；导入后主机字段与配置一致（port 数字、identityFile 路径） | vitest（解析）+ e2e |
 | S-17 | ssh_config 写回 | 编辑主机并「写回 ssh_config」→ 原文件出现/更新对应 `Host` 段落，**其它行与注释逐字节不变**；`createBackup` 生成 `.bak`；`dryRun` 只返回 diff 不写盘 | vitest（黄金文件对比）+ shell |
 | S-18 | ssh_config 写回幂等 | 连续写回两次 → 第二次 `changedLineCount === 0`、文件字节不变 | vitest |
