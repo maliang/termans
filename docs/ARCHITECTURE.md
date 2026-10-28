@@ -455,6 +455,10 @@ EXIT=0
 | └ `Contents/Resources/app.asar` | 12 MB | 1198 个文件：`out/` 628 KB + 三个生产依赖闭包 |
 | `dist/Termans-0.1.0-arm64.dmg` | 118 MB | `electron-builder --mac dmg --arm64` 验证通过（exit 0） |
 | `dist/Termans-0.1.0-arm64-mac.zip` | 114 MB | `electron-builder --mac zip --arm64` 验证通过（exit 0） |
+| `dist/mac/Termans.app` | **290 MB** | x64 目录包，`electron-builder --mac --x64 --dir` 验证通过（exit 0，会下载 x64 Electron） |
+
+> 两个目录包可并存（`dist/mac-arm64` 与 `dist/mac`），互不覆盖；asar 内各自的原生模块架构也各自正确
+> （实测两边的 `cpu-features.node` 分别是 arm64 与 x86_64）。
 
 启动验证（直接跑包内二进制，`env -u ELECTRON_RUN_AS_NODE` + 临时 `TERMANS_E2E_USER_DATA`，靠 `TERMANS_CAPTURE_PATH` 截图）：
 
@@ -472,6 +476,29 @@ run2: capture_after=1.68s  window_est=0.48s  png=89449B  alive=True
 
 顺带发现（不是 bug）：把 `userData` 指到一个**空临时目录**时，Chromium 会打 3 行
 `Failed to create directory: …/Shared Dictionary/cache`。这是缓存目录没建，功能不受影响；真实用户目录由 Electron 自己创建。
+
+### ★ 交叉打包会就地改写 node_modules 里的原生模块
+
+`electron-builder` 打包前跑 `@electron/rebuild`，按**目标架构**重编原生依赖，且**直接改 `node_modules` 里的二进制**
+（不是往产物目录拷一份了事）。实测：
+
+```
+$ npx electron-builder --mac --x64 --dir          # 打完 x64 后
+$ file node_modules/cpu-features/build/Release/cpufeatures.node
+… Mach-O 64-bit bundle x86_64                     # 本机（arm64）的 node_modules 被写成 x64
+$ npx electron-builder --mac --arm64 --dir        # 再打 arm64 才恢复
+$ file node_modules/cpu-features/build/Release/cpufeatures.node
+… Mach-O 64-bit bundle arm64
+```
+
+对开发者的两个实际后果：
+
+1. **交叉打完 x64 之后，本机的 `pnpm dev` / vitest 会加载错架构的原生模块**。ssh2 对可选原生绑定的加载是
+   try/catch，功能不坏（`node -e "require('ssh2')"` 仍 ok），但直接 `require('cpu-features')` 会报
+   `incompatible architecture`。别误判成「依赖装坏了」。**规矩：在 arm64 机器上交叉打了 x64，收尾必须再打一次 arm64**
+   （或 `pnpm rebuild cpu-features`）。CI 上各架构分开跑，不存在这问题。
+2. **纯 `node` 加载不了 `cpu-features`**：它按 Electron 45 的 ABI（`process.versions.modules=150`）编译，
+   只有 Electron 运行时能 `require`。因此**不要给原生绑定直接写单测**（vitest 跑在纯 node 下）；要测就 mock，或走 ssh2 的公开 API。
 
 ### 未签名产物的 Gatekeeper 行为（必须提前告诉用户）
 
@@ -504,8 +531,10 @@ Signature=adhoc | TeamIdentifier=not set | Sealed Resources=none
 
 ### 打包相关的已知限制
 
-1. **只验证了 mac arm64**：win nsis / linux AppImage+deb 的配置已就绪但未在本机产出（需对应平台或 CI）。
-2. **mac x64 未产出**：需要下载 x64 版 Electron（约 110 MB）；`pnpm pack` 会做，`pack:dir` 不会。
+1. **mac 双架构已验证，win/linux 未验证**：mac arm64（dir/dmg/zip）与 mac x64（dir）均 exit 0 且产物齐全；
+   win nsis / linux AppImage+deb 的配置就绪但未在本机产出（需对应平台或 CI）。
+2. **`pnpm pack:dir` 只出当前架构**（本机 = arm64）；要 x64 目录包用 `npx electron-builder --mac --x64 --dir`，
+   代价是下载 x64 版 Electron（约 110 MB）并按上文规矩再打回 arm64。
 3. **无签名/公证/自动更新**：本期明确不做；`electron-updater` 未引入。
 4. **`dist/` 会越滚越大**：每次 `pack` 都重新生成，非 CI 环境记得手动清。
 5. **cpu-features 原生模块**：ssh2 的可选加速，已随包进 `app.asar.unpacked/`；它和 `nan/buildcheck` 是打包时
