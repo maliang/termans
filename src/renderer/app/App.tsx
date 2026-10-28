@@ -2,7 +2,9 @@ import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MenuCommand } from '@shared'
 import { call, describeError, subscribe } from '../platform/ipc'
-import { changeLocale } from '../i18n'
+import { useLocaleBootstrap } from '../i18n/useLocale'
+import { SettingsDialogHost } from '../theme/SettingsDialogHost'
+import { useThemeBootstrap } from '../theme/hooks'
 import { useShellStore } from './store'
 import { AiPanel } from './placeholders/AiPanel'
 import { HostSidebar } from './placeholders/HostSidebar'
@@ -33,7 +35,6 @@ export function App(): JSX.Element {
   const vault = useShellStore((state) => state.vault)
   const previewLocked = useShellStore((state) => state.previewLocked)
   const aiPanelVisible = useShellStore((state) => state.aiPanelVisible)
-  const settings = useShellStore((state) => state.settings)
   const platform = useShellStore((state) => state.platform)
   const lastError = useShellStore((state) => state.lastError)
 
@@ -75,12 +76,10 @@ export function App(): JSX.Element {
     }
   }, [])
 
-  // ③ 语言与主题：设置一变就同步到 i18next 与 <html data-theme>
-  useEffect(() => {
-    void changeLocale(settings.locale)
-    document.documentElement.dataset['theme'] = settings.themeId.includes('light') ? 'light' : 'dark'
-    document.documentElement.lang = settings.locale
-  }, [settings.locale, settings.themeId])
+  // ③ 语言与主题：首启跟随系统语言、切换即时生效；主题由 theme 模块把 52 个 token
+  //    内联到 <html> 并通知已注册的 xterm 重绘（含已打开的终端，不重建实例）
+  useLocaleBootstrap()
+  useThemeBootstrap()
 
   const locked = previewLocked || vault === 'locked'
 
@@ -94,6 +93,7 @@ export function App(): JSX.Element {
       {aiPanelVisible ? <AiPanel /> : null}
       <StatusBar />
       {lastError ? <div className="ts-toast" role="alert">{lastError}</div> : null}
+      <SettingsDialogHost />
       {locked ? <LockScreen /> : null}
     </div>
   )

@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { SettingsButton } from '../../theme/SettingsDialogHost'
 import { useShellStore } from '../store'
 
 /**
@@ -21,6 +22,7 @@ export function StatusBar(): JSX.Element {
       <span className="ts-statusbar__item">{t('common:state.vault', { state: vault })}</span>
       <span className="ts-statusbar__item">{t('common:state.tabs', { count: tabs.length })}</span>
       <span className="ts-statusbar__spacer" />
+      <SettingsButton />
       {lastError ? (
         <span className="ts-statusbar__item ts-statusbar__item--error" role="alert">
           {lastError}

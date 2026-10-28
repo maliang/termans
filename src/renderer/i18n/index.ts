@@ -1,83 +1,83 @@
 import i18next from 'i18next'
 import { initReactI18next } from 'react-i18next'
-import {
-  DEFAULT_LOCALE,
-  DEFAULT_NAMESPACE,
-  I18N_NAMESPACES,
-  LOCALE_FALLBACK,
-  LOCALES,
-  type Locale,
-  type LocaleResource
-} from '@shared'
+import { DEFAULT_NAMESPACE, I18N_NAMESPACES, LOCALES, type Locale, type LocaleResource } from '@shared'
+import { buildI18nOptions, getMissingKeys, type LocaleResources, type MissingKeyInfo } from './options'
+import { detectSystemLocale } from './locale'
 
 /**
- * i18n 引导（骨架版；theme-i18n 成员在此之上扩展语言切换 UI 与 namespace 内容是允许的）。
+ * i18n 引导。
  *
  * 资源打包方式：Vite 的 `import.meta.glob` 把 `src/locales/<lang>/<feature>.json` 一次性静态收进来。
- * 好处是离线/打包后零 IO、路径写错会在**构建期**报错（而不是运行时静默缺文案）。
+ * 好处是离线/打包后零 IO，路径写错会在**构建期**报错（而不是运行时静默缺文案）。
  *
- * 两个必须保持的配置：
- * - `keySeparator: false` —— 我们的 key 是扁平点号串（`hosts.empty.title`），
- *   默认的 `.` 分隔会把它拆成嵌套查找，永远命中不到；
- * - `nsSeparator` 保持默认 ':' —— 组件里统一用 `t('hosts:empty.title')` 这种带 namespace 的写法；
-  把它设成 false 会让 ':' 变成字面量，所有带前缀的 key 都命不中，界面上直接显示 `hosts:empty.title`
-  （这个坑真实踩过：截图里全是原始 key，但构建、类型检查、测试全绿）。
-- `fallbackLng` 走 LOCALE_FALLBACK（zh-CN → en），避免中文漏 key 时显示原始 key。
+ * 选项的构造在 `./options.ts`（纯函数、node 可测），这里只负责：
+ * 收资源 → init → 切语言 → 把缺 key 的告警统一出口。
+ *
+ * 两个不能动的配置（改动前先读 docs/i18n.md）：
+ * - `keySeparator: false`：资源是扁平点号 key；
+ * - `nsSeparator: ':'` 保持默认：关掉会让 `t('hosts:empty.title')` 整串当 key 显示在界面上，
+ *   而构建、类型检查、单测全绿（这个坑真实踩过）。
  */
 
 type LocaleModules = Record<string, { default: LocaleResource }>
 
-/**
- * LOCALE_FALLBACK 的值是单个语言名，而 i18next 的 `fallbackLng` 对象形态要求 `string[]`。
- * 这里显式转换，避免把契约里的形状直接塞给库（TS 会报 not assignable）。
- */
-function buildFallbackLng(): Record<string, readonly string[]> {
-  return Object.fromEntries(Object.values(LOCALES).map((locale) => {
-    const fallback = LOCALE_FALLBACK[locale]
-    return [locale, fallback ? [fallback] : []]
-  }))
-}
-
 const modules = import.meta.glob<{ default: LocaleResource }>('../../locales/*/*.json', { eager: true }) as LocaleModules
 
 /** 把 glob 结果整理成 i18next 需要的 { lang: { ns: resource } } */
-export function buildResources(): Record<string, Record<string, LocaleResource>> {
-  const resources: Record<string, Record<string, LocaleResource>> = {}
+export function buildResources(): LocaleResources {
+  const resources: LocaleResources = {}
   for (const [path, mod] of Object.entries(modules)) {
     const match = /locales\/([^/]+)\/([^/]+)\.json$/.exec(path)
     if (!match) continue
     const [, lang, ns] = match
-    if (!match || !lang || !ns) continue
+    if (!lang || !ns) continue
     resources[lang] ??= {}
     resources[lang][ns] = mod.default
   }
   return resources
 }
 
+/** 打包期自检：每个语言 × namespace 都必须有资源，缺了在 dev 下吼一声（prod 由测试兜底） */
+function assertResourcesComplete(resources: LocaleResources): void {
+  const problems: string[] = []
+  for (const locale of LOCALES) {
+    for (const ns of I18N_NAMESPACES) {
+      const table = resources[locale]?.[ns]
+      if (!table || Object.keys(table).length === 0) problems.push(`${locale}/${ns}.json`)
+    }
+  }
+  if (problems.length > 0 && import.meta.env?.DEV) {
+    console.error(`[i18n] 缺少语言资源：${problems.join(', ')}`)
+  }
+}
+
 let initialized = false
 
-export async function initI18n(locale: Locale = DEFAULT_LOCALE): Promise<void> {
+/** 首屏语言：有用户偏好用偏好，否则跟随系统 —— 详情见 ./locale.ts */
+export function resolveBootLocale(): Locale {
+  return detectSystemLocale()
+}
+
+export async function initI18n(locale: Locale = resolveBootLocale()): Promise<void> {
   if (initialized) {
     await changeLocale(locale)
     return
   }
-  await i18next.use(initReactI18next).init({
-    resources: buildResources(),
-    lng: locale,
-    fallbackLng: buildFallbackLng(),
-    supportedLngs: [...LOCALES],
-    ns: [...I18N_NAMESPACES],
-    defaultNS: DEFAULT_NAMESPACE,
-    keySeparator: false,
-    interpolation: { escapeValue: false },
-    returnNull: false
-  })
+  const resources = buildResources()
+  assertResourcesComplete(resources)
+  await i18next.use(initReactI18next).init(buildI18nOptions({ resources, locale }))
   initialized = true
 }
 
 export async function changeLocale(locale: Locale): Promise<void> {
-  // 单语言：回退链由 i18next 的 fallbackLng 配置决定，这里不重复传数组
   await i18next.changeLanguage(locale)
 }
 
+/** 缺 key 记录（e2e/单测断言「没有静默显示裸 key」） */
+export function missingKeyReport(): readonly MissingKeyInfo[] {
+  return getMissingKeys()
+}
+
 export { i18next }
+export { DEFAULT_NAMESPACE }
+export type { MissingKeyInfo }
