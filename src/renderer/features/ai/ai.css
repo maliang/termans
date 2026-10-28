@@ -1,0 +1,542 @@
+/**
+ * AI 面板样式。
+ *
+ * 只用 `--ts-*` token（见 src/renderer/styles/tokens.css），不写死颜色：
+ * 主题切换时 AI 面板必须跟着变，写死色值的话暗色主题下会出现「白底白字」。
+ */
+
+.ts-ai-panel__title {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--ts-font-size-sm);
+  color: var(--ts-text-primary);
+}
+
+.ts-ai-panel__provider {
+  max-width: 42%;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-ui);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-ai-panel__provider:focus-visible,
+.ts-ai-form input:focus-visible,
+.ts-ai-form select:focus-visible,
+.ts-ai-form textarea:focus-visible,
+.ts-ai-panel__composer textarea:focus-visible {
+  outline: 2px solid var(--ts-focus-ring);
+  outline-offset: -1px;
+}
+
+/* ---------- 消息 ---------- */
+
+.ts-ai-msg {
+  margin-bottom: 14px;
+}
+
+.ts-ai-msg__role {
+  margin: 0 0 4px;
+  font-size: var(--ts-font-size-sm);
+  color: var(--ts-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ts-ai-msg--user .ts-ai-msg__body {
+  background: var(--ts-bg-elevated);
+  border-radius: var(--ts-radius-md);
+  padding: 8px 10px;
+}
+
+.ts-ai-msg__body > p {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ts-text-primary);
+  font-size: var(--ts-font-size-base);
+  line-height: 1.55;
+}
+
+.ts-ai-msg__body > p:last-child {
+  margin-bottom: 0;
+}
+
+.ts-ai-msg__body > p + p {
+  margin-top: 8px;
+}
+
+.ts-ai-msg__code {
+  margin: 8px 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  background: var(--ts-bg-app);
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-sm);
+  color: var(--ts-text-primary);
+}
+
+.ts-ai-msg__caret {
+  display: inline-block;
+  width: 6px;
+  height: 12px;
+  margin-left: 4px;
+  background: var(--ts-accent);
+  animation: ts-ai-blink 1s steps(2, start) infinite;
+  vertical-align: middle;
+}
+
+@keyframes ts-ai-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* ---------- 命令卡片 ---------- */
+
+.ts-ai-commands {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ts-ai-card {
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-bg-elevated);
+  padding: 8px 10px;
+}
+
+.ts-ai-card__explain {
+  margin: 0 0 6px;
+  font-size: var(--ts-font-size-sm);
+  color: var(--ts-text-secondary);
+}
+
+.ts-ai-card__cmd {
+  margin: 0;
+  padding: 6px 8px;
+  overflow-x: auto;
+  background: var(--ts-bg-app);
+  border-radius: var(--ts-radius-sm);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-sm);
+  color: var(--ts-text-primary);
+}
+
+.ts-ai-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ts-ai-card__hint {
+  font-size: var(--ts-font-size-sm);
+  color: var(--ts-text-muted);
+}
+
+/* ---------- 上下文开关 / 发送区 ---------- */
+
+.ts-ai-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--ts-font-size-sm);
+  color: var(--ts-text-secondary);
+}
+
+.ts-ai-context__toggle,
+.ts-ai-context__lines {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ts-ai-context__lines input {
+  width: 58px;
+  height: 22px;
+  padding: 0 5px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-ui);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-ai-context__warn {
+  color: var(--ts-status-warn);
+}
+
+.ts-ai-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ts-ai-actions .ts-btn {
+  height: 26px;
+  padding: 0 8px;
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-ai-send {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ts-ai-send__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: auto;
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-ai-usage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 6px 0 0;
+  color: var(--ts-text-muted);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-ai-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--ts-status-error);
+  border-radius: var(--ts-radius-sm);
+  color: var(--ts-status-error);
+  font-size: var(--ts-font-size-sm);
+  background: var(--ts-bg-elevated);
+}
+
+/* ---------- 表单 ---------- */
+
+.ts-ai-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ts-ai-form__row {
+  display: flex;
+  gap: 8px;
+}
+
+.ts-ai-form__row > .ts-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.ts-ai-form input,
+.ts-ai-form select,
+.ts-ai-form textarea {
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-ui);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-ai-form textarea {
+  resize: vertical;
+  font-family: var(--ts-font-mono);
+}
+
+.ts-field__hint {
+  display: block;
+  margin-top: 3px;
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-sm);
+  line-height: 1.45;
+}
+
+.ts-ai-form__key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ts-ai-form__keymask {
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-sm);
+  color: var(--ts-text-muted);
+}
+
+.ts-ai-form__check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--ts-font-size-sm);
+  color: var(--ts-text-secondary);
+}
+
+.ts-ai-form__note {
+  margin: 0;
+  padding: 7px 9px;
+  border-left: 2px solid var(--ts-accent);
+  background: var(--ts-bg-elevated);
+  border-radius: var(--ts-radius-sm);
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-sm);
+  line-height: 1.5;
+}
+
+.ts-ai-form__message {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: var(--ts-radius-sm);
+  font-size: var(--ts-font-size-sm);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ts-ai-form__message.is-ok {
+  color: var(--ts-status-ok);
+  background: var(--ts-bg-elevated);
+  border: 1px solid var(--ts-status-ok);
+}
+
+.ts-ai-form__message.is-error {
+  color: var(--ts-status-error);
+  background: var(--ts-bg-elevated);
+  border: 1px solid var(--ts-status-error);
+}
+
+.ts-ai-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ts-ai-form__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ts-border);
+}
+
+.ts-ai-form__list-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 4px;
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-ai-form__empty {
+  margin: 0;
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-ai-form__item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: 'name key' 'model key';
+  gap: 0 8px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--ts-radius-sm);
+  background: transparent;
+  color: var(--ts-text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ts-ai-form__item:hover {
+  background: var(--ts-bg-elevated);
+}
+
+.ts-ai-form__item.is-active {
+  border-color: var(--ts-accent);
+  background: var(--ts-bg-elevated);
+}
+
+.ts-ai-form__item-name {
+  grid-area: name;
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-ai-form__item-model {
+  grid-area: model;
+  color: var(--ts-text-muted);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-ai-form__item-key {
+  grid-area: key;
+  align-self: center;
+  color: var(--ts-text-muted);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-ai-form__hint-active {
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-sm);
+}
+
+/* ---------- 弹窗（预览 / 二次确认） ---------- */
+
+.ts-ai-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 45%);
+}
+
+.ts-ai-modal__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(640px, 100%);
+  max-height: 80vh;
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-lg);
+  background: var(--ts-bg-elevated);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 35%);
+}
+
+.ts-ai-modal__panel.is-danger {
+  border-color: var(--ts-danger);
+}
+
+.ts-ai-modal__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--ts-text-primary);
+  font-size: var(--ts-font-size-base);
+  font-weight: 600;
+}
+
+.ts-ai-modal__hint {
+  margin: 0;
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-sm);
+  line-height: 1.5;
+}
+
+.ts-ai-modal__preview {
+  margin: 0;
+  padding: 10px;
+  max-height: 42vh;
+  overflow: auto;
+  background: var(--ts-bg-app);
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ts-ai-modal__danger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--ts-danger);
+  border-radius: var(--ts-radius-sm);
+  color: var(--ts-danger);
+  font-size: var(--ts-font-size-sm);
+  background: color-mix(in srgb, var(--ts-danger) 12%, transparent);
+}
+
+.ts-ai-modal__reasons ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  color: var(--ts-danger);
+  font-size: var(--ts-font-size-sm);
+  line-height: 1.6;
+}
+
+.ts-ai-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* ---------- 小工具 ---------- */
+
+.ts-btn--danger {
+  background: var(--ts-danger);
+  border-color: var(--ts-danger);
+  color: var(--ts-text-inverse);
+}
+
+.ts-btn--danger:hover {
+  background: color-mix(in srgb, var(--ts-danger) 85%, black);
+}
+
+.ts-spin {
+  animation: ts-ai-spin 0.9s linear infinite;
+}
+
+@keyframes ts-ai-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ts-ai-toast {
+  position: absolute;
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 88%;
+  padding: 6px 10px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-primary);
+  font-size: var(--ts-font-size-sm);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
+  z-index: 30;
+}
+
+.ts-ai-panel {
+  position: relative;
+}
