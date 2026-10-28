@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_SETTINGS,
   aiCommandSuggestionSchema,
+  aiSettingsSchema,
   hostInputSchema,
   hostLibrarySchema,
   settingsPatchSchema,
@@ -94,6 +95,14 @@ describe('设置模型', () => {
 
   it('AI 命令必须二次确认（字段是字面量 true）', () => {
     expect(() => settingsSchema.parse({ ...DEFAULT_SETTINGS, ai: { ...DEFAULT_SETTINGS.ai, commandConfirmation: false } })).toThrow()
+  })
+
+  it('终端上下文默认 200 行、上限 500 行（与 AI 模块常量一致）', () => {
+    expect(DEFAULT_SETTINGS.ai.contextLines).toBe(200)
+    const parsed = aiSettingsSchema.parse({ ...DEFAULT_SETTINGS.ai, contextLines: 500 })
+    expect(parsed.contextLines).toBe(500)
+    expect(() => aiSettingsSchema.parse({ ...DEFAULT_SETTINGS.ai, contextLines: 501 })).toThrow()
+    expect(aiSettingsSchema.parse({ ...DEFAULT_SETTINGS.ai, contextLines: 0 }).contextLines).toBe(0)
   })
 
   it('补丁 schema 只接受已知字段与已知小节', () => {

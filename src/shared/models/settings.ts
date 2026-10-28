@@ -49,6 +49,7 @@ export const aiSettingsSchema = z.object({
   enabled: z.boolean(),
   /** 是否把终端最近输出作为上下文发送给供应商（默认关，用户显式开启） */
   autoContext: z.boolean(),
+  /** 注入终端上下文的行数上限 500；默认值见 DEFAULT_SETTINGS.ai.contextLines（200，与上下文模块默认一致） */
   contextLines: z.number().int().min(0).max(500),
   defaultProviderId: z.string().nullable(),
   /** 硬约束：AI 产出的命令必须二次确认后才写入终端，不可配置为 false */
@@ -135,7 +136,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ai: {
     enabled: false,
     autoContext: false,
-    contextLines: 80,
+    contextLines: 200,
     defaultProviderId: null,
     commandConfirmation: true
   },

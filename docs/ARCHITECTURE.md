@@ -577,5 +577,7 @@ Signature=adhoc | TeamIdentifier=not set | Sealed Resources=none
 3. **CSP 只在生产注入**：dev 没有 CSP（理由见 §4），所以别在 dev 里验证 CSP 行为。
 4. **sandbox 化 preload**：不能用 `fs`/`path` 的同步能力，所有文件访问都必须走 IPC 到主进程。
 5. **ssh2 未启用原生加速**：可选依赖，忽略即可；若某天需要，走 architect 审批 `pnpm approve-builds`。
-6. **打包：mac arm64 已跑通，其余平台未验证**：`pnpm pack:dir` / `dmg` / `zip` 均 exit 0，产物能启动并截图（§9.5）；
-   win nsis / linux AppImage+deb / mac x64 只有配置、没有实跑。签名/公证/自动更新按计划留到后续里程碑。
+6. **打包：mac 双架构已跑通，win/linux 未验证**：`pnpm pack:dir` / `dmg` / `zip` / `--mac --x64 --dir` 均 exit 0，
+   产物能启动并截图（§9.5）；win nsis / linux AppImage+deb 只有配置、没有实跑。签名/公证/自动更新按计划留到后续里程碑。
+7. **终端上下文默认 200 行、上限 500 行**（`DEFAULT_SETTINGS.ai.contextLines`，schema `max(500)`）：用户可在设置里调低
+   （0 = 完全不注入上下文）；行数越多 token 越贵，这是用户可感知的成本项，改默认值属于契约变更，须经 captain 批准。
