@@ -155,6 +155,24 @@ Git 历史里的旧 `vault.enc` 快照不会被「轮换」追溯性保护，谁
 真正让旧口令失效的只有两件事：B 机拿到新快照、或用户在远端改写了历史（force push / 重写仓库）。
 `manager.test.ts` 与 `envelope.test.ts` 都断言了这一点。
 
+### 3.3.1 恢复码不是一次性的（可反复救命）
+
+`vault:recover` 只重写**口令槽**，恢复码槽保持不变，所以同一个恢复码在恢复之后**仍然有效**，可以再救一次
+（与 SPEC S-08 期望的「旧码失效」相反，理由与裁定见 §10）。测试坐标：
+
+* `src/main/vault/manager.test.ts:210` → `恢复码恢复：换口令、旧口令失效、同一恢复码仍可用（与 SPEC S-08 的偏差已在文档写明）`：
+  先 `recover` → `lock` → 再用**同一个**恢复码 `recover` 一次并断言成功；
+* `src/main/crypto/envelope.test.ts:262` → `recover 只换口令槽：恢复码槽保持原样（契约 vault:recover 不返回新恢复码）`：
+  恢复前后 `manifest.recoveryKey` 逐字节相等。
+
+要主动作废旧恢复码的唯一途径是「重新生成恢复码」（见 §10 第 4 行：它是一次真实的写操作，会 `revision+1`）。
+
+### 3.4 「重新生成恢复码」是一次真实的写操作
+
+入口在安全面板，文案刻意不叫「查看/导出恢复码」：它用 `vault:rotate({currentPassphrase, newPassphrase: currentPassphrase})`
+重验证口令 → 写新 salt → 生成新恢复码 → `revision+1`。**副作用是仓库前进一次、远端需要重新 push**，
+所以点击后先出一步显式确认（写明上述三件事，并提示旧恢复码此后不可用），确认后才真正执行。
+
 ---
 
 ## 4. 解锁 / 锁定 UX
@@ -234,9 +252,21 @@ push:  有未解决冲突? → E_CONFLICT（拒绝推送）
 
 ### 5.4 认证
 
-`auth: 'none' | 'token' | 'ssh-agent'`。token 时 `onAuth` 返回 `{username: 'termans', password: token}`；
-token 本身存在**本机** `credentials.json`（`git:token`），不进仓库。`ssh-agent` 目前显式拒绝
-（`E_INVALID_ARGUMENT`，isomorphic-git 没有 agent 传输），不静默降级成 token。
+`auth: 'none' | 'token' | 'ssh-agent'`。token 时 `onAuth` 返回 `{username: 'termans', password: token}`。
+
+token 的解析顺序（`src/main/git/sync.ts:158-162`）：
+
+```ts
+const fromVault = this.manager.isUnlocked() ? this.manager.payloadForSync().integrations.gitToken : null
+const token = fromVault ?? this.readLocalToken()   // readLocalToken: <localDir>/credentials.json 的 entries['git:token']
+```
+
+即 **token 随密文包同步**（`payload.integrations.gitToken`，`src/main/vault/model.ts:73`，
+也是 `conflicts.ts:175` 认可的合并路径）；本机 `credentials.json` 里的 `git:token` 只是**兜底**——
+用在「还没有 vault / 还没解锁就拿不到 `integrations.gitToken`」的首次 bootstrap（clone 阶段）。
+代价因此是：**换机后第一次 clone 需要重新输入 token，解锁之后 token 就跟着密文包走了**。
+
+`ssh-agent` 目前显式拒绝（`E_INVALID_ARGUMENT`，isomorphic-git 没有 agent 传输），不静默降级成 token。
 
 ---
 
@@ -274,7 +304,7 @@ UI（`PrivateKeyGuide`）给三个入口：导入私钥文件 / 粘贴私钥 / �
 | 引用 | 去向 | 是否同步 |
 | --- | --- | --- |
 | `privatekey:<hostId>` | 本机私钥库 | 否 |
-| `git:token` / `vault:session` | 本机凭据库 | 否 |
+| `git:token` / `vault:session` | 本机凭据库（`git:token` 仅作首次 bootstrap 的兜底，见 §5.4） | 否 |
 | `passphrase:<ref>` | 密文包里的 `secrets[ref].passphrase` | **是** |
 | 其它（如 `ref-<uuid>`） | 密文包里的 `secrets[ref].password` | **是** |
 
@@ -316,22 +346,18 @@ UI（`PrivateKeyGuide`）给三个入口：导入私钥文件 / 粘贴私钥 / �
 
 | 项 | 裁定 |
 | --- | --- |
-| 主机密码进密文包 | **通过，且这是唯一正确解**。B 机拿到条目却连不上就是废条目。`src/shared/models/vault.ts:13` 那句「密码只存 safeStorage」是 t1 时期旧口径，**architect 已在 shared 侧更正该注释**（本任务不碰 `src/shared/**`）；本文件即为更正后的口径依据。 |
+| 主机密码进密文包 | **通过，且这是唯一正确解**。B 机拿到条目却连不上就是废条目。`src/shared/models/vault.ts:13` 的注释是 t1 时期旧口径（当时计划「凭据留在本机钥匙串、仓库里只放引用」），**architect 已在 shared 侧更正**（现口径：密码/passphrase 进 `vault.enc` 的 `secrets`，模型层仍不收明文）；本任务不碰 `src/shared/**`。 |
 | `payload.hostNotes` | 通过（`HostInput` 冻结，另开字段是对的）。 |
 | `vault:recover` 沿用原恢复码 | 通过。**恢复码不是一次性的**：用掉之后仍然有效，可以反复救命（见下方 §10.1 的测试坐标）。 |
 | 「导出恢复码」复用 `vault:rotate` | 接受，但**它不是纯读操作**：会换新盐、`revision+1`、并生成新恢复码，等于「只想看一眼恢复码，结果推进了仓库」。因此 UI 文案是**「重新生成恢复码」**并带一步显式确认，确认框里写明「仓库会前进一次 revision，之后需要重新 push；旧恢复码不再可用」。 |
 | `origins` 无 hostId | 通过。导入后的 UX 必须让用户看见「这次带进来哪些 Host」，被跳过的项（wildcard / no-hostname / duplicate / excluded）单独列出——`importSshConfig` 已返回 `importedAliases` + `skipped[{alias,reason}]`，t7 接线时验证展示。 |
-| AI key 进密文包、Git token 只存本机 | 通过。**代价写明：换机后 Git token 要重新输入**。这是有意为之——token 泄漏等于把仓库写权限交出去，它不该跟密文包一起漂到别人的机器上。 |
+| AI key 进密文包、Git token 的存放 | **AI key 进 `payload.integrations.aiApiKeys`（随仓库同步，密文内）**；**Git token 也进密文包**（`payload.integrations.gitToken`，`sync.ts:159` 优先取它，`conflicts.ts:175` 把它当合并路径），本机 `credentials.json` 的 `git:token` 只是「首次 bootstrap / 未解锁」的兜底。代价写清：**换机后第一次 clone 必须重新输入 token（那时 vault 还没解锁），解锁后即随密文包同步**。 |
 
 
-| 项 | 契约/SPEC 的要求 | 实际实现 | 理由 |
-| --- | --- | --- | --- |
-| 主机密码存放 | `src/shared/models/host.ts` 头注释：「密码/passphrase 只存 safeStorage，同步包里只有 credentialRef」 | 密码/passphrase 进 `vault.enc` 的 `secrets` | 任务书明确要求「B 机用同口令 clone 后密码可解密、能连上」；只存本机 safeStorage 的话跨机迁移就只能靠用户重输。密文包同样是加密的，风险边界不变（且 `credentialRef` 仍是稳定映射） |
-| 主机备注 | `HostInput` 没有 notes 字段 | 存 `payload.hostNotes`，`hosts:list` 响应里挂回 `notes` | 契约冻结不能加字段；备注是敏感信息，必须进密文包 |
-| `vault:recover` 返回体 | SPEC S-08 期望「旧恢复码失效、返回新恢复码」 | 返回 `VaultStatus`（无 recoveryCode），**沿用原恢复码** | `VaultRecoveryRequest`/响应类型冻结，无处返回新码；沿用原码保证「用户抄一次就能反复恢复」。已在此文档与测试里显式记录 |
-| 导出恢复码 | 需要一个「导出恢复码（需重验证）」入口 | 复用 `vault:rotate({current, new: current})` | 不能新增 IPC 通道；该调用语义正是「重验证当前口令 → 新盐 → 新恢复码 → 一次提交」 |
-| `sshConfigImportResult.origins` | 语义上想带 hostId | 只填 `{file, alias}` | `sshConfigOriginSchema` 冻结为 `{file,alias}` |
-| AI key 存放 | `src/shared/models/ai.ts` 头注释：「API key 只存 safeStorage，永不进 Git 同步包」 | `payload.integrations.aiApiKeys`（密文包内，随仓库同步） | 任务书要求「AI key 与 Git token 进同一加密包（由 t5 接入）」。仓库里仍是密文；**Git token 例外地只存本机**（`git:token`），因为它本身就是仓库的访问凭据 |
+> 模型层不变的部分：`host.ts` 仍然只收 `credentialRef`、不收明文凭据，私钥内容也永不进模型——变的是**引用的指向**：
+> `credentialRef` 现在指向 `payload.secrets[ref]`（密文包内），而不再是本机钥匙串条目。
+> `src/shared/models/{host,ai}.ts` 的头注释还留着 t1 时期的旧描述（「指向 safeStorage 密文条目」/「API key 永不进 Git 同步包」），
+> 这两处不在本任务范围，已由 architect 报给 captain 决定并入 t7 还是单独一笔。
 
 ---
 
