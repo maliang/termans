@@ -285,7 +285,11 @@ type IpcResult<T> = { ok: true; data: T } | { ok: false; error: { code: IpcError
 | `pnpm typecheck` | `tsc -p tsconfig.node.json` + `tsc -p tsconfig.web.json`（两个 project 分开：主进程无 DOM，渲染层无 Node） |
 | `pnpm test` | vitest：`tests/**/*.test.ts` + `src/**/*.test.ts` |
 | `pnpm test:e2e` | 先 `pnpm build`，再 Playwright 启动 `out/main/index.js` |
-| `pnpm package` / `package:dir` | electron-builder（dmg/nsis/AppImage），图标来自 `build/` |
+| `pnpm pack:dir` | 先 `pnpm build`，再 `electron-builder --dir`：只产出**未签名**目录包 `dist/mac-arm64/Termans.app`（本机验证用，最快） |
+| `pnpm pack` | 先 `pnpm build`，再 `electron-builder`：产出完整安装包（mac dmg+zip、win nsis、linux AppImage+deb，见 §9.5） |
+
+> `dist/` 已进 `.gitignore`；旧脚本名 `package` / `package:dir` 在 P4a 改名为 `pack` / `pack:dir`
+> （`package` 与 npm 内置语义太像，容易误读成 `npm pack` 出 tarball）。
 
 ### 三个环境坑（macOS + 本机实测）
 
@@ -358,7 +362,154 @@ out/preload/index.js  3.70 kB
 [termans] captured /Users/maliang/Documents/develop/maliang/termans/docs/assets/shell-dev.png
 ```
 
-截图：`docs/assets/shell-dev.png`（dev 窗口）、`docs/assets/shell.png`（e2e 打包产物截图）。
+截图：`docs/assets/shell-dev.png`（dev 窗口）、`docs/assets/shell.png`（e2e 截图）、`docs/assets/pack-dir.png`（打包后的 .app 启动截图，见 §9.5）。
+
+---
+
+## 9.5 打包（P4a：electron-builder）
+
+### 配置文件与产出目录
+
+配置在 **`electron-builder.yml`**（不用 `package.json` 的 `build` 字段），理由：
+1. `build` 字段塞进 JSON 会变成一大段转义串，review 时看不出结构，改一个 target 就是一行长 diff；
+2. `package.json` 在本项目是「依赖 + 脚本」的单写者文件，配置分离后调打包参数不必碰依赖文件；
+3. electron-builder 原生读 yml，零额外依赖。
+
+产出目录 `directories.output: dist`（已进 `.gitignore`）。`buildResources: build` 是图标/授权文件的来源目录。
+
+| 平台 | target | 架构 | 说明 |
+| --- | --- | --- | --- |
+| mac | `dmg` + `zip` | arm64 + x64 | `identity: null` 明确**不签名**，`notarize: false`，`gatekeeperAssess: false` |
+| win | `nsis` | x64 | `oneClick: false`（可选安装目录）、`shortcutName: Termans` |
+| linux | `AppImage` + `deb` | x64 | `category: Development` |
+
+`asar: true`：源码与 `node_modules` 打进单文件 `app.asar`；原生模块（`cpu-features`）自动落到 `app.asar.unpacked/`。
+
+### files 白名单：只放运行期需要的东西
+
+```yaml
+files:
+  - out/**            # 三端构建产物（main/preload/renderer）
+  - package.json      # 主进程要读 version / main
+  - node_modules/**   # 见下：electron-builder 按 dependencies 计算生产闭包，这里列出来是为了「看得见 + 能排除」
+  - '!node_modules/**/{test,__tests__,tests,docs,example,examples}/**'
+  - '!node_modules/**/*.md'
+```
+
+主进程在 `electron.vite.config.ts` 里 `externalizeDepsPlugin()`，所以**运行期靠 require**，`ssh2` / `isomorphic-git` / `zod` 一个都不能缺。
+实测 asar 里只有这三个包及其传递依赖（`asn1`、`bcrypt-pbkdf`、`pako`、`simple-get`、`tweetnacl`… 共 1198 个文件），
+**没有** react/typescript/vitest 等 devDependency —— 渲染层依赖由 Vite 打包进 `out/renderer/assets/*.js`，不进 `node_modules`。
+
+### 图标接线（显式，不靠默认巧合）
+
+electron-builder 默认会去 `build/` 找 `icon.icns|ico|png`，但「默认找得到」不算接线。本仓库在 yml 里**显式写死**
+`mac.icon: build/icon.icns`、`win.icon: build/icon.ico`、`linux.icon: build/icon.png`，并做了三道实测：
+
+1. 源文件与设计交付物逐字节一致（`design/BRAND.md` v4「错开版 `>_`」）：
+   ```
+   $ shasum -a 256 build/icon.icns design/logo/export/termans.icns | awk '{print $1}' | uniq -c
+   2 6e295b78d38f561dd06edf84f6d56d23b944403b275a86eb5c3e6d47969f6105
+   $ shasum -a 256 build/icon.png design/logo/export/termans-icon-1024.png | awk '{print $1}' | uniq -c
+   2 bc879738d0f2497d16943e47686e8d9963237f3ef9e7439fb1038847563a8424
+   $ shasum -a 256 build/icon.ico design/logo/export/termans.ico | awk '{print $1}' | uniq -c
+   2 f770412033e6bef3d4afffb036896732da686691093b26f1052f834106e72718
+   ```
+   资源规格：`icon.png` 1024×1024、`icon.icns` 10 档（含 16/32/128/256/512/1024）、`icon.ico` 7 档（16…256）。
+2. 打包产物里确实带上了**同一份**图标（不是被 electron-builder 重新生成或忽略）：
+   ```
+   $ plutil -p dist/mac-arm64/Termans.app/Contents/Info.plist | grep -i icon
+     "CFBundleIconFile" => "icon.icns"
+   $ shasum -a 256 dist/mac-arm64/Termans.app/Contents/Resources/icon.icns build/icon.icns
+   6e295b78…f6105  dist/mac-arm64/Termans.app/Contents/Resources/icon.icns
+   6e295b78…f6105  build/icon.icns
+   ```
+3. 包元数据正确：
+   ```
+   CFBundleName => Termans | CFBundleIdentifier => com.termans.app
+   CFBundleShortVersionString => 0.1.0 | CFBundleExecutable => Termans
+   LSApplicationCategoryType => public.app-category.developer-tools
+   ```
+
+### 实跑记录（2026-10-29 01:25 +08:00，macOS 26 arm64）
+
+`pnpm pack:dir`：
+
+```
+  • electron-builder  version=26.18.0 os=27.0.0
+  • loaded configuration  file=/Users/maliang/Documents/develop/maliang/termans/electron-builder.yml
+  • executing @electron/rebuild  electronVersion=45.1.0 arch=arm64
+  • packaging       platform=darwin arch=arm64 electron=45.1.0 appOutDir=dist/mac-arm64
+  • searching for node modules  pm=pnpm searchDir=…
+  • skipped macOS code signing  reason=identity explicitly is set to null
+EXIT=0
+```
+
+> `--dir` 只出**当前架构**（arm64）。`pnpm pack`（不带 `--dir`）才会按 yml 的 arch 列表产出 arm64 + x64 各一份。
+
+产物与体积：
+
+| 产物 | 大小 | 备注 |
+| --- | --- | --- |
+| `dist/mac-arm64/Termans.app` | **270 MB** | 未压缩目录包 |
+| └ `Contents/Frameworks` | 252 MB | Electron 45 运行时（Chromium + Node + SwiftShader 等） |
+| └ `Contents/Resources/app.asar` | 12 MB | 1198 个文件：`out/` 628 KB + 三个生产依赖闭包 |
+| `dist/Termans-0.1.0-arm64.dmg` | 118 MB | `electron-builder --mac dmg --arm64` 验证通过（exit 0） |
+| `dist/Termans-0.1.0-arm64-mac.zip` | 114 MB | `electron-builder --mac zip --arm64` 验证通过（exit 0） |
+
+启动验证（直接跑包内二进制，`env -u ELECTRON_RUN_AS_NODE` + 临时 `TERMANS_E2E_USER_DATA`，靠 `TERMANS_CAPTURE_PATH` 截图）：
+
+```
+run1: capture_after=1.70s  window_est=0.50s  png=89449B  alive=True
+run2: capture_after=1.68s  window_est=0.48s  png=89449B  alive=True
+（首启冷启动：capture_after=3.92s → 页面就绪 ~2.72s，差额是首次系统校验/磁盘缓存）
+[ipc] registered 53 channels (48 placeholder)
+[ipc] placeholders: theme:list, theme:save, … ai:list-conversations
+[termans] captured /Users/maliang/Documents/develop/maliang/termans/docs/assets/pack-dir.png
+```
+
+> `window_est` = capture 时刻 − 1200 ms（截图钩子固定在 `did-finish-load` 之后 1.2 s 触发，见 §9 环境坑 3）。
+> 状态条显示 `Termans 0.1.0`（打包后 `app.getVersion()` 读的是 `package.json` 的版本，与 dev/e2e 表现不同，见 §12）。
+
+顺带发现（不是 bug）：把 `userData` 指到一个**空临时目录**时，Chromium 会打 3 行
+`Failed to create directory: …/Shared Dictionary/cache`。这是缓存目录没建，功能不受影响；真实用户目录由 Electron 自己创建。
+
+### 未签名产物的 Gatekeeper 行为（必须提前告诉用户）
+
+`identity: null` 意味着**没有 Developer ID 签名、也没公证**。本机构建出的 `.app` 没有 quarantine 属性，直接双击能开；
+但**任何通过浏览器/微信/AirDrop 传出去的 dmg/zip 都会被 macOS 打上 `com.apple.quarantine`**，首次打开报
+「Termans 已损坏，无法打开」或「无法验证开发者」。这不是包坏了。
+
+用户侧两种解法（写进 README/发布说明）：
+
+1. **右键 → 打开**（或在「系统设置 → 隐私与安全性」底部点「仍要打开」）——只需一次，之后正常。
+2. 命令行去隔离（适合脚本/CI 分发）：
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Termans.app
+   ```
+
+判断依据（本机实测，未签名状态）：
+
+```
+$ xattr -l dist/mac-arm64/Termans.app
+com.apple.provenance:            # 只有溯源属性，没有 quarantine → 本机可直接运行
+$ spctl --assess --type execute -vv dist/mac-arm64/Termans.app
+dist/mac-arm64/Termans.app: code has no resources but signature indicates they must be present
+$ codesign -dv dist/mac-arm64/Termans.app 2>&1 | head -4
+CodeDirectory … flags=0x20002(adhoc,linker-signed)
+Signature=adhoc | TeamIdentifier=not set | Sealed Resources=none
+```
+
+即：arm64 上 Electron 自带 ad-hoc 签名让**本机**能跑，但没有 Team ID 与资源封印，Gatekeeper 对外来副本一律拦。
+后续里程碑补：Developer ID Application 证书 + `notarytool` 公证 + `stapler`，以及 Windows 代码签名。
+
+### 打包相关的已知限制
+
+1. **只验证了 mac arm64**：win nsis / linux AppImage+deb 的配置已就绪但未在本机产出（需对应平台或 CI）。
+2. **mac x64 未产出**：需要下载 x64 版 Electron（约 110 MB）；`pnpm pack` 会做，`pack:dir` 不会。
+3. **无签名/公证/自动更新**：本期明确不做；`electron-updater` 未引入。
+4. **`dist/` 会越滚越大**：每次 `pack` 都重新生成，非 CI 环境记得手动清。
+5. **cpu-features 原生模块**：ssh2 的可选加速，已随包进 `app.asar.unpacked/`；它和 `nan/buildcheck` 是打包时
+   `@electron/rebuild` 的唯一工作来源（日志里的 `preparing moduleName=cpu-features`）。
 
 ---
 
@@ -397,5 +548,5 @@ out/preload/index.js  3.70 kB
 3. **CSP 只在生产注入**：dev 没有 CSP（理由见 §4），所以别在 dev 里验证 CSP 行为。
 4. **sandbox 化 preload**：不能用 `fs`/`path` 的同步能力，所有文件访问都必须走 IPC 到主进程。
 5. **ssh2 未启用原生加速**：可选依赖，忽略即可；若某天需要，走 architect 审批 `pnpm approve-builds`。
-6. **打包未验证**：`electron-builder.yml` 已就绪（mac dmg / win nsis / linux AppImage，图标齐备），
-   但 `pnpm package` 属于 t9，尚未在本机跑通（需要签名/证书决策）。
+6. **打包：mac arm64 已跑通，其余平台未验证**：`pnpm pack:dir` / `dmg` / `zip` 均 exit 0，产物能启动并截图（§9.5）；
+   win nsis / linux AppImage+deb / mac x64 只有配置、没有实跑。签名/公证/自动更新按计划留到后续里程碑。

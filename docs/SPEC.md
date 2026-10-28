@@ -168,13 +168,15 @@
 
 | 编号 | 判据 | 操作 | 落点 |
 | --- | --- | --- | --- |
-| P-01 | 目录包可启动 | `pnpm package:dir` → `release/mac-arm64/Termans.app` 双击能起窗口、能连 SSH（连本地 sshd） | M |
-| P-02 | asar 内不含源码泄露敏感物 | `npx asar list release/.../app.asar` 不含 `src/`、`.env`、`*.pem`、测试快照 | shell |
-| P-03 | 图标与元数据 | Dock 图标为品牌 chevron；`CFBundleName=Termans`、`CFBundleIdentifier=com.termans.app`、版本与 package.json 一致 | shell（`plutil -p`）+ M |
-| P-04 | 生产 CSP 生效 | 打包产物里 `out/renderer/index.html` 含 CSP meta；运行后 DevTools Console 无 CSP 违规刷屏、终端仍正常显示（xterm 内联样式） | shell + M |
-| P-05 | 三平台产物 | mac dmg（arm64/x64）、win nsis（x64/arm64）、linux AppImage 构建命令成功（CI 或本机至少 mac） | CI |
+| P-01 | 目录包可启动 | `pnpm pack:dir` → `dist/mac-arm64/Termans.app` 直接运行能起窗口（`env -u ELECTRON_RUN_AS_NODE dist/mac-arm64/Termans.app/Contents/MacOS/Termans`），状态条版本显示 `Termans 0.1.0`；能连本地 sshd | M/e2e |
+| P-02 | asar 内不含源码泄露敏感物 | `npx asar list dist/mac-arm64/Termans.app/Contents/Resources/app.asar \| grep -E "^/(src\|out/.*\.ts\|\.env\|.*\.pem)"` 为空；`node_modules` 只含生产依赖（ssh2/isomorphic-git/zod 闭包），无 react/typescript/vitest | shell |
+| P-03 | 图标与元数据 | `plutil -p …/Info.plist` 含 `CFBundleName=Termans`、`CFBundleIdentifier=com.termans.app`、`CFBundleShortVersionString` 与 package.json 一致、`CFBundleIconFile=icon.icns`；且 `shasum -a 256 …/Resources/icon.icns build/icon.icns` 两行相同（证明是设计交付的 v4 图标而非默认图标）；DevTools 里 Dock 图标为 chevron | shell + M |
+| P-04 | 生产 CSP 生效 | `grep -o 'Content-Security-Policy[^>]*' out/renderer/index.html` 命中（生产构建注入、dev 不注入）；运行打包产物后 DevTools Console 无 CSP 违规刷屏、终端仍正常显示（xterm 运行时注入 `<style>`，依赖 `style-src 'unsafe-inline'`） | shell + M |
+| P-05 | 三平台产物 | mac `dmg`+`zip`（arm64/x64）、win `nsis`（x64）、linux `AppImage`+`deb`（x64）构建 exit 0；本机至少 mac 全绿（`electron-builder --mac dmg --arm64` 已验证） | CI |
 | P-06 | 卸载/升级不丢数据 | 覆盖安装新版本 → `userData` 里的主机库与 vault 仍在、可解锁 | M |
 | P-07 | 首次启动引导 | 全新 userData 启动 → 无报错，引导设置主口令/导入 ssh_config 的入口可见 | M |
+| P-08 | 未签名产物的 Gatekeeper 提示可自解 | 给 dmg 人为加隔离属性 `xattr -w com.apple.quarantine "0081;$(printf %x $(date +%s));Safari;" dist/Termans-0.1.0-arm64.dmg` → 挂载拷贝后双击应被拦；按文档两种解法（右键打开 / `xattr -dr com.apple.quarantine /Applications/Termans.app`）能恢复；README/ARCHITECTURE 有对应说明 | M |
+| P-09 | 打包不夹带运行时数据 | `dist/mac-arm64/Termans.app` 内 `find … -name "*.json" -path "*userData*"` 为空；`grep -r "PRIVATE KEY" …/app.asar` 无命中（用 `npx asar extract` 后查） | shell |
 
 ---
 

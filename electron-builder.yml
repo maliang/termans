@@ -1,40 +1,68 @@
+# electron-builder 配置（打包里程碑 P4a）
+#
+# 为什么放独立 yml 而不是 package.json 的 build 字段：
+#   1. build 字段塞进 JSON 会变成一大段转义串，review 时看不出结构，改一个 target 就是一行长 diff；
+#   2. package.json 在本项目是「依赖 + 脚本」的单写者文件（只有 architect 能改），
+#      配置分离后调打包参数不必碰依赖文件，也不会触发 lockfile 相关的误改；
+#   3. electron-builder 原生支持 yml，零额外依赖。
+#
+# 本阶段只做「能产出可运行的安装包」：不做签名 / 公证 / 自动更新（后续里程碑）。
+
 appId: com.termans.app
 productName: Termans
 copyright: Copyright © 2026 Termans
 
 directories:
-  output: release
+  output: dist
   buildResources: build
 
+# files 白名单：运行期只需要三样东西。
+# node_modules 的解释：electron-builder 会依据 package.json 的 dependencies 计算生产依赖闭包再采集，
+# 这里显式列出来是为了「看得见 + 能加排除规则」，不是放它去扫全量 node_modules。
+# 主进程 externalize 了 ssh2 / isomorphic-git / zod —— 缺任何一个，安装包里 require 就会抛。
 files:
   - out/**
   - package.json
+  - node_modules/**
+  - '!node_modules/**/{test,__tests__,tests,docs,example,examples}/**'
+  - '!node_modules/**/*.md'
 
 # 私钥、known_hosts、加密库都不入包：运行时只写 app.getPath('userData')
 asar: true
 
 mac:
   category: public.app-category.developer-tools
+  # 显式写死图标路径：不依赖「build/ 目录恰好有同名文件」这个默认巧合。
   icon: build/icon.icns
+  # identity: null = 明确不签名。arm64 上 electron-builder 会退化为 ad-hoc 签名（否则内核拒载），
+  # 但没有 Developer ID 身份，其它机器首次打开仍会被 Gatekeeper 拦（处理办法见 docs/ARCHITECTURE.md）。
+  identity: null
+  notarize: false
+  gatekeeperAssess: false
   target:
     - target: dmg
       arch: [arm64, x64]
-  hardenedRuntime: true
-  gatekeeperAssess: false
+    - target: zip
+      arch: [arm64, x64]
 
 win:
+  # 显式写死图标：win 端 electron-builder 只认 .ico，不能靠推。
   icon: build/icon.ico
   target:
     - target: nsis
-      arch: [x64, arm64]
-
-linux:
-  icon: build/icon.png
-  category: Development
-  target:
-    - target: AppImage
-      arch: [x64, arm64]
+      arch: [x64]
 
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  shortcutName: Termans
+
+linux:
+  icon: build/icon.png
+  category: Development
+  synopsis: Cross-platform SSH client
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
