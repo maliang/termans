@@ -287,6 +287,7 @@ export function HostEditor({ host, groups, hosts, onClose, onSaved }: HostEditor
             <label className="ts-field">
               <span className="ts-field__label">{t('editor.authMethod')}</span>
               <select
+                className="ts-select"
                 value={draft.authMethod}
                 onChange={(event) => patch({ authMethod: event.target.value as HostInput['authMethod'] })}
               >
@@ -299,6 +300,7 @@ export function HostEditor({ host, groups, hosts, onClose, onSaved }: HostEditor
             <label className="ts-field">
               <span className="ts-field__label">{t('editor.group')}</span>
               <select
+                className="ts-select"
                 value={draft.groupId ?? ''}
                 onChange={(event) => patch({ groupId: event.target.value === '' ? null : event.target.value })}
               >
@@ -398,6 +400,7 @@ export function HostEditor({ host, groups, hosts, onClose, onSaved }: HostEditor
             </label>
             <select
               id="ts-host-jump"
+              className="ts-select"
               value={draft.jumpHostId ?? ''}
               onChange={(event) => patch({ jumpHostId: event.target.value === '' ? null : event.target.value })}
             >
@@ -466,6 +469,7 @@ export function HostEditor({ host, groups, hosts, onClose, onSaved }: HostEditor
           <label className="ts-field">
             <span className="ts-field__label">{t('editor.notes')}</span>
             <textarea
+              className="ts-textarea"
               rows={3}
               value={notes}
               placeholder={t('editor.notesPlaceholder')}

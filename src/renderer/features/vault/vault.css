@@ -12,7 +12,8 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  gap: 8px;
+  /* 纵向节奏 12px：头部下沿的分隔线到工具行、工具行到列表都是 12px（t46） */
+  gap: 12px;
   padding: 10px 10px 8px;
   border-right: 1px solid var(--ts-border);
   background: var(--ts-bg-surface);
@@ -21,20 +22,31 @@
   font-size: var(--ts-font-size-sm);
 }
 
+/* 三层节奏（t46）＋ 标题/工具/列表分区：头部下沿 1px 分隔线，把「标题区」与
+   「搜索 + 新建」工具行分开；容器 gap 12px 就是这条分隔线到工具行的距离，
+   不靠 margin 互相抵消来凑。 */
 .ts-vault__head {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ts-border);
 }
 
+/* 标题是「区块标签」而不是页面主标题：12px + 600 + 收紧字距，与 13px 的主机行错开层级，
+   避免和右侧 count 徽标在同一字重上互相抢位（主人反馈「三个字紧挨操作钮」）。 */
 .ts-vault__title {
   margin: 0;
-  font-size: var(--ts-font-size-base);
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-sm);
   font-weight: 600;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
 }
 
+/* 徽标永远贴右：auto 外边距吃掉标题与它的全部剩余空间（实测间距 ≥ 8px 的要求因此恒成立），
+   flex-shrink:0 保证窄侧栏下它不会先被压扁。 */
 .ts-vault__count {
+  flex-shrink: 0;
   margin-left: auto;
   padding: 1px 7px;
   border: 1px solid var(--ts-border);
@@ -46,7 +58,7 @@
 .ts-vault__toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
 }
 
 .ts-vault__search {
@@ -59,6 +71,14 @@
   border-radius: var(--ts-radius-sm);
   background: var(--ts-bg-app);
   color: var(--ts-text-muted);
+}
+
+/* `+` 的点击区契约（t46）：不小于 24×24。kit 的 .ts-icon-btn 实测 28×28，
+   这里显式钉下限，防止以后有人为了「更精致」把它改成 20px。 */
+.ts-vault__toolbar .ts-icon-btn {
+  flex-shrink: 0;
+  min-width: 24px;
+  min-height: 24px;
 }
 
 .ts-vault__search input {

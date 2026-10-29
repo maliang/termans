@@ -612,7 +612,8 @@ textarea {
   cursor: pointer;
 }
 
-/* 原生下拉列表（弹出层）由 OS 绘制，CSS 只能影响少数平台；见 docs/UI-KIT.md §9 的实测结论 */
+/* 原生下拉列表（弹出层）由 OS 绘制，CSS 只能影响少数平台；见 docs/UI-KIT.md §10.1 的实测结论
+   （macOS 上系统菜单不采用下面这两个值，`page.screenshot()` 也拍不到弹层——别重复试） */
 .ts-select option {
   background: var(--ts-bg-elevated);
   color: var(--ts-text-primary);
