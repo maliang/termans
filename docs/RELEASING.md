@@ -255,9 +255,42 @@ EXIT=1
 
 ## 7. 发布前检查清单
 
-按顺序执行，任何一步不通过就停：
+按顺序执行，任何一步不通过就停。
+
+### 7.1 产物新鲜度（第一道门，别跳过）
+
+**冒烟或验收前必须先确认产物 mtime ≥ 目标 HEAD 的 commit 时间。** 否则你验的不是当前代码，
+而是一份「能正常启动」的旧包——它不崩、不报错，只是行为停在几天前。
+**旧产物会以「能启动」的形态骗过验收，比崩溃更危险。**
+
+真实案例（2026-10-29，本仓库 t21 打包冒烟时的实测）：
+
+| | 旧产物（当天 01:32 打包） | 按 HEAD `0afbb7f` 重打包（09:57） |
+| --- | --- | --- |
+| 启动日志 | `[ipc] registered 53 channels (48 placeholder)` | `[ipc] registered 53 channels (0 placeholder)` |
+| 首屏 | `[ipc] vault:status failed: E_NOT_IMPLEMENTED`，界面靠「预览模式」兜住，肉眼看不出异常 | 真实加密库启动 |
+| 实质 | 验的是旧代码 | 验的才是当前代码 |
+
+判据命令（macOS，`stat -f` 语法；判据不过就**重新打包**，不是「反正能启动就拿来凑证据」）：
 
 ```bash
+head_ts=$(git log -1 --format=%ct)                              # 目标 HEAD 的提交时间（epoch 秒）
+pkg_ts=$(stat -f %m dist/mac-arm64/Termans.app)                 # 产物 mtime（epoch 秒）
+printf 'HEAD  %s\n' "$(git log -1 --format='%h %ci')"
+printf 'PKG   %s\n' "$(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' dist/mac-arm64/Termans.app)"
+[ "$pkg_ts" -ge "$head_ts" ] && echo '✅ 产物不旧于 HEAD' || echo '❌ 产物比 HEAD 旧：先重打包再冒烟'
+```
+
+- 同一判据也适用于 `out/`（`electron out/main/index.js` 的 dev 模式同样会跑旧产物）。
+- Windows / Linux：时间戳取值换成 `stat -c %Y <path>`（GNU）或
+  `powershell -c '(Get-Item .\dist\win-unpacked\Termans.exe).LastWriteTimeUtc'`；比较逻辑不变。
+- 反例信号：启动日志里出现 `(N placeholder)` 这类占位通道，或某个本应实现的通道回 `E_NOT_IMPLEMENTED`
+  ——基本可以直接判定「产物是旧的」。
+
+### 7.2 命令清单
+
+```bash
+# 0) 先过 7.1 的产物新鲜度判据（旧产物会以「能启动」的形态骗过验收）
 pnpm install --frozen-lockfile          # 依赖可复现
 pnpm typecheck                          # node + web 都 0 error
 pnpm test                               # 全绿（单文件更快：npx vitest run src/main/vault）
@@ -267,7 +300,7 @@ node scripts/pack-guard.cjs verify      # 图标 / 架构 / 元数据三条断�
 file node_modules/cpu-features/build/Release/cpufeatures.node   # 必须是本机架构（arm64）
 ```
 
-手工验收（至少一次，别只看断言）：
+### 7.3 手工验收（至少一次，别只看断言）
 
 | 检查 | 怎么确认 |
 | --- | --- |
@@ -277,6 +310,8 @@ file node_modules/cpu-features/build/Release/cpufeatures.node   # 必须是本�
 | 加密边界 | `git -C <vault repo> show main:vault.enc \| grep -c '<某个 IP>'` = 0；`ls -R` 只有 `manifest.json` / `vault.enc` / `themes/` |
 | 锁定态 DOM | 锁定时 `document.body.innerText` 不含任何主机名与 IP |
 | 图标真的换了 | 应用坞/Dock 里看到的是新图标（hash 相同也可能是缓存，切换一次系统主题或重启 Dock 再确认） |
+
+### 7.4 发布物与校验和
 
 发布物：`dist/*.dmg`、`dist/*-mac.zip`、`dist/*.exe`、`dist/*.AppImage`、`dist/*.deb` + `SHA256SUMS`：
 
@@ -319,3 +354,22 @@ $ codesign -dv dist/mac-arm64/Termans.app 2>&1 | head -3
 5. 交叉打包必须走收尾守卫；崩在半路就跑 `node scripts/pack-guard.cjs restore`。
 6. mac x64 的 dmg/zip 本轮未产出（只验证了 x64 目录包 + 架构恢复），首发若需 Intel 安装包，
    用 `node scripts/pack-guard.cjs pack -- --mac dmg zip --x64` 并复核 `SHA256SUMS`。
+7. **Electron 45 的 `safeStorage.isEncryptionAvailable` 已弃用（已知技术债，本轮不修）**
+
+   - 现象：每次启动 stdout 都会打印
+     `(electron) 'safeStorage.isEncryptionAvailable' is deprecated and will be removed. Please use 'safeStorage.isAsyncEncryptionAvailable' instead.`
+     功能不受影响（sync 版在 Electron 45 仍可用），只是告警。
+   - 坐标：`src/main/ipc/index.ts:54`（组合根决定用 safeStorage 还是文件密钥）、
+     `src/main/vault/secret-box.ts:110`（`SafeStorageLike` 接口成员）、
+     `src/main/vault/secret-box.ts:118`、`src/main/vault/secret-box.ts:119`（`isOsBacked()` / `available()` 的实际调用）。
+     同一段落里 `src/main/ipc/index.ts:56` 的注释也提到该 API（Linux 下可能抛异常）。
+   - **为什么现在不修**：`SecretBox` / `VaultManager` 的状态判定（`isUnlocked()`，见
+     `src/main/vault/manager.ts:798`，以及解锁屏/锁屏分支）目前全是**同步** API；改成 async 会波及
+     解锁流程与 IPC 组合根（`registerVaultHandlers` 的装配时序），属于收口期不该动的重构。
+     这是 captain 在 2026-10-29 的明确裁定。
+   - **何时该修**：升级到「移除 sync 版 API」的 Electron 大版本**之前**（升级前先看 release notes 的
+     `safeStorage` 小节），或者解锁流程本来就要改成 async 时**一并**做。
+   - **修法草稿**：给 `SafeStorageLike`（`src/main/vault/secret-box.ts:109-113`）加可选
+     `isAsyncEncryptionAvailable?(): Promise<boolean>`；组合根改成 `await` 之后再决定用 `wrapSafeStorage()`
+     还是 `createFileSecretBox()` 兜底；`SecretBox.available()` 仍然是同步布尔（启动时求值一次后缓存），
+     这样解锁流程保持同步，改动面收敛在装配处。

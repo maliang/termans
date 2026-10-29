@@ -238,7 +238,7 @@ node scripts/pack-guard.cjs restore
 ## 11. 已知限制
 
 1. Windows / Linux 的产物**配置就绪但未在真机验证**（本机只有 macOS）。
-2. 无代码签名、无公证、无自动更新。
+2. 无代码签名、无公证、无自动更新；跨机分发（下载 / AirDrop / U 盘）会被 Gatekeeper 拦，自解方法见 §2.2。
 3. Git 远端只支持 http(s)（不支持 `ssh://`、`git://`）。
 4. 冲突解决粒度是「字段」，不是行级文本合并；`ssh_config` 文本整体作为一个冲突项。
 5. 系统休眠自动上锁已在主进程接好（`powerMonitor.on('suspend')` → `vaultManager.lock()`，见 `src/main/ipc/index.ts`）；个别 Linux 桌面环境的 suspend 事件可能不触发，空闲上锁不受影响。
