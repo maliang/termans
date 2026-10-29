@@ -78,6 +78,7 @@
 | 26 | 主机编辑器「标签」输入框下方有一个**孤立的小横线**（`after-final-04-host-editor.png` 标签列下方，距输入框约 34px） | 看起来像坏掉的控件 | **待 t31** | 疑似自定义色块那行的 `<input type="color">` 或空 `.ts-field__hint` 占位，需要 owner 定位 |
 | 27 | 状态栏把 store 的原始英文状态直接插进中文句子：「加密包：unlocked」 | 中英混排 | **key 已就位（三个态齐全），接线在 t36** | `src/locales/*/common.json` 已有三态 `state.vaultUninitialized/vaultLocked/vaultUnlocked`（`加密包：未初始化/已锁定/已解锁`，en `vault: not set up/locked/unlocked`），`terminal:tab.confirmClose.bodySameHost` 也已加（`「{{title}}」仍有活动会话…`，页签名 == 主机名时用）；`StatusBar.tsx:38` 里的 `VAULT_UNINITIALIZED_KEY` 常量拼接等待 t36 换回字面量 |
 | 28 | 主机行的行内铅笔按钮落在 hover pill **之外**（`after-vault-10-host-row-edit.png` 可见：pill 只裹住 label + 地址，铅笔在 pill 右侧） | 观感不齐，不影响可用性 | **已知观感项，主动不做（captain 裁定）** | 修它要把 pill 的范围与行内动作重新排布，属改版级改动；本轮冻结前不动的清单里已含它。登记在此**是为了防止以后被当成"漏修"重新开卡**——它不是漏的，是主动不做的 |
+| 29 | AI 面板里同一段命令出现两次：正文 `MessageBody` 把 ``` 代码块渲染成 `<pre>`（`AiPanel.tsx` 的 `MessageBody`），下方 `CommandCards` 又把同一命令渲染成可操作卡片，且卡片重复了命令前那句解释（`command-guard.ts:156` 的 `explanationBefore`）——README 首页图（`docs/assets/shell.png`）里能一眼看到 | 视觉冗余，读者会问「为什么同一句话两边都有」；不影响任何功能 | **已知观感项，本轮主动不做（captain 裁定）** | 正解是正文遇到「会变成命令卡」的 shell 代码块时跳过、非 shell 语言（json/log 等）仍照常渲染 `<pre>`；改动在 `AiPanel.tsx` 的 `MessageBody` + 一处单测，属 v1 之后的打磨项。登记在此防止被当成「漏修」重新开卡 |
 
 ---
 
