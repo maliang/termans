@@ -493,11 +493,37 @@ export async function pullSync(page: Page): Promise<void> {
  *    所以「看一眼没有解锁屏、外壳还在」就以为解锁了，会踩在中间态上。
  * 这里要求「已解锁」连续两次抽样（间隔 300ms）成立才算 settle。
  */
+/**
+ * 关掉挡住解锁屏的模态（当前只有「设置」对话框会挡：t45 起同步面板内嵌在它里面）。
+ *
+ * 只做「看得见才关」的最小动作，关不掉也不抛——由调用方后续的断言给出真实失败信息；
+ * 之所以不在这里 `expect(...).toBeHidden()`，是因为要关的模态属于「预期之外的遮挡」，
+ * 报错点留在解锁失败那一行更容易定位。
+ */
+async function dismissBlockingOverlay(page: Page): Promise<void> {
+  const overlay = page.getByTestId('settings-overlay')
+  if (!(await overlay.isVisible().catch(() => false))) return
+  const close = page.getByTestId('settings-close')
+  if (await close.isVisible().catch(() => false)) {
+    await close.click({ timeout: 5_000 }).catch(() => undefined)
+  } else {
+    await page.keyboard.press('Escape').catch(() => undefined)
+  }
+  await overlay.waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => undefined)
+}
+
 export async function waitForVaultUnlocked(page: Page, passphrase: string): Promise<void> {
   const deadline = Date.now() + 45_000
   let stable = 0
   while (Date.now() < deadline) {
     if (await page.getByTestId('unlock-screen').isVisible().catch(() => false)) {
+      // t45 起同步面板内嵌在「设置」对话框里（`settings-embed-sync`），而首次 connect 的
+      // alignFreshFromRemote 结束时产品会把 vault 重新锁上、**却不会关掉这个对话框**：
+      // 解锁屏在下面画出来了，`settings-overlay` 盖在上面，点「解锁」被遮罩吃掉
+      // （实测报 `<dl class="ts-vault__meta"> … subtree intercepts pointer events`，30s 超时）。
+      // 真实用户此时也只能先关弹窗，所以 helper 照做；产品侧是否应当锁定时自动关弹窗
+      // 是独立问题，已作为观察项上报，不在 e2e 里替产品掩盖。
+      await dismissBlockingOverlay(page)
       await unlockVault(page, passphrase)
       stable = 0
       continue
