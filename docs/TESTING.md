@@ -519,6 +519,8 @@ PY
 | S-16/S-17/S-18/S-19 | ssh_config 导入/写回/幂等/删除字段 | 部分 | 写回"其它行逐字节不变"由 `vault-security.spec.ts` ⑧ 覆盖；导入/幂等/删除字段只有 vitest |
 | S-20 | known_hosts 同步 | 部分 | `vault-security.spec.ts` ⑧ 覆盖"预置指纹免首确 / 错指纹硬失败"；**跨机同步未覆盖** |
 | S-21 | 私钥不跟着同步 | 已覆盖 | `vault-security.spec.ts` ⑥：`credentials:clear` 后再连，报 `uses publickey auth but has no private key configured` |
+| M-06 | 正文/背景对比度 ≥ 4.5:1 | 已覆盖（**4 主题 × 5 状态**，限 CSS 着色元素） | `e2e/contrast.spec.ts`：每「主题 × 状态」逐元素算 WCAG 比值，正文 4.5、大字号 3。**阈值来源 = SPEC M-06 / WCAG 2.1 AA，muted 也算正文口径**（弱化不等于可以不达标）。覆盖边界与白名单见 §10 |
+
 
 > **S-05 的边界（别读成"全仓库无明文"）**：本用例只扫 bare 仓库 **HEAD 树内**的文件；git 历史里的旧提交、其它
 > 分支与 dangling object 未纳入。若某次旧版本曾以明文提交过，本用例发现不了——那属于「历史泄露」问题，处置见
@@ -571,5 +573,69 @@ t35 期间 captain 提出：如果那次 push 是空推，`localCommit` 与 `las
 写新用例时若要点同步按钮，先 `waitForVaultUnlocked()`，再确认面板可见。
 
 **这张表的用途**：① 发布说明里不许说"全部验收项已由 e2e 覆盖"；② 缺口要单开卡，不要塞进"已完成"里。
+
+## 10. 对比度回归（M-06）：`e2e/contrast.spec.ts`
+
+主人反馈过「设置主口令界面有黄底白字提示，看不清」——这类问题**单测、类型检查、人工点界面都发现不了**（要算比值）。
+用 DOM 全量扫描定位后修完（修复前 63 处低于阈值、修后 0 处），并把扫描固化成常驻回归：以后改配色漏一处就红。
+
+### 10.1 扫什么：4 主题 × 5 状态
+
+| 主题 id | 状态（5 个） | 为什么是这五屏 |
+| --- | --- | --- |
+| `termans-dark` | ① `setup` 未初始化「设置主口令」 | 主人报的那一眼；引导屏文字全在卡片上，底色与外壳不同 |
+| `termans-midnight` | ② `weak-warn` 弱口令警告 | 出事的那条黄底提示条；`weak-passphrase-warning` 只在第二次确认前出现 |
+| `termans-light` | ③ `shell` 主外壳 | 侧栏/页签条/终端空态/状态条四种底色叠在一起 |
+| `termans-contrast` | ④ `settings-appearance` 外观页 | 主题卡片、色板徽标、对比度提示都在这一屏 |
+| | ⑤ `settings-security` 安全页 | 主口令表单、危险区按钮、vault 提示 |
+
+每屏都 `page.evaluate()` 一次，返回 `{ scanned, violations }`。**实测采样规模**（4 个主题一致）：
+`setup=7`、`weak-warn=9`、`shell=21`、`settings-appearance=46`、`settings-security=33`；
+单个主题 4 条测试合计约 **13s**（`--workers=1`，含 4 次 Electron 启动）。
+
+### 10.2 判据与阈值（不许为了迁就现状下调）
+
+| 情形 | 阈值 | 出处 |
+| --- | --- | --- |
+| 正文（font-size < 24px，或 < 18.66px + bold） | **4.5:1** | SPEC M-06 / WCAG 2.1 AA |
+| 大字号（≥24px，或 ≥18.66px 且 bold） | **3:1** | 同上 |
+| `--ts-text-muted` 等弱化文案 | **同样 4.5:1** | muted 是"次要正文"不是装饰；弱化不等于可以不达标 |
+
+失败信息形如（这是真实变异实验输出）：
+
+```
+主题 termans-dark / 状态 shell：8 处文字与底色对比度低于阈值（扫描 21 个元素）
+  - <span.ts-statusbar__item.ts-statusbar__item--ok> 「加密包：已解锁」 fg=rgb(99, 113, 140) bg=rgb(13, 20, 36) 实测 3.74:1 < 需 4.5:1（11px）
+  - <p.ts-empty__body> 「新建一台，或导入你已有的 ~/.ssh/config。」 … 实测 3.74:1 < 需 4.5:1（12px）
+```
+
+违规**跨 5 个状态汇总后一次性断言**：分成 5 条断言时第一条红就中断，得跑 5 次才知道全貌。
+
+### 10.3 白名单：只允许"不是给人读的"和"颜色不由 token 决定"两类
+
+| 选择器 | 理由 |
+| --- | --- |
+| `[aria-hidden="true"]` | 装饰性图标（lucide/SVG 全部带 aria-hidden），语义上对读屏不可见，没有"可读性"可言 |
+| `.xterm, .xterm *` | 终端前景/背景由 **xterm 的 theme 对象 + ANSI 调色板**决定，不是 CSS token；xterm 还会内联 style，混算出的比值不代表用户看到的配色。这条由"主题 tokens → xterm theme"的映射单测负责（`src/renderer/theme/xterm.ts`）。终端里真实内容的可读性属另一类问题（用户自己的配色） |
+
+不允许因为"扫出来是红的"就往白名单里加条目——要加必须先证明它不属于「文字与底色」这一对（写明理由进本表）。
+
+### 10.4 三个"假绿"防护（都是踩过才知道要加的）
+
+1. **每个状态都有扫描量下限**（`MIN_SCANNED`，取自实测值）：界面没渲染出来、testid 改名停在别的屏时，
+   「0 个元素 / 0 处违规」会被判定为 **不达标**（红），而不是假绿。
+2. **背景含渐变/图片的元素被跳过，但数量会被打印**：`bgOf()` 无法给 `background-image` 算底色，这类元素
+   （主题卡片的预览渐变、空态插画）**不在覆盖范围内**——这是本条用例的真实缺口，记在这里而不是悄悄跳过。
+3. **主题生效是异步的**：`settings:update` → 主进程广播 `settings:changed` → 主题 store 调
+   `applyThemeToDocument()` 写 `documentElement.dataset.themeId`。所以采样前 `expect.poll` 等 `data-theme-id`
+   真的变成目标主题，不能填完就采。
+
+### 10.5 变异自检：这条用例真的会红吗
+
+在**独立 worktree** 里把深色主题的 `--ts-text-muted` 改回旧值 `#63718c`（`src/renderer/theme/builtin.ts`）
+→ `pnpm build` → 本用例 **1 failed / 3 passed**，红的那条精确列出 `.ts-statusbar__*`、`.ts-empty__body`、
+`.ts-term-session--empty`、`.ts-theme-card__badge`、`.ts-vault__hint` 等真实元素；`git checkout --` 还原并重建后
+4 passed。**做变异实验必须在 worktree 或改完立刻还原并重新 build**，否则共享树里留下的是旧 token 编出的产物。
+
 
 
