@@ -43,8 +43,28 @@ export function dataText(sink: EventSink): string {
   return sink.data.map((event) => event.data).join('')
 }
 
+/** 跳板机夹具：给目标机挂一台「跳板机」，跳板机自己也是普通 SSH 服务器 */
+export interface JumpHarnessOptions {
+  server: Pick<FakeSshServer, 'port' | 'host'>
+  id?: string
+  label?: string
+  hostname?: string
+  port?: number
+  username?: string
+  authMethod?: SshTarget['authMethod']
+  credentialRef?: string | null
+  privateKeyPath?: string | null
+  keepaliveSeconds?: number
+  /** 跳板机自己也配一层跳板（用于「多级跳板明确拒绝」用例） */
+  jumpHostId?: string | null
+  /** true = 这台跳板机已从主机库删除（resolveHost 抛错） */
+  deleted?: boolean
+}
+
 export interface HarnessOptions {
   server: Pick<FakeSshServer, 'port' | 'host'>
+  /** 目标机的跳板机；省略 = 直连 */
+  jump?: JumpHarnessOptions
   authMethod?: SshTarget['authMethod']
   username?: string
   password?: string
@@ -70,6 +90,9 @@ export interface Harness {
   settings: SshSettings
   host: HostRecord
   target: SshTarget
+  /** 跳板机条目（未配置跳板时为 null） */
+  jumpHost: HostRecord | null
+  jumpTarget: SshTarget | null
   /** 发起连接（用默认 size 100x30） */
   connect: (overrides?: { size?: { cols: number; rows: number }; reuseExisting?: boolean }) => Promise<{
     sessionId: string
@@ -114,6 +137,22 @@ export function createHarness(options: HarnessOptions): Harness {
   const settings: SshSettings = { ...DEFAULT_SETTINGS.ssh, ...options.settings }
   const knownHosts = options.knownHosts ?? new MemoryKnownHostsGateway()
 
+  const jump = options.jump ?? null
+  const jumpRecord: HostRecord | null = jump
+    ? makeHostRecord({
+        id: jump.id ?? randomUUID(),
+        label: jump.label ?? 'jump-host',
+        hostname: jump.hostname ?? jump.server.host,
+        port: jump.port ?? jump.server.port,
+        username: jump.username ?? 'tester',
+        authMethod: jump.authMethod ?? 'password',
+        credentialRef: jump.credentialRef === undefined ? 'jump-cred' : jump.credentialRef,
+        privateKeyPath: jump.privateKeyPath ?? null,
+        keepaliveSeconds: jump.keepaliveSeconds ?? 0,
+        jumpHostId: jump.jumpHostId ?? null
+      })
+    : null
+
   const host = makeHostRecord({
     hostname: options.server.host,
     port: options.server.port,
@@ -121,20 +160,26 @@ export function createHarness(options: HarnessOptions): Harness {
     authMethod: options.authMethod ?? 'password',
     credentialRef: options.credentialRef === undefined ? 'cred-1' : options.credentialRef,
     privateKeyPath: options.privateKeyPath ?? null,
-    keepaliveSeconds: options.keepaliveSeconds ?? 0
+    keepaliveSeconds: options.keepaliveSeconds ?? 0,
+    jumpHostId: jumpRecord ? jumpRecord.id : (options.jump ? 'missing-jump-host' : null)
   })
 
   const secrets: Record<string, string | null> =
     options.secrets ??
     ({
-      // 默认凭据：同一个 ref 同时当密码和 passphrase 用（与 SshSession.loadCredential 的语义一致）
-      'cred-1': options.password ?? 'secret'
+      // 默认凭据：同一个 ref 同时当密码和 passphrase 用（与 SshSession.loadCredentialFor 的语义一致）
+      'cred-1': options.password ?? 'secret',
+      ...(jumpRecord ? { 'jump-cred': 'secret' } : {})
     } satisfies Record<string, string | null>)
 
   const deps: SshEngineDeps = {
     resolveHost: (hostId: string) => {
-      if (hostId !== host.id) throw new Error(`unknown host ${hostId}`)
-      return host
+      if (hostId === host.id) return host
+      if (jumpRecord && hostId === jumpRecord.id) {
+        if (jump?.deleted) throw new Error(`host ${hostId} was deleted`)
+        return jumpRecord
+      }
+      throw new Error(`unknown host ${hostId}`)
     },
     resolveSecret: (ref: string) => (ref in secrets ? secrets[ref] : null),
     knownHosts,
@@ -187,6 +232,8 @@ export function createHarness(options: HarnessOptions): Harness {
     settings,
     host,
     target: toSshTarget(host),
+    jumpHost: jumpRecord,
+    jumpTarget: jumpRecord ? toSshTarget(jumpRecord) : null,
     connect,
     waitForConnect: () => waitFor(() => events.states.some((state) => state.phase === 'connected')),
     dispose: () => manager.disposeAll()

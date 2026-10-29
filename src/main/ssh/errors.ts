@@ -28,6 +28,10 @@ export type SshErrorCode =
   | 'pty-failed'
   | 'exec-failed'
   | 'sftp-failed'
+  | 'jump-invalid'
+  | 'jump-not-found'
+  | 'jump-unsupported'
+  | 'jump-failed'
   | 'agent-unavailable'
   | 'key-missing'
   | 'key-invalid'
@@ -91,6 +95,22 @@ const PROFILES: Record<SshErrorCode, ErrorProfile> = {
   'sftp-failed': {
     ipc: 'E_IO',
     hint: 'The file operation failed on the server. Check the path, permissions and whether the SFTP subsystem is enabled.'
+  },
+  'jump-invalid': {
+    ipc: 'E_INVALID_ARGUMENT',
+    hint: 'The jump host must be a different machine than the target host. Clear the jump host field to connect directly.'
+  },
+  'jump-not-found': {
+    ipc: 'E_NOT_FOUND',
+    hint: 'The jump host saved on this host no longer exists. Pick another jump host or clear the field, then reconnect.'
+  },
+  'jump-unsupported': {
+    ipc: 'E_SSH',
+    hint: 'Only one jump level is supported for now. Point this host at a jump host that can reach it directly (no chained jumps).'
+  },
+  'jump-failed': {
+    ipc: 'E_SSH',
+    hint: 'The jump host could not open a TCP tunnel to the target. Check that the jump host can reach the target host:port (firewall, sshd, allowtcpforwarding).'
   },
   'agent-unavailable': {
     ipc: 'E_SSH',

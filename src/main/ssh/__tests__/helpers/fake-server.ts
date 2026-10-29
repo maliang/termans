@@ -1,4 +1,4 @@
-import { createServer as createTcpServer, type Server as TcpServer, type Socket } from 'node:net'
+import { connect as connectTcp, createServer as createTcpServer, type Server as TcpServer, type Socket } from 'node:net'
 import { posix as pathPosix } from 'node:path'
 import {
   Server as SshServer,
@@ -11,6 +11,7 @@ import {
   type PseudoTtyInfo,
   type ServerChannel,
   type Session,
+  type TcpipRequestInfo,
   type SetEnvInfo,
   type SFTPWrapper,
   type WindowChangeInfo
@@ -38,6 +39,8 @@ export interface FakeServerRecords {
   shells: number
   execCommands: string[]
   keyboardResponses: string[][]
+  /** direct-tcpip 请求（跳板机专用）：断言「确实经跳板机开过隧道」 */
+  tcpip: TcpipRequestInfo[]
   sftp: {
     opens: { path: string; mode: number | null }[]
     mkdirs: { path: string; mode: number | null }[]
@@ -262,6 +265,13 @@ export interface FakeServerOptions {
   hostKey?: string
   /** 关掉 SFTP 子系统（用于断言「服务器禁用 sftp」时的报错） */
   disableSftp?: boolean
+  /**
+   * direct-tcpip 目标重写：返回 null 表示拒绝这条隧道（模拟 allowtcpforwarding no）。
+   *
+   * 测试里用它把 `目标机主机名:端口` 映射到回环上的真实端口，从而**制造一个直连必然失败、
+   * 只有经跳板机才通**的目标机——这样「去掉跳板逻辑」的变异一定会红，而不是恰好也能连上。
+   */
+  tcpipMap?: (info: TcpipRequestInfo) => { host: string; port: number } | null
 }
 
 export class FakeSshServer {
@@ -274,6 +284,7 @@ export class FakeSshServer {
     shells: 0,
     execCommands: [],
     keyboardResponses: [],
+    tcpip: [],
     sftp: { opens: [], mkdirs: [], renames: [], removes: [], readdirs: [], reads: 0, writes: 0 }
   }
 
@@ -285,6 +296,8 @@ export class FakeSshServer {
   private server: SshServer | null = null
   private readonly sockets = new Set<Socket>()
   private readonly connections = new Set<Connection>()
+  /** 当前仍然打开的隧道通道（断言「目标会话关闭后跳板机上没有悬挂隧道」） */
+  private readonly tunnels = new Set<ServerChannel>()
   port = 0
 
   constructor(options: FakeServerOptions = {}) {
@@ -305,6 +318,16 @@ export class FakeSshServer {
     const parsed = utils.parseKey(this.hostKey)
     if (parsed instanceof Error) throw parsed
     return fingerprintSha256FromKey(parsed.getPublicSSH())
+  }
+
+  /** 当前存活的 SSH 连接数（关闭后必须归零，用来验证「不留悬挂连接」） */
+  get connectionCount(): number {
+    return this.connections.size
+  }
+
+  /** 当前仍然打开的 direct-tcpip 隧道数 */
+  get openTunnelCount(): number {
+    return this.tunnels.size
   }
 
   async start(): Promise<this> {
@@ -368,6 +391,34 @@ export class FakeSshServer {
       client.on('session', (accept) => {
         const session: Session = accept()
         this.handleSession(session)
+      })
+      client.on('tcpip', (accept, reject, info: TcpipRequestInfo) => {
+        this.records.tcpip.push(info)
+        const mapped = this.options.tcpipMap ? this.options.tcpipMap(info) : { host: info.destIP, port: info.destPort }
+        if (!mapped) {
+          reject?.()
+          return
+        }
+        const stream = accept()
+        this.tunnels.add(stream)
+        const forget = (): void => {
+          this.tunnels.delete(stream)
+        }
+        stream.on('close', forget)
+        stream.on('error', forget)
+        const socket = connectTcp({ host: mapped.host, port: mapped.port })
+        socket.on('connect', () => {
+          stream.pipe(socket)
+          socket.pipe(stream)
+        })
+        socket.on('error', () => {
+          try {
+            stream.close()
+          } catch {
+            /* 已关闭 */
+          }
+        })
+        stream.on('close', () => socket.destroy())
       })
     })
   }

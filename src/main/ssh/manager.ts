@@ -8,6 +8,7 @@ import type {
   TerminalSize
 } from '@shared'
 import { SshError, asSshError } from './errors'
+import { resolveJumpTarget } from './jump'
 import { SshSession } from './session'
 import { toSshTarget, type SshEngineDeps } from './types'
 
@@ -49,6 +50,9 @@ export class SshManager {
   async connect(request: SshConnectRequest): Promise<SshConnectResult> {
     const host = await this.deps.resolveHost(request.hostId)
     const target = toSshTarget(host)
+    // 跳板机在连接前解析并校验（已删除 / 多级 / 同一台机器都在这里拒绝）。
+    // jumpHostId 为 null 时这里返回 null，后续流程与加跳板前完全一致。
+    const jump = await resolveJumpTarget(this.deps, host)
 
     if (request.reuseExisting) {
       const existing = this.findReadySessionByHost(target.hostId)
@@ -66,6 +70,7 @@ export class SshManager {
     const session = new SshSession({
       sessionId,
       target,
+      jump,
       size: request.size,
       startupCommand: request.startupCommand ?? null,
       deps: this.deps,

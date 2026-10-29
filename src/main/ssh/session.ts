@@ -1,3 +1,4 @@
+import type { Readable } from 'node:stream'
 import { Client, type ClientChannel, type ConnectConfig } from 'ssh2'
 import type {
   HostKeyChallenge,
@@ -14,6 +15,14 @@ import { SshError, asSshError, normalizeSshError } from './errors'
 import { fingerprintSha256FromKey, keyTypeFromPublicKeyBlob, needsUserConfirmation, verifyHostKey } from './known-hosts'
 import { OutputPacer } from './pacer'
 import { runCommand, type ExecOptions, type ExecResult } from './exec'
+import {
+  endpointKey,
+  jumpEndpoint,
+  openJumpTunnel,
+  targetEndpoint,
+  withJumpContext,
+  type SshEndpoint
+} from './jump'
 import { SftpClient } from './sftp'
 import { createConsoleLogger, createRedactingLogger } from './redact'
 import { credentialSecrets, type SshCredential, type SshEngineDeps, type SshTarget } from './types'
@@ -44,6 +53,11 @@ const KEEPALIVE_COUNT_MAX = 3
 export interface SshSessionOptions {
   sessionId: string
   target: SshTarget
+  /**
+   * 单层跳板机（已由 manager 解析并校验过层级/同一台机器）。
+   * null = 直连；直连路径必须与加跳板前**完全一致**（不套 socket、不改时序）。
+   */
+  jump?: SshTarget | null
   size: TerminalSize
   /** 一次性启动命令（覆盖主机设置），连上后写入 shell */
   startupCommand: string | null
@@ -77,6 +91,8 @@ export class SshSession {
 
   private client: Client | null = null
   private channel: ClientChannel | null = null
+  /** 跳板机的 SSH 连接（与目标机连接同生共死，见 teardownTransport） */
+  private jumpClient: Client | null = null
   private pacer: OutputPacer | null = null
   private sftpClient: SftpClient | null = null
 
@@ -90,8 +106,8 @@ export class SshSession {
   private reconnectLoopActive = false
   private closedEmitted = false
   private cancelSleep: (() => void) | null = null
-  /** 本次会话内用户选择「只信任这一次、不写 known_hosts」的指纹 */
-  private sessionTrustedFingerprint: string | null = null
+  /** 本次会话内用户选择「只信任这一次、不写 known_hosts」的指纹；按端点（host:port）分开记 */
+  private readonly sessionTrust = new Map<string, string>()
   /** 探测阶段之外的 MITM 证据（探测指纹 ≠ 认证阶段指纹） */
   private mismatchDetected: { expected: string; actual: string; keyType: string } | null = null
 
@@ -216,16 +232,31 @@ export class SshSession {
 
     const settings = this.deps.getSettings()
     const connectTimeoutMs = settings.connectTimeoutMs
+    const jump = this.options.jump ?? null
 
-    this.setPhase('connecting', null)
-    const probe = await this.probeHostKey(connectTimeoutMs)
+    // 直连时 message 为 null（与加跳板前逐字节一致）；走跳板时告诉 UI 现在卡在哪一跳
+    this.setPhase('connecting', jump ? `via jump host "${jump.label}" (${jump.hostname}:${jump.port})` : null)
+
+    // 1) 跳板机：自己的 host key 先过硬校验，再认证——不校验等于把地基交给中间人
+    if (jump) await this.openJumpClient(jump, connectTimeoutMs)
+
+    // 2) 目标机：探测与正式连接都从跳板机的 direct-tcpip 通道走；直连时 sock 为 null
+    const targetRef = targetEndpoint(this.target)
+    const probe = await this.probeHostKey(targetRef, connectTimeoutMs, await this.openStream(jump, connectTimeoutMs))
     this.hostKeyFingerprint = probe.fingerprintSha256
-    const decision = await this.applyHostKeyPolicy(probe)
+    const decision = await this.applyHostKeyPolicy(targetRef, probe)
     this.hostKeyDecision = decision
 
     this.setPhase('authenticating', null)
-    const credential = await this.loadCredential()
-    const client = await this.connectClient(probe, credential, connectTimeoutMs)
+    const credential = await this.loadCredentialFor(this.target)
+    const client = await this.connectClient(
+      targetRef,
+      this.target,
+      probe,
+      credential,
+      connectTimeoutMs,
+      await this.openStream(jump, connectTimeoutMs)
+    )
     this.client = client
     this.attachLifecycle(client)
 
@@ -236,15 +267,56 @@ export class SshSession {
   }
 
   /**
+   * 建立跳板机连接：探测 host key（严格策略）→ 校验 → 用自己的凭据认证。
+   * 任何一步失败都要点名「这是跳板机」——否则用户会去改目标机的密码/私钥。
+   */
+  private async openJumpClient(jump: SshTarget, timeoutMs: number): Promise<void> {
+    const endpoint = jumpEndpoint(jump)
+    this.log('info', `connecting to jump host ${jump.hostname}:${jump.port}`, {
+      label: jump.label,
+      username: jump.username,
+      authMethod: jump.authMethod
+    })
+    try {
+      const probe = await this.probeHostKey(endpoint, timeoutMs, null)
+      await this.applyHostKeyPolicy(endpoint, probe)
+      const credential = await this.loadCredentialFor(jump)
+      this.jumpClient = await this.connectClient(endpoint, jump, probe, credential, timeoutMs, null)
+    } catch (error) {
+      throw withJumpContext(error, jump)
+    }
+  }
+
+  /** 在跳板机上开一条直通目标机 sshd 的 TCP 通道；直连返回 null（不建 socket，时序不变） */
+  private async openStream(jump: SshTarget | null, timeoutMs: number): Promise<ClientChannel | null> {
+    if (!jump) return null
+    const jumpClient = this.jumpClient
+    if (!jumpClient) {
+      throw new SshError('jump-failed', `Jump host "${jump.label}" is not connected`, {
+        details: { jumpHostId: jump.hostId, jumpLabel: jump.label }
+      })
+    }
+    return openJumpTunnel(jumpClient, jump, this.target, { timeoutMs, after: (ms, fn) => this.after(ms, fn) })
+  }
+
+  /**
    * 只验证 host key 的探测连接：拿到密钥就销毁 socket，不做认证。
    * 这样「未知主机」的确认对话框不会顺带泄露任何凭据。
    */
-  private probeHostKey(timeoutMs: number): Promise<ProbeResult> {
+  private probeHostKey(endpoint: SshEndpoint, timeoutMs: number, sock: Readable | null): Promise<ProbeResult> {
     return new Promise<ProbeResult>((resolve, reject) => {
       const client = new Client()
       let settled = false
       let cancelDeadline: (() => void) | null = null
 
+      const closeSock = (): void => {
+        // 探测用掉的那条隧道必须关掉，否则跳板机上挂着一条没人读的 direct-tcpip 通道
+        try {
+          ;(sock as ClientChannel | null)?.close()
+        } catch {
+          /* 已关闭 */
+        }
+      }
       const cleanup = (): void => {
         cancelDeadline?.()
         cancelDeadline = null
@@ -254,10 +326,11 @@ export class SshSession {
         settled = true
         cleanup()
         client.destroy()
+        closeSock()
         reject(
           error instanceof SshError
             ? error
-            : normalizeSshError(error, { host: this.target.hostname, port: this.target.port, phase: 'connecting' })
+            : normalizeSshError(error, { host: endpoint.hostname, port: endpoint.port, phase: 'connecting' })
         )
       }
 
@@ -269,16 +342,21 @@ export class SshSession {
 
       cancelDeadline = this.after(timeoutMs, () => {
         fail(
-          new SshError('timeout', `Timed out after ${timeoutMs}ms waiting for host key from ${this.target.hostname}:${this.target.port}`, {
-            details: { host: this.target.hostname, port: this.target.port, timeoutMs }
-          })
+          new SshError(
+            'timeout',
+            `Timed out after ${timeoutMs}ms waiting for host key from ${endpoint.role} ${endpoint.hostname}:${endpoint.port}`,
+            {
+              details: { host: endpoint.hostname, port: endpoint.port, timeoutMs, endpointRole: endpoint.role }
+            }
+          )
         )
       })
 
       client.connect({
-        host: this.target.hostname,
-        port: this.target.port,
-        username: this.target.username,
+        host: endpoint.hostname,
+        port: endpoint.port,
+        username: endpoint.username,
+        ...(sock ? { sock } : {}),
         readyTimeout: timeoutMs,
         hostVerifier: (key: Buffer, verify: (valid: boolean) => void): void => {
           if (settled) {
@@ -295,6 +373,7 @@ export class SshSession {
           // 拒绝这次认证并销毁连接：我们只要 host key
           verify(false)
           client.destroy()
+          closeSock()
           resolve(result)
         }
       })
@@ -309,16 +388,19 @@ export class SshSession {
    * - strict/ask：未知（strict 下还有 trusted）走用户确认；
    * - 用户选「只信任一次」：记在本会话里，重连不再问，但不落盘。
    */
-  private async applyHostKeyPolicy(probe: ProbeResult): Promise<'trusted' | 'accepted-now' | 'not-verified'> {
+  private async applyHostKeyPolicy(
+    endpoint: SshEndpoint,
+    probe: ProbeResult
+  ): Promise<'trusted' | 'accepted-now' | 'not-verified'> {
     const settings = this.deps.getSettings()
     const observation = {
-      host: this.target.hostname,
-      port: this.target.port,
+      host: endpoint.hostname,
+      port: endpoint.port,
       keyType: probe.keyType,
       fingerprintSha256: probe.fingerprintSha256
     }
 
-    if (this.sessionTrustedFingerprint === probe.fingerprintSha256) return 'accepted-now'
+    if (this.sessionTrust.get(endpointKey(endpoint)) === probe.fingerprintSha256) return 'accepted-now'
 
     const verdict = await verifyHostKey(this.deps.knownHosts, observation)
 
@@ -335,7 +417,7 @@ export class SshSession {
       })
       throw new SshError(
         'host-key-mismatch',
-        `Host key for ${observation.host}:${observation.port} changed (${verdict.entry?.keyType ?? observation.keyType})`,
+        `Host key for ${endpoint.role} ${observation.host}:${observation.port} changed (${verdict.entry?.keyType ?? observation.keyType})`,
         {
           details: {
             host: observation.host,
@@ -376,7 +458,7 @@ export class SshSession {
     })
 
     if (answer.decision !== 'accept') {
-      throw new SshError('host-key-unverified', `Host key for ${observation.host}:${observation.port} was rejected by the user`, {
+      throw new SshError('host-key-unverified', `Host key for ${endpoint.role} ${observation.host}:${observation.port} was rejected by the user`, {
         details: {
           host: observation.host,
           port: observation.port,
@@ -396,17 +478,18 @@ export class SshSession {
         replaceExisting: isMismatch
       })
     } else {
-      this.sessionTrustedFingerprint = probe.fingerprintSha256
+      this.sessionTrust.set(endpointKey(endpoint), probe.fingerprintSha256)
     }
     return 'accepted-now'
   }
 
-  private async loadCredential(): Promise<SshCredential | null> {
-    const ref = this.target.credentialRef
+  /** 解析某个端点的凭据（目标机与跳板机各有自己的 credentialRef） */
+  private async loadCredentialFor(target: SshTarget): Promise<SshCredential | null> {
+    const ref = target.credentialRef
     if (!ref) return null
     const secret = await this.deps.resolveSecret(ref)
     if (secret === null) {
-      this.log('warn', 'credentialRef not resolvable (vault locked?)', { credentialRef: ref })
+      this.log('warn', 'credentialRef not resolvable (vault locked?)', { credentialRef: ref, host: target.label })
       return null
     }
     this.secrets.push(secret)
@@ -418,22 +501,38 @@ export class SshSession {
    * 真正的认证连接。`hostVerifier` 断言「这次握手拿到的密钥就是刚刚探测/确认过的那把」，
    * 不一致即判定 MITM：宁可断开也不降级。
    */
-  private connectClient(probe: ProbeResult, credential: SshCredential | null, timeoutMs: number): Promise<Client> {
+  private connectClient(
+    endpoint: SshEndpoint,
+    target: SshTarget,
+    probe: ProbeResult,
+    credential: SshCredential | null,
+    timeoutMs: number,
+    sock: Readable | null
+  ): Promise<Client> {
     return new Promise<Client>((resolve, reject) => {
       const client = new Client()
       let settled = false
       let cancelDeadline: (() => void) | null = null
 
-      const auth = buildAuthConfig({ target: this.target, credential, deps: this.deps })
+      const closeSock = (): void => {
+        try {
+          ;(sock as ClientChannel | null)?.close()
+        } catch {
+          /* 已关闭 */
+        }
+      }
+
+      const auth = buildAuthConfig({ target, credential, deps: this.deps })
       this.secrets.push(...auth.secrets)
       if (auth.privateKeyPath) this.log('debug', 'using private key', { path: auth.privateKeyPath })
 
-      const settings = this.deps.getSettings()
       const config: ConnectConfig = {
         ...auth.config,
         readyTimeout: timeoutMs,
+        // 走跳板时用跳板机上的 direct-tcpip 通道作为传输层；直连保持原样（不传 sock）
+        ...(sock ? { sock } : {}),
         // keepalive：0 = 关闭（主机设置里显式关掉，或设置段为 0）
-        keepaliveInterval: this.target.keepaliveSeconds > 0 ? this.target.keepaliveSeconds * 1000 : 0,
+        keepaliveInterval: target.keepaliveSeconds > 0 ? target.keepaliveSeconds * 1000 : 0,
         keepaliveCountMax: KEEPALIVE_COUNT_MAX,
         hostVerifier: (key: Buffer, verify: (valid: boolean) => void): void => {
           const actual = fingerprintSha256FromKey(key)
@@ -449,7 +548,6 @@ export class SshSession {
           verify(false)
         }
       }
-      void settings
 
       if (auth.keyboardAnswers) {
         const answers = auth.keyboardAnswers
@@ -478,13 +576,15 @@ export class SshSession {
         cancelDeadline?.()
         cancelDeadline = null
         client.removeAllListeners()
+        client.on('error', () => {})
         client.destroy()
+        closeSock()
         if (this.mismatchDetected) {
           reject(
             new SshError('host-key-mismatch', 'Host key changed between verification and authentication (possible MITM)', {
               details: {
-                host: this.target.hostname,
-                port: this.target.port,
+                host: endpoint.hostname,
+                port: endpoint.port,
                 keyType: this.mismatchDetected.keyType,
                 previousFingerprintSha256: this.mismatchDetected.expected,
                 fingerprintSha256: this.mismatchDetected.actual
@@ -496,7 +596,7 @@ export class SshSession {
         reject(
           error instanceof SshError
             ? error
-            : normalizeSshError(error, { host: this.target.hostname, port: this.target.port, phase: 'authenticating' })
+            : normalizeSshError(error, { host: endpoint.hostname, port: endpoint.port, phase: 'authenticating' })
         )
       }
 
@@ -512,15 +612,19 @@ export class SshSession {
 
       cancelDeadline = this.after(timeoutMs, () => {
         fail(
-          new SshError('timeout', `Timed out after ${timeoutMs}ms connecting to ${this.target.hostname}:${this.target.port}`, {
-            details: { host: this.target.hostname, port: this.target.port, timeoutMs }
-          })
+          new SshError(
+            'timeout',
+            `Timed out after ${timeoutMs}ms connecting to ${endpoint.role} ${endpoint.hostname}:${endpoint.port}`,
+            { details: { host: endpoint.hostname, port: endpoint.port, timeoutMs, endpointRole: endpoint.role } }
+          )
         )
       })
 
-      this.log('info', `connecting to ${this.target.hostname}:${this.target.port}`, {
-        username: this.target.username,
-        authMethod: this.target.authMethod
+      this.log('info', `connecting to ${endpoint.hostname}:${endpoint.port}`, {
+        endpoint: endpoint.role,
+        username: target.username,
+        authMethod: target.authMethod,
+        via: sock ? 'jump' : 'direct'
       })
       client.connect(config)
     })
@@ -747,8 +851,10 @@ export class SshSession {
   private teardownTransport(): void {
     const channel = this.channel
     const client = this.client
+    const jumpClient = this.jumpClient
     this.channel = null
     this.client = null
+    this.jumpClient = null
     this.pacer?.dispose()
     this.pacer = null
     this.sftpClient?.close()
@@ -768,6 +874,18 @@ export class SshSession {
         client.on('error', () => {})
         client.end()
         client.destroy()
+      } catch {
+        /* 已关闭 */
+      }
+    }
+    // 目标机连接关闭后，跳板机连接必须立刻跟着关：否则跳板机上留着一条 sshd 会话
+    // （用户看到「已断开」，sshd 上却还有一条 ll 进程），重连几次就在跳板机上堆几条。
+    if (jumpClient) {
+      try {
+        jumpClient.removeAllListeners()
+        jumpClient.on('error', () => {})
+        jumpClient.end()
+        jumpClient.destroy()
       } catch {
         /* 已关闭 */
       }
