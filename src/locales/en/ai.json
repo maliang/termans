@@ -109,5 +109,7 @@
   "locked.title": "Vault is locked",
   "locked.body": "Unlock it to read providers and keys. Nothing is sent to any provider while locked.",
   "locked.action": "Try again",
-  "locked.details": "Keys live inside the encrypted vault — that is also why hostnames stay hidden while locked. Unlock, press “Try again”, or open Settings → AI."
+  "locked.details": "Keys live inside the encrypted vault — that is also why hostnames stay hidden while locked. Unlock, press “Try again”, or open Settings → AI.",
+  "provider.readonly.hint": "Provider names, endpoints and API keys are configured in Settings → AI. This panel only picks one for the conversation.",
+  "provider.deleted": "Provider deleted."
 }

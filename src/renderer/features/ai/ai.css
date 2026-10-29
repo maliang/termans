@@ -321,6 +321,14 @@
   font-family: var(--ts-font-mono);
 }
 
+/* `.ts-ai-form input { width: 100% }` 也会命中复选框：不排掉的话「启用」两个字
+   会被挤成竖排（t47 截图实测）。复选框只吃什么都不占的宽度。 */
+.ts-ai-form input[type='checkbox'] {
+  width: auto;
+  flex: none;
+  margin: 0;
+}
+
 .ts-field__hint {
   display: block;
   margin-top: 3px;
@@ -702,4 +710,74 @@
 .ts-ai-msg__body {
   max-width: 100%;
   overflow-wrap: anywhere;
+}
+
+/* ========================================================================== */
+/* 设置 → AI：供应商管理（t47 从面板搬进设置页）                              */
+/* ========================================================================== */
+/* `.ts-ai-form__*` 是面板里原本那套表单样式，直接复用：
+   同一个「供应商配置」在两个位置长得不一样，是更贵的问题。这里只补列表行与徽标。 */
+
+.ts-ai-provider-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.ts-ai-provider-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.ts-ai-provider-row > .ts-ai-form__item {
+  flex: 1;
+  min-width: 0;
+}
+
+.ts-ai-provider-row__default {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.ts-ai-form__badge {
+  /* 条目是两行两列的 grid（name/model + key），徽标没指定区域时会被自动塞进下一行
+     并拉满整行宽度（截图里「默认」框横贯半个面板）。显式占满一行并靠左，保持小标签形状。 */
+  grid-column: 1 / -1;
+  justify-self: start;
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-sm);
+  line-height: 1.4;
+}
+
+/* 面板里的只读速查表 */
+.ts-ai-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ts-ai-providers__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ts-ai-providers__item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  background: var(--ts-bg-elevated);
 }

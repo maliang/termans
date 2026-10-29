@@ -4,7 +4,7 @@
   "ai.disclosure": "AI 建议由你自己配置的第三方服务生成：命令与终端上下文会离开本机。任何建议命令在写入终端之前，都必须由你二次确认。",
   "ai.enabled": "启用 AI 辅助",
   "ai.enabledHint": "默认关闭。开启后，你发送的提示词、以及（在面板里另行开启的）最近终端输出会被发给你自己配置的第三方服务；关闭状态下不会发送任何内容。",
-  "ai.provider.add": "去 AI 面板添加",
+  "ai.provider.add": "在「设置 → AI」里新建供应商",
   "ai.provider.empty": "还没有配置供应商。",
   "ai.provider.hint": "用于新对话；在 AI 面板里仍然可以随时切换供应商。",
   "ai.provider.label": "默认供应商",
@@ -92,5 +92,14 @@
   "themeError.unknownToken": "无法识别的主题变量：{{token}}。",
   "themeError.unsafeValue": "{{token}} 含有不允许的字符。",
   "themes.builtin.brightness": "内置亮/暗主题",
-  "title": "设置"
+  "title": "设置",
+  "ai.providers.label": "AI 供应商",
+  "ai.providers.hint": "每个供应商的地址与 API key 都存在加密包里。key 只写入、不回读，列表里只显示尾 4 位。",
+  "ai.providers.add": "新建供应商",
+  "ai.providers.isDefault": "默认",
+  "ai.providers.disabled": "已停用",
+  "ai.providers.makeDefault": "设为默认",
+  "ai.providers.keySaved": "已保存 key：{{mask}}。输入新的即可覆盖。",
+  "ai.providers.keyShow": "显示 key",
+  "ai.providers.keyHide": "隐藏 key"
 }

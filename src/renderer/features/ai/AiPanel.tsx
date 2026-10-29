@@ -32,7 +32,6 @@ import type { AiUsage } from '@shared/models/ai'
 import { useShellStore } from '@renderer/app/store'
 import { openSettingsDialog } from '@renderer/theme/settings-dialog'
 import * as api from './api'
-import { ProviderForm } from './ProviderForm'
 import { CommandGuard, extractCommandBlocks } from './command-guard'
 import type { CommandAssessment, CommandBlock } from './command-guard'
 import { buildPreview, estimatePreviewSize } from './prompt-preview'
@@ -299,12 +298,16 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
               <RotateCw size={13} aria-hidden="true" />
               <span>{t('ai:action.refresh')}</span>
             </button>
+            {/* 配置与 API key 在「设置 → AI」里（t47 搬过去）：面板只留一个跳转入口。
+                可访问名保持 `ai:provider.title`——它是「去哪儿配供应商」的稳定锚点，
+                改文案会同时断掉外部用例与用户的肌肉记忆。 */}
             <button
               type="button"
               className="ts-icon-btn"
-              onClick={() => useAiStore.getState().setView('providers')}
+              onClick={() => openSettingsDialog('ai')}
               aria-label={t('ai:provider.title')}
               title={t('ai:provider.action.manage')}
+              data-testid="ai-open-provider-settings"
             >
               <Settings2 size={15} aria-hidden="true" />
             </button>
@@ -347,13 +350,40 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
       )}
 
       <div className="ts-ai-panel__body" ref={bodyRef}>
+        {/* 供应商视图：t47 起**只读**。配置（含 API key 输入框）搬到了「设置 → AI」，
+            这里保留一张速查表和跳转按钮：面板里再也找不到任何填 key 的表单，
+            但用户点进来仍然能看清「现在配了几个、用的是哪个、有没有 key」。 */}
         {view === 'providers' && (
-          <ProviderForm
-            providers={providers}
-            activeProviderId={activeProviderId}
-            onSaved={() => useAiStore.getState().reloadProviders()}
-            onSelect={(providerId) => useAiStore.getState().setActiveProvider(providerId)}
-          />
+          <div className="ts-ai-providers" data-testid="ai-providers-readonly">
+            {providers.length === 0 ? (
+              <p className="ts-empty__body">{t('ai:provider.list.empty')}</p>
+            ) : (
+              <ul className="ts-ai-providers__list">
+                {providers.map((provider) => (
+                  <li key={provider.id} className="ts-ai-providers__item">
+                    <span className="ts-ai-form__item-name">{provider.name}</span>
+                    <span className="ts-ai-form__item-model">{provider.model}</span>
+                    <span className="ts-ai-form__item-key">
+                      {api.maskFromKeyRef(provider.apiKeyRef) ?? t('ai:provider.list.noKey')}
+                    </span>
+                    {provider.id === activeProviderId ? (
+                      <span className="ts-ai-form__badge">{t('ai:provider.field.active')}</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <button
+              type="button"
+              className="ts-btn ts-btn--primary ts-btn--block"
+              data-testid="ai-providers-open-settings"
+              onClick={() => openSettingsDialog('ai')}
+            >
+              <Settings2 size={14} aria-hidden="true" />
+              {t('ai:provider.action.manage')}
+            </button>
+            <p className="ts-ai-form__note">{t('ai:provider.readonly.hint')}</p>
+          </div>
         )}
 
         {view === 'templates' && (
@@ -417,7 +447,8 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
                 <button
                   type="button"
                   className="ts-btn ts-btn--primary"
-                  onClick={() => useAiStore.getState().setView('providers')}
+                  data-testid="ai-no-provider-open-settings"
+                  onClick={() => openSettingsDialog('ai')}
                 >
                   {t('ai:provider.action.add')}
                 </button>
