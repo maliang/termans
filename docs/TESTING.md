@@ -307,6 +307,21 @@ git worktree add /tmp/repro-<hash> <hash>     # 共享树里一个字节都不�
 "2/6 红"的假结论，还差点当成产品缺陷上报。做不到 worktree 的（例如要复用同一份 `userData`），就先在团队里
 声明「我要临时改 X 文件，窗口约 N 分钟」，改完 `git hash-object` 复核还原。
 
+**跑测试不许抢焦点（零打扰）**：`pnpm test:e2e` 会在桌面上真的开一个窗口——**窗口可以有，焦点不能抢**。
+共享的那台机器上有人正在打字、开会、录屏，一条 e2e 把窗口顶到最前面就是事故（最轻也是把别人的输入打断）。
+
+| 允许 | 禁止 |
+| --- | --- |
+| `win.showInactive()`（e2e 分支，窗口出现但不激活） | `open -a` / `osascript … activate` / `tell application "X" to quit` |
+| `webContents.capturePage()`（应用自己出栅格，零权限） | `screencapture`（要「屏幕录制」权限，本机第一次跑会弹权限框把用例卡住） |
+| `app.dock.hide()`（仅 e2e 分支，省掉 Dock 图标闪动） | `win.focus()` / `win.moveTop()` / `setAlwaysOnTop(true)` |
+
+实现落在 `src/main/index.ts` 的 `const isE2E = process.env.TERMANS_E2E === '1'`（同 `harness.ts` 设的那条）：
+`win.once('ready-to-show', () => (isE2E ? win.showInactive() : win.show()))`。这个开关**只对 e2e 生效**，
+打包产物里那段代码存在但永不触发（用户环境里不存在 `TERMANS_E2E`），人工启动走的仍是 `show()`。
+
+`app.dock.hide()` 同理，必须严格写在 `if (isE2E)` 里——写漏了装给用户的 App 会从 Dock 里消失。
+
 ### 6.1 三条 verify 命令的判定口径
 
 只看 `passed` 数会误判——同一天里出现过 `Tests 622 passed` 与 `exit code 1` 同时成立（子进程 EPIPE 的

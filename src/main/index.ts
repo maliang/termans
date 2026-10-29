@@ -124,7 +124,9 @@ function createWindow(): BrowserWindow {
     }
   })
 
-  win.once('ready-to-show', () => win.show())
+  // e2e 用 showInactive()：窗口必须真的存在（隐藏窗口 capturePage 可能拍出空白），但绝不抢焦点——
+  // 否则 `pnpm test:e2e` 会把主人正在打字的窗口顶掉。人工启动走的仍是 show()（见 docs/TESTING.md §6）。
+  win.once('ready-to-show', () => (isE2E ? win.showInactive() : win.show()))
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null
   })
