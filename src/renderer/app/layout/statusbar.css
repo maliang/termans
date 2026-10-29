@@ -1,0 +1,117 @@
+/* ==========================================================================
+   底部状态条的分段布局（app/layout 自有样式）
+   base.css 只给了 .ts-statusbar 的骨架（24px、11px 字、gap 14px），
+   这里补「三段 + 分隔线 + 弱化版本号」这些审计 #3 要的层次。
+   颜色全部走 --ts-* token，主题切换自动跟随。
+   ========================================================================== */
+
+.ts-statusbar__segment {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* 右段靠右、允许被中间挤压缩短 */
+.ts-statusbar__segment--end {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+.ts-statusbar__sep {
+  flex: none;
+  width: 1px;
+  height: 12px;
+  background: var(--ts-border);
+}
+
+.ts-statusbar__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ts-statusbar__item--ok {
+  color: var(--ts-text-muted);
+}
+
+.ts-statusbar__item--warn {
+  color: var(--ts-status-warn);
+}
+
+.ts-statusbar__item--error {
+  color: var(--ts-status-error);
+}
+
+/* 版本号是「查资料时才看」的信息：降一号字号 + 降透明度，别和状态抢注意力 */
+.ts-statusbar__version {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 10px;
+  opacity: 0.55;
+}
+
+/* 状态条里的可点状态：无边框按钮，hover 才浮出底色，避免一条状态栏长得像工具栏 */
+.ts-statusbar__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--ts-radius-sm);
+  background: transparent;
+  color: var(--ts-text-muted);
+  font-size: 11px;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.ts-statusbar__action:hover:not(:disabled) {
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-primary);
+}
+
+.ts-statusbar__action:focus-visible {
+  outline: 2px solid var(--ts-focus-ring);
+  outline-offset: 1px;
+}
+
+.ts-statusbar__action:disabled {
+  opacity: 0.45;
+}
+
+.ts-statusbar__action--ok {
+  color: var(--ts-text-muted);
+}
+
+.ts-statusbar__action--busy {
+  color: var(--ts-accent);
+}
+
+.ts-statusbar__action--warn {
+  color: var(--ts-status-warn);
+}
+
+.ts-statusbar__action--error {
+  color: var(--ts-status-error);
+}
+
+/* 冲突条数：小圆角徽标，和页签的未读徽标同一套语汇 */
+.ts-statusbar__badge {
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--ts-status-error);
+  color: var(--ts-accent-contrast);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+}

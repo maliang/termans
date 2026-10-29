@@ -40,20 +40,24 @@
   gap: 2px;
 }
 
-.ts-term-toolbar__status {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-align: center;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-variant-numeric: tabular-nums;
+/* 动作组与缩放组之间的 1px 层次线（审计 #2） */
+.ts-term-toolbar__divider {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--ts-border);
 }
 
 .ts-term-toolbar .ts-icon-btn {
   min-width: 24px;
   height: 22px;
   font-size: 12px;
+}
+
+.ts-term-toolbar .ts-icon-btn:focus-visible {
+  outline: 2px solid var(--ts-focus-ring);
+  outline-offset: 1px;
 }
 
 /* ------------------------------ 面板堆叠 ------------------------------ */
@@ -67,7 +71,9 @@
 .ts-term-surface {
   position: absolute;
   inset: 0;
-  padding: 6px 8px;
+  /* 附加 A：8–12px 内边距。xterm 的 ResizeObserver 盯的是内层 canvas，
+     padding 一变就会重新 fit 并把新行列数发给远端 PTY，不会出现「渲染宽度 ≠ PTY 宽度」。 */
+  padding: 10px 12px;
   background: var(--ts-bg-app);
   transition: background-color 140ms ease;
 }
@@ -87,7 +93,11 @@
 }
 
 .ts-term-surface__canvas .xterm-viewport {
-  /* xterm 的滚动条容器默认透明，跟随主题给它一点存在感 */
+  /* 滚动条容器兼任「行高取整剩下的那一条」的背景。
+     xterm.css 默认给它 #000：fit() 取整后 screen 比容器矮不足一行时，
+     底部会露出 16px 的纯黑方块（审计附加 B 的那个黑块就是这个）。
+     设成透明，露出的是 .ts-term-surface 的主题背景，看起来才是连续的终端底色。 */
+  background-color: transparent;
   scrollbar-width: thin;
   scrollbar-color: var(--ts-border-strong) transparent;
 }
@@ -104,10 +114,83 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
+  padding: 24px;
   color: var(--ts-text-muted);
   text-align: center;
-  pointer-events: none;
+  /* 空态里有真按钮，必须能点（原来 pointer-events:none 只是为了避免挡住终端） */
+  pointer-events: auto;
+}
+
+.ts-term-empty__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 2px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-lg);
+  background: var(--ts-bg-surface);
+  color: var(--ts-text-secondary);
+}
+
+.ts-term-empty .ts-empty__title {
+  color: var(--ts-text-primary);
+  font-size: var(--ts-font-size-lg);
+}
+
+.ts-term-empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.ts-term-empty__kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-secondary);
+  font-family: var(--ts-font-mono);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.ts-term-empty__note {
+  margin: 4px 0 0;
+  font-size: var(--ts-font-size-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--ts-text-secondary);
+}
+
+/* ------------------------------ 会话状态串 ------------------------------ */
+/* 挂在状态栏左段（审计 #2/#3）：终端工具条只留动作，状态归状态栏 */
+.ts-term-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.ts-term-session--connected {
+  color: var(--ts-status-ok);
+}
+
+.ts-term-session--error {
+  color: var(--ts-status-error);
+}
+
+.ts-term-session--connecting,
+.ts-term-session--reconnecting {
+  color: var(--ts-status-warn);
 }
 
 /* ------------------------------ 搜索条 ------------------------------ */

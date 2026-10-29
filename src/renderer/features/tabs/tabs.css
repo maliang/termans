@@ -7,6 +7,26 @@
   position: relative;
 }
 
+/*
+ * 新建按钮：页签条内、紧跟最后一个页签。
+ * 页签多到溢出时 `sticky right` 让它在页签条右端停住——否则被滚出可视区，用户又找不到入口。
+ * 背景必须不透明：滚过去的页签不能从按钮下面透出来。
+ */
+.ts-tabstrip__new {
+  position: sticky;
+  right: 0;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  margin-left: 2px;
+  background: var(--ts-bg-surface);
+  -webkit-app-region: no-drag;
+}
+
+.ts-tabstrip__new:hover {
+  background: var(--ts-bg-elevated);
+}
+
 .ts-tabstrip__tabs {
   /* 页签多到溢出时横向滚动，而不是把工具栏挤出去 */
   scrollbar-width: none;

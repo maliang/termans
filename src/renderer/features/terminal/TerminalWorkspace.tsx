@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { FileDown, Sparkles, SquareTerminal, Zap } from 'lucide-react'
 import { DEFAULT_SETTINGS, type AppPlatform, type TerminalSettings } from '@shared'
+import { useVaultStore } from '@renderer/features/vault'
 import { CloseTabDialog } from '../tabs/CloseTabDialog'
-import { registerTabCommandHooks, requestCloseTab, runMenuCommand, useTabStore, type TerminalTab } from '../tabs/tab-store'
+import {
+  openNewTabPicker,
+  registerTabCommandHooks,
+  requestCloseTab,
+  runMenuCommand,
+  useTabStore,
+  type TerminalTab
+} from '../tabs/tab-store'
 import { PasteWarningDialog } from './PasteWarningDialog'
 import { singleLineText } from './paste'
+import { importDefaultSshConfig } from './ssh-config-import'
 import { TerminalSearchBar } from './TerminalSearchBar'
 import { TerminalToolbar } from './TerminalToolbar'
 import { XtermSurface } from './XtermSurface'
@@ -64,6 +74,11 @@ export function TerminalWorkspace({
   const [searchOpen, setSearchOpen] = useState(false)
   const [pastePrompt, setPastePrompt] = useState<PastePrompt | null>(null)
   const [pendingClose, setPendingClose] = useState<TerminalTab | null>(null)
+  /** 空态「导入 ~/.ssh/config」的结果行：{busy, text}；真正的反馈是导入后主机出现在左侧 */
+  const [importState, setImportState] = useState<{ busy: boolean; text: string | null }>({ busy: false, text: null })
+  const libraryEmpty = useVaultStore(
+    (state) => state.status?.state === 'unlocked' && (state.library?.hosts.length ?? 0) === 0
+  )
 
   // runtime 只建一次：重建等于把所有终端扔掉
   const runtime = useMemo(
@@ -157,6 +172,23 @@ export function TerminalWorkspace({
 
   const activeView = useSessionStore((state) => (activeTabId ? state.byTab[activeTabId] : undefined))
 
+  const shortcutHint = resolvedPlatform === 'darwin' ? '⌘T' : 'Ctrl+T'
+
+  const runImportSshConfig = useCallback(async () => {
+    setImportState({ busy: true, text: null })
+    const outcome = await importDefaultSshConfig()
+    if (outcome.kind === 'imported') {
+      // 「+N / −M」不写自然语言：locales 由 theme-i18n 维护，这里不新造 key
+      setImportState({ busy: false, text: `~/.ssh/config · +${outcome.imported} / −${outcome.skipped}` })
+      return
+    }
+    if (outcome.kind === 'missing') {
+      setImportState({ busy: false, text: `${outcome.path} · ✗` })
+      return
+    }
+    setImportState({ busy: false, text: outcome.message })
+  }, [])
+
   return (
     <TerminalRuntimeContext.Provider value={runtime}>
       <TerminalUiContext.Provider value={ui}>
@@ -173,12 +205,59 @@ export function TerminalWorkspace({
             ))}
             {tabs.length === 0 && (
               <div className="ts-terminal__placeholder ts-term-empty" data-testid="term-empty">
-                <p className="ts-empty__title">{t('terminal:empty.title', { defaultValue: '还没有打开的终端' })}</p>
+                {/* 审计 #7：原来只有一行灰字，冷启动第一屏没有可点的动作。
+                    现在给图标 + 标题 + 一句说明 + 两个主/次按钮，主机库为空时再补导入入口。 */}
+                <span className="ts-term-empty__icon" aria-hidden="true">
+                  <SquareTerminal size={30} strokeWidth={1.4} />
+                </span>
+                <p className="ts-empty__title">{t('terminal:empty.title', { defaultValue: 'No session open' })}</p>
                 <p className="ts-empty__body">
                   {t('terminal:empty.body', {
-                    defaultValue: '从左侧主机库双击一台主机，或点页签条上的「+」新建。'
+                    defaultValue: 'Pick a host on the left, or press ⌘T to open a new tab.'
                   })}
                 </p>
+                <div className="ts-term-empty__actions">
+                  <button
+                    type="button"
+                    className="ts-btn ts-btn--primary"
+                    data-testid="term-empty-new"
+                    onClick={() => runMenuCommand('new-tab')}
+                  >
+                    <SquareTerminal size={14} aria-hidden="true" />
+                    {t('terminal:tab.new', { defaultValue: 'New tab' })}
+                    <kbd className="ts-term-empty__kbd">{shortcutHint}</kbd>
+                  </button>
+                  <button
+                    type="button"
+                    className="ts-btn ts-btn--ghost"
+                    data-testid="term-empty-quick"
+                    onClick={() => openNewTabPicker('quick')}
+                  >
+                    <Zap size={14} aria-hidden="true" />
+                    {t('terminal:tab.quickConnect.title', { defaultValue: 'Quick connect' })}
+                  </button>
+                  {libraryEmpty ? (
+                    <button
+                      type="button"
+                      className="ts-btn ts-btn--ghost"
+                      data-testid="term-empty-import"
+                      disabled={importState.busy}
+                      onClick={() => void runImportSshConfig()}
+                    >
+                      {importState.busy ? (
+                        <Sparkles size={14} aria-hidden="true" />
+                      ) : (
+                        <FileDown size={14} aria-hidden="true" />
+                      )}
+                      {t('hosts:action.import', { defaultValue: 'Import' })} ~/.ssh/config
+                    </button>
+                  ) : null}
+                </div>
+                {importState.text ? (
+                  <p className="ts-term-empty__note" data-testid="term-empty-note">
+                    {importState.text}
+                  </p>
+                ) : null}
               </div>
             )}
           </div>

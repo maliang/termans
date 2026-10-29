@@ -15,14 +15,16 @@ import { useTabStore } from './tab-store'
 
 export interface NewTabPickerProps {
   onClose: () => void
+  /** 打开时落在哪个分页：空会话态的「快速连接」直接进 quick */
+  initialMode?: Mode
 }
 
 type Mode = 'hosts' | 'quick'
 
-export function NewTabPicker({ onClose }: NewTabPickerProps): JSX.Element {
+export function NewTabPicker({ onClose, initialMode = 'hosts' }: NewTabPickerProps): JSX.Element {
   const { t } = useTranslation()
   const openTab = useTabStore((state) => state.openTab)
-  const [mode, setMode] = useState<Mode>('hosts')
+  const [mode, setMode] = useState<Mode>(initialMode)
   const [hosts, setHosts] = useState<HostOption[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

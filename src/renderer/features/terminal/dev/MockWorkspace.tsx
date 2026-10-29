@@ -4,6 +4,7 @@ import { registerTabBackend, resetTabBackend } from '../../tabs/backend'
 import { TerminalTabStrip } from '../../tabs/TabStrip'
 import { useTabStore } from '../../tabs/tab-store'
 import { TerminalWorkspace } from '../TerminalWorkspace'
+import { SessionStatus } from '../SessionStatus'
 import { createMockTabBackend, MOCK_DEFAULT_HOST_ID } from './mock-backend'
 import { createMockTransport } from './mock-transport'
 
@@ -72,6 +73,11 @@ export function MockWorkspace({ initialTabs = 1, webgl }: MockWorkspaceProps) {
         platform="darwin"
         webgl={wantsWebgl}
       />
+      {/* 外壳状态栏不在这里（这是终端 feature 的演示页），但会话状态串在真实应用里挂在状态栏上，
+          这里补一条同样的底栏，验证脚本才能用同一个 `term-status` 选择器复核尺寸/渲染器 */}
+      <footer className="ts-statusbar" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 12px' }}>
+        <SessionStatus />
+      </footer>
     </div>
   )
 }

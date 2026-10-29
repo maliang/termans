@@ -289,8 +289,11 @@ export function findTab(tabs: readonly TerminalTab[], tabId: string | null): Ter
  * 弹关闭确认、打开终端搜索条）。store 保持纯净（不 import React/终端），
  * 因此这些能力由工作区在挂载时注册进来——和 TabBackend 是同一套思路。
  */
+export type NewTabPickerMode = 'hosts' | 'quick'
+
 export interface TabCommandHooks {
-  openNewTabPicker?: () => void
+  /** `mode` 让外部入口（例如空会话态的「快速连接」）直接落到对应分页 */
+  openNewTabPicker?: (mode?: NewTabPickerMode) => void
   /** 走 requestCloseTab 的判定后再关（有活跃会话时弹确认） */
   requestCloseTab?: (tabId: string) => void
   openSearch?: () => void
@@ -312,6 +315,21 @@ export function registerTabCommandHooks(hooks: TabCommandHooks): () => void {
 }
 
 /**
+ * 打开「新建页签」选择器（可指定分页）。
+ *
+ * 空会话态的主/次按钮也走这里：入口只有一个面板（页签条上的 `+`），
+ * 复制一份面板就会出现两个浮层互相抢焦点。
+ * 没有注册 hook（页签条没挂载）时退化成直接开一个空页签，至少不让按钮变哑巴。
+ */
+export function openNewTabPicker(mode: NewTabPickerMode = 'hosts'): void {
+  if (commandHooks.openNewTabPicker) {
+    commandHooks.openNewTabPicker(mode)
+    return
+  }
+  useTabStore.getState().openTab()
+}
+
+/**
  * 菜单 / 快捷键统一入口（t7 integration 在 App.tsx 的 handleMenuCommand 里调用）。
  * 返回 true = 本模块消化了这条命令；false = 交给 App 处理（设置、锁库、AI 面板…）。
  */
@@ -319,8 +337,7 @@ export function runMenuCommand(command: MenuCommand): boolean {
   const state = useTabStore.getState()
   switch (command) {
     case 'new-tab':
-      if (commandHooks.openNewTabPicker) commandHooks.openNewTabPicker()
-      else state.openTab()
+      openNewTabPicker('hosts')
       return true
     case 'close-tab': {
       const tabId = state.activeTabId

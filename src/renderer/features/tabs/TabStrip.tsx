@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, X } from 'lucide-react'
-import { registerTabCommandHooks, requestCloseTab, useTabStore, type TabStatus, type TerminalTab } from './tab-store'
+import { registerTabCommandHooks, requestCloseTab, useTabStore, type NewTabPickerMode, type TabStatus, type TerminalTab } from './tab-store'
 import { NewTabPicker } from './NewTabPicker'
 import { CloseTabDialog } from './CloseTabDialog'
 import './tabs.css'
@@ -61,12 +61,22 @@ export function TerminalTabStrip({ className, confirmOnClose = true }: TerminalT
   const moveTab = useTabStore((state) => state.moveTab)
 
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerMode, setPickerMode] = useState<NewTabPickerMode>('hosts')
   const [pendingClose, setPendingClose] = useState<TerminalTab | null>(null)
   const [dragTabId, setDragTabId] = useState<string | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
 
   // 菜单「新建页签」由本组件应答：选择器就长在这里，别处再复制一份会开出两个面板
-  useEffect(() => registerTabCommandHooks({ openNewTabPicker: () => setPickerOpen(true) }), [])
+  useEffect(
+    () =>
+      registerTabCommandHooks({
+        openNewTabPicker: (mode) => {
+          setPickerMode(mode ?? 'hosts')
+          setPickerOpen(true)
+        }
+      }),
+    []
+  )
 
   const requestClose = useCallback(
     (tabId: string) => {
@@ -188,23 +198,23 @@ export function TerminalTabStrip({ className, confirmOnClose = true }: TerminalT
             </div>
           )
         })}
-      </div>
-
-      <div className="ts-tabstrip__tools">
+        {/* 新建按钮贴着最后一个页签；页签溢出滚动时靠 sticky 钉在页签条右端，
+            不再飘在窗口最右上（审计 #1）。面板提到 header 层，避免被滚动容器裁掉。 */}
         <button
           type="button"
-          className="ts-icon-btn"
+          className="ts-tabstrip__new ts-icon-btn"
           data-testid="tab-new"
+          title={t('terminal:tab.new', { defaultValue: 'New tab' })}
           aria-label={t('terminal:tab.new', { defaultValue: 'New tab' })}
           aria-expanded={pickerOpen}
+          aria-haspopup="dialog"
           onClick={() => setPickerOpen((open) => !open)}
         >
           <Plus size={15} strokeWidth={2.2} />
         </button>
-        {pickerOpen && (
-          <NewTabPicker onClose={() => setPickerOpen(false)} />
-        )}
       </div>
+
+      {pickerOpen && <NewTabPicker initialMode={pickerMode} onClose={() => setPickerOpen(false)} />}
 
       {pendingClose && (
         <CloseTabDialog
