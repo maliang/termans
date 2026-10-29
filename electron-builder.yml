@@ -16,6 +16,17 @@ directories:
   output: dist
   buildResources: build
 
+# 收尾守卫（scripts/pack-guard.cjs）：所有产物生成之后调用，做两件事——
+#   1. 断言产物 Contents/Resources/icon.icns 与 build/icon.icns、design/logo/export/termans.icns 逐字节相同，
+#      并校验 CFBundleIconFile / CFBundleIdentifier / 版本号（靠断言，不靠「我记得配了」）；
+#   2. 把 @electron/rebuild 就地改写过的原生模块 rebuild 回本机架构——在 arm64 机器上打 x64 包之后，
+#      node_modules/cpu-features 会变成 x86_64，随后 dev / vitest / e2e 全部加载错架构的二进制。
+#      恢复失败会 throw，electron-builder 直接以非 0 退出，不给「日志看着成功」的机会。
+# 为什么用钩子而不只写文档：钩子对 `pnpm pack` 与 `pnpm pack:dir` 都生效，`--dir` 也会走到
+# （app-builder-lib/out/index.js 在 packager.build() 之后无条件调用 afterAllArtifactBuild）。
+# 构建中途崩溃时钩子不执行，所以另留手动入口 `node scripts/pack-guard.cjs restore`。
+afterAllArtifactBuild: scripts/pack-guard.cjs
+
 # files 白名单：运行期只需要三样东西。
 # node_modules 的解释：electron-builder 会依据 package.json 的 dependencies 计算生产依赖闭包再采集，
 # 这里显式列出来是为了「看得见 + 能加排除规则」，不是放它去扫全量 node_modules。
