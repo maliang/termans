@@ -100,6 +100,19 @@ function shell(client: Client): Promise<ClientChannel> {
   })
 }
 
+/** 轮询等某个条件成立（服务端记录请求是异步的，直接断言会偶发落空） */
+function waitUntil(predicate: () => boolean, label: string, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  return new Promise<void>((resolve, reject) => {
+    const tick = (): void => {
+      if (predicate()) return resolve()
+      if (Date.now() > deadline) return reject(new Error(`等待「${label}」超时`))
+      setTimeout(tick, 10)
+    }
+    tick()
+  })
+}
+
 /** 等通道输出里出现某段文本（或通道关闭），超时即失败并带上已收到的内容 */
 function waitForOutput(channel: ClientChannel, needle: string, timeoutMs = 5_000): Promise<string> {
   return new Promise<string>((resolve, reject) => {
@@ -221,6 +234,39 @@ describe('SSH 夹具：shell 通道', () => {
     }
 
     expect(target.shellLines).toEqual(['echo hi', 'exit'])
+  })
+
+  /**
+   * t18 回归：`window-change`（resize）之后连接必须还活着。
+   *
+   * 这条用例守的是一个**曾经真实存在**的缺陷：夹具当年写成
+   * `session.on('window-change', (acceptWindow) => acceptWindow())`，而 RFC 4254 里
+   * window-change 没有应答，ssh2 传给监听器的 accept/reject 都是 undefined，
+   * 于是客户端第一次 resize 就让服务端抛 `TypeError: acceptWindow is not a function`、
+   * ssh2 随即销毁 socket —— 客户端只看到一条 FIN（表现为「连上约 1s 被对端 FIN」）。
+   *
+   * 为什么只断言「resize 到达」不够、必须再跑一条命令：处理函数的错误**不会**回传给调用方，
+   * 只断言 windowChanges 会被「记录到了但随后连接已死」骗过。
+   */
+  it('window-change（resize）不断连，且 resize 真的到达服务端', async () => {
+    const target = await fixture()
+    const client = await connect(baseConfig(target))
+    try {
+      const channel = await shell(client)
+      // ssh2 的 setWindow 参数顺序是 (rows, cols, height, width) —— 与直觉相反
+      channel.setWindow(40, 131, 0, 0)
+      await waitUntil(() => target.windowChanges.length > 0, 'window-change 到达服务端')
+      expect(target.windowChanges).toEqual([{ cols: 131, rows: 40, width: 0, height: 0 }])
+
+      channel.write('echo ALIVE-AFTER-RESIZE\r')
+      const output = await waitForOutput(channel, 'ALIVE-AFTER-RESIZE\r\n')
+      expect(output).toContain('ALIVE-AFTER-RESIZE\r\n')
+      // 服务端全程无异常：这是「夹具没炸」的直接证据，比「客户端还连着」更靠近根因
+      expect(target.errors).toEqual([])
+    } finally {
+      client.end()
+    }
+    expect(target.shellLines).toEqual(['echo ALIVE-AFTER-RESIZE'])
   })
 
   it('命令不存在回 127 并给出 shell 风格报错', async () => {

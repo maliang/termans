@@ -123,8 +123,33 @@ export interface SshFixture {
   execs: SshExecRecord[]
   /** shell 通道收到并执行过的命令行（不含换行） */
   shellLines: string[]
+  /**
+   * 客户端发来的 `window-change`（resize）流水。
+   *
+   * 存在的理由：resize 是**没有应答**的请求，处理错了不会抛给调用方，只会让连接安静地断掉
+   * （见 `handleWindowChange` 的注释）。t18 的回归用例靠这条断言「resize 真的到达服务端」，
+   * 而不是只断言「客户端还连着」——后者在 resize 被丢弃时同样成立。
+   */
+  windowChanges: SshWindowChange[]
+  /**
+   * 服务端侧捕获到的所有错误（ssh2 server Client 的 'error' + 请求处理函数抛出的异常）。
+   *
+   * 空数组 = 连接全程没有服务端异常。非空即「夹具自己出问题了」：ssh2 的 server 端在处理
+   * 请求的 handler 抛异常时会 `client.destroy()`，客户端只看到一条 FIN、拿不到任何原因，
+   * 排查成本极高（t18 就是 `acceptWindow is not a function` 这样被丢掉的）。所以夹具**必须**
+   * 把它记下来供断言，不允许静默吞掉。
+   */
+  errors: string[]
   /** 关掉监听并断开所有连接；幂等 */
   stop: () => Promise<void>
+}
+
+/** 一次 `window-change` 请求的载荷（与 RFC 4254 §6.7 字段一致） */
+export interface SshWindowChange {
+  cols: number
+  rows: number
+  width: number
+  height: number
 }
 
 interface ResolvedOptions {
@@ -410,10 +435,30 @@ export async function startSshFixture(options: SshFixtureOptions = {}): Promise<
   const authAttempts: SshAuthAttempt[] = []
   const execs: SshExecRecord[] = []
   const shellLines: string[] = []
+  const windowChanges: SshWindowChange[] = []
+  const errors: string[] = []
   const sockets = new Set<Socket>()
 
+  /** 包一层请求处理器：抛错记进 errors（而不是让 ssh2 销毁 socket 后无人知晓） */
+  const guard = (label: string, run: () => void): void => {
+    try {
+      run()
+    } catch (error) {
+      errors.push(`${label}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
   const server = new Server({ hostKeys: [hostKey] }, (client: Connection) => {
-    client.on('error', () => undefined)
+    /**
+     * 只记录**认证成功之后**的错误。原因：引擎（和任何谨慎的客户端）会先为 hostVerifier 建一条
+     * 「只做握手、拿到 host key 就主动断开」的探测连接，那条连接必然在断开时留下
+     * `KEY_EXCHANGE_FAILED` —— 那是**预期**行为，混进 errors 会让「夹具没炸」这条断言永远不成立。
+     */
+    let authenticated = false
+    client.on('error', (error: Error & { level?: string }) => {
+      if (!authenticated) return
+      errors.push(`client error (${error.level ?? 'unknown'}): ${error.message}`)
+    })
 
     client.on('authentication', (ctx) => {
       const rejectAll = (reason: string): void => {
@@ -453,13 +498,34 @@ export async function startSshFixture(options: SshFixtureOptions = {}): Promise<
     })
 
     client.on('ready', () => {
+      authenticated = true
       client.on('session', (accept) => {
         const session: Session = accept()
 
-        session.on('pty', (acceptPty) => acceptPty())
-        session.on('window-change', (acceptWindow) => acceptWindow())
-        session.on('env', (acceptEnv) => acceptEnv())
-        session.on('signal', (acceptSignal) => acceptSignal())
+        /**
+         * ⚠️ 三种会话请求的应答契约**不一样**，抄错一个就会让夹具静默断连（t18 的根因）：
+         *
+         * - `pty-req` / `env` 带 `want_reply`，ssh2 才会给 `accept`/`reject`，可以调；
+         * - `window-change` / `signal` 在 RFC 4254 里**没有应答**（客户端不置 want_reply），
+         *   ssh2 传给监听器的 `accept` 与 `reject` 都是 `undefined`（见
+         *   `node_modules/ssh2/lib/server.js:847-856`：只有 wantReply 为真时才构造这两个回调）。
+         *
+         * 原来写成 `session.on('window-change', (acceptWindow) => acceptWindow())`，
+         * 于是**客户端第一次 resize（xterm 挂载后 fit 出来 131x40）就抛**
+         * `TypeError: acceptWindow is not a function`；ssh2 的 server 端 Client 捕获 handler
+         * 异常后直接销毁 socket，客户端只看到一条 FIN ——表现为「连上约 1s 被对端 FIN」，
+         * 且 vitest 里没有触发 resize 的用例，所以长期没暴露（t18）。
+         */
+        guard('pty', () => session.on('pty', (acceptPty) => acceptPty()))
+        guard('window-change', () =>
+          session.on('window-change', (_accept, _reject, info) => {
+            // 不调 accept：这个请求没有应答可发；只记录，供回归断言「resize 真的到了服务端」
+            windowChanges.push({ cols: info.cols, rows: info.rows, width: info.width, height: info.height })
+          })
+        )
+        guard('env', () => session.on('env', (acceptEnv) => acceptEnv()))
+        // signal 同样没有应答（RFC 4254 §6.9），收到即忽略，不要试着 accept
+        guard('signal', () => session.on('signal', () => undefined))
         session.on('auth-agent', (_accept, rejectAgent) => rejectAgent())
         // 夹具不实现 SFTP / 任意子系统：明确拒绝，别让客户端一直等
         session.on('sftp', (_accept, rejectSftp) => rejectSftp())
@@ -535,6 +601,8 @@ export async function startSshFixture(options: SshFixtureOptions = {}): Promise<
     authAttempts,
     execs,
     shellLines,
+    windowChanges,
+    errors,
     stop
   }
 }
