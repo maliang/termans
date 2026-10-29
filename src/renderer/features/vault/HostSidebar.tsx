@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { openSettingsDialog } from '@renderer/theme/settings-dialog'
 import { FileInput, GitBranch, KeyRound, Lock, Plus, RefreshCw, Search, ShieldCheck, X } from 'lucide-react'
 import * as api from './api'
 import type { HostView } from './api'
@@ -111,21 +112,24 @@ export function HostSidebar(): JSX.Element {
   }
 
   /**
-   * 同步 / 安全面板的去向（t31 收尾协议）：
-   * - 面板本身已支持 `embedded`（不渲染遮罩/标题/取消按钮），供设置弹窗内嵌；
-   * - 设置弹窗的这两个页签由 `src/renderer/theme/SettingsDialogHost.tsx` 接线（theme-i18n 负责，
-   *   文件里已留好两行 embed 位置与 `.ts-settings__embed` 外壳样式）；
-   * - **在其落地之前这里仍用本模块的独立弹窗**：否则「安全 / 同步」会点开一个占位页签，
-   *   而 e2e 的 `open-sync-panel` 断言（`sync-panel` 可见）也会一起红。
-   *   接线落地后把这两个函数体换成 `openSettingsDialog('sync' | 'security')` 即可（两行）。
+   * 同步 / 安全入口的去向（t34 接线落地，theme-i18n 改，vault-sync 在注释里预授权）：
+   * 面板已支持 `embedded`，设置弹窗的 security / sync 页签内嵌它们
+   * （`src/renderer/theme/SettingsDialogHost.tsx` 的 `settings-embed-security|sync`）。
+   * 所以这里不再开本模块的独立弹窗——那个弹窗是「同类设置三种入口」的来源（UI 审计 #13）。
+   *
+   * `setShow*Panel(false)` 是防御性的：把旧弹窗状态显式关掉，避免任何遗留路径
+   * （按钮被程序化点击、或面板开着时状态被改成 true）出现「设置页 + 旧弹窗」两层。
+   * 旧的独立弹窗渲染分支与状态本身保留未删：删它属于本文件布局改动，需 vault-sync 自己清。
    */
   function openSyncEntry(): void {
+    setShowSync(false)
     void refreshSync()
-    setShowSync(true)
+    openSettingsDialog('sync')
   }
 
   function openSecurityEntry(): void {
-    setShowSecurity(true)
+    setShowSecurity(false)
+    openSettingsDialog('security')
   }
 
   return (
