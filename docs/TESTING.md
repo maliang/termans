@@ -502,7 +502,7 @@ PY
 | S-02 | 弱口令拒绝 | 部分 | 只在 `createVault()` 里被动依赖（弱口令要二次确认），没有独立用例断言"拒绝 + 不落文件" |
 | S-03 | 锁定/解锁 | 部分 | `smoke.spec.ts` 断言未建库时的解锁屏与 `data-locked`；**`lock-screen` testid 与 SPEC 原文不一致**（实现是 `unlock-screen`），锁定后的"正确/错误口令"分支未覆盖 |
 | S-04 | 错误口令不丢数据 | **缺口** | 只测过"错口径看不到主机"（`dual-machine.spec.ts` 用例 3），没测"连续 5 次错后仍能解锁" |
-| S-05 | 仓库内容确为密文 | 已覆盖 | `e2e/dual-machine.spec.ts` 用例 1：`git -C <bare> ls-tree -r` 后逐文件取内容，IP/端口/密码/`PRIVATE KEY`/主口令逐个 `not.toContain` |
+| S-05 | 仓库内容确为密文 | 已覆盖（**限 HEAD 树内文件**） | `e2e/dual-machine.spec.ts` 用例 1：`git -C <bare> ls-tree -r` 后逐文件取内容，IP/端口/密码/`PRIVATE KEY`/主口令逐个 `not.toContain` |
 | S-06 | 推送/拉取 | 已覆盖 | `dual-machine.spec.ts` + `conflict.spec.ts`（push/pull 与 `git log` 断言） |
 | S-07 | 双机 A→B 迁移 | 部分 | `dual-machine.spec.ts` 覆盖"3 台主机 + 密码可登录 + 错口令看不到主机"；**主题是否随迁移未断言**，私钥缺失由 S-21 覆盖 |
 | S-08 | 恢复码重置主口令 | **缺口** | 无 e2e（`vault:recover` 只有单测） |
@@ -515,9 +515,56 @@ PY
 | S-20 | known_hosts 同步 | 部分 | `vault-security.spec.ts` ⑧ 覆盖"预置指纹免首确 / 错指纹硬失败"；**跨机同步未覆盖** |
 | S-21 | 私钥不跟着同步 | 已覆盖 | `vault-security.spec.ts` ⑥：`credentials:clear` 后再连，报 `uses publickey auth but has no private key configured` |
 
+> **S-05 的边界（别读成"全仓库无明文"）**：本用例只扫 bare 仓库 **HEAD 树内**的文件；git 历史里的旧提交、其它
+> 分支与 dangling object 未纳入。若某次旧版本曾以明文提交过，本用例发现不了——那属于「历史泄露」问题，处置见
+> README「轮换主口令 + 改所有已同步密码」。报告的能力边界必须和文档的风险告知对齐：一边说"可能泄露"、一边说
+> "已验无明文"，用户就不知道该信哪个。
+
 调用面覆盖（与 SPEC 正交、但发布说明会问）：密码登录、publickey 登录（vault 导入）、跳板机（S-12 旧编号那套
 业务用例）、多页签（新建/切换保 scrollback/关闭二次确认）、AI 预览与命令二次确认、主题切换、语言切换
 —— 均有 e2e，见 `e2e/*.spec.ts` 的用例标题（中文标题即验收语言）。
 
+### 9.1 已知问题：全量跑时才出现的偶发红（t35 决定性一轮实测，记录待修，不重跑掩盖）
+
+**症状：`e2e/ssh-terminal.spec.ts:72` 偶发红——服务端收到的第二行带一个前导空格**
+
+```
+Error: expect(received).toContain(expected) // indexOf
+Expected value: "echo E2E-STILL-ALIVE"
+Received array: ["echo E2E-MARKER-PWD", " echo E2E-STILL-ALIVE"]   ← 多了一个前导空格
+Timeout 15000ms exceeded while waiting on the predicate
+at e2e/ssh-terminal.spec.ts:72:64   （expect.poll(() => ssh.shellLines) … ）
+```
+
+- 出现条件：**只在全量跑（`pnpm test:e2e`，前面压着 20+ 条 Electron 启动）出现过 1 次**，HEAD `0bf3c9a`。
+- 同一 commit 上的对照：单跑 `e2e/ssh-terminal.spec.ts` 三次全绿（17.7s / 16.7s / 16.3s）；批 B
+  （`--repeat-each=2`，含该文件）两次全绿；`probe-space` 探针连打 6 条命令（每轮插 5s）服务端收到的行**无**前导空格。
+- 已排除：夹具没有 trim/补字符（`e2e/fixtures/ssh-server.ts` 只按 `\r`/`\n` 切行，`shellLines.push(line)` 原样存），
+  `typeCommand()` 也是 `keyboard.type(command)` 逐字打——所以那一个空格是**真的被发送到 PTY 的**，不是断言写错。
+- 未定位：空格来自 xterm 的输入路径还是点击 `.xterm-helper-textarea` 引起的一次额外 onData，需要单独卡排查。
+- 处置：**不重跑掩盖**（`--retry` 禁用）。复现时按"待定性缺陷"记录，别当噪声；修它要改 `e2e/fixtures/ui.ts`
+  或产品输入路径，属另一张卡。
+
+**同类的第二个疑点：`waitForSyncOutcome` 在"空推"下会不会恒超时？（结论：不会，判据有出口）**
+
+t35 期间 captain 提出：如果那次 push 是空推，`localCommit` 与 `lastSyncedAt` 都不变，`settledState()` 会永远返回
+`idle`，30s 必然超时。复核代码后**这个推断不成立**：成功路径必然走 `finishSync()`
+（`src/main/git/sync.ts:702-718`），它调 `manager.markSynced(...)`，而 `markSynced` 就是写 `lastSyncedAt` 的地方
+（`src/main/vault/manager.ts:826`：`this.local.lastSyncedAt = new Date(this.now()).toISOString()`），随后
+`this.lastSyncedAt = this.manager.status().lastSyncedAt` 回填快照。所以即便是空推，`lastSyncedAt` 也会变，
+`settledState` 返回 `settled`。
+
+但这不等于"症状 B 是纯噪声"：若 `sync:status` 读到的 `state` 一直是 `idle` 且 `lastSyncedAt` 也没变，只剩两种可能
+——① 点击没真正生效（面板不可见/被遮罩，见下）；② 产品侧 `doPush()` 没有走到 `finishSync()`（异常被吞或提前 return）。
+**下一步取证方式（下次复现时照抄）**：失败瞬间 dump ① `.ts-app` 的 `data-locked`；② `sync-panel` 根节点的
+`getComputedStyle(...).visibility/display`；③ `sync:status` 完整 JSON（`state/localCommit/remoteCommit/lastSyncedAt/conflictCount/pendingLocalChanges/error`），**点击前后各一次**。
+只有这三样在手，才能判定是"用例判据/可见性问题"还是"产品没落盘"。
+
+**为什么锁定态会让 `click` 超时**：锁定不是卸载，而是 `.ts-app[data-locked='true'] > :not(.ts-unlock)` 整块
+`visibility: hidden`（`src/renderer/app/App.tsx`）。Playwright 对"祖先 hidden"的判定与 `element is not visible`
+完全一致，因此**强制重锁（t25 的 F-1 修复会发重锁通知）或面板被关掉，都会表现成"按钮点不到"**，而不是报状态错误。
+写新用例时若要点同步按钮，先 `waitForVaultUnlocked()`，再确认面板可见。
+
 **这张表的用途**：① 发布说明里不许说"全部验收项已由 e2e 覆盖"；② 缺口要单开卡，不要塞进"已完成"里。
+
 
