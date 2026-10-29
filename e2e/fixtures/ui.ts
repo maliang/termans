@@ -344,6 +344,10 @@ export async function configureAiProvider(page: Page, config: AiProviderConfig):
     if ((await opener.count()) > 0) await opener.first().click()
     else await panel.getByRole('button', { name: /添加供应商|add provider/i }).click()
   }
+  // 显式断言唯一性：`ai-provider-form` 只在「设置 → AI」里存在一份（t47 后面板侧是只读的
+  // `ai-providers-readonly`）。不写这一行时 strict mode 也会在 fill 时报「resolved to 2 elements」，
+  // 但那时报错点在 fill，看不出根因是"多了一份容器"；这行红了则一句话说清。
+  await expect(form).toHaveCount(1)
   await expect(form).toBeVisible()
   // 必须 exact：`额外请求头` 的提示文案里也含「名称: 值」，用子串匹配会撞成 strict 冲突
   await form.getByLabel('名称', { exact: true }).fill(config.name)
