@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GitBranch, RefreshCw, ShieldCheck, Upload } from 'lucide-react'
+import { GitBranch, RefreshCw, ShieldCheck, Upload, X } from 'lucide-react'
 import type { ConflictStrategy, SyncRepo } from '@shared'
 import * as api from './api'
 import { useVaultErrorText, useVaultStore } from './store'
@@ -234,13 +234,31 @@ export function SyncPanel({ onClose, embedded = false }: SyncPanelProps): JSX.El
     )
   }
 
+  // 独立弹窗形态：走 kit 的 .ts-dialog 外壳（遮罩 / 边框 / 阴影 / 焦点环都由底座给，见 docs/UI-KIT.md §4）
   return (
-    <div className="ts-vault__modal" role="dialog" aria-modal="true" aria-label={t('sync.title')}>
-      <section className="ts-vault__card" data-testid="sync-panel">
-        <h2 className="ts-vault__card-title">
-          <GitBranch size={15} aria-hidden="true" /> {t('sync.title')}
-        </h2>
-        {content}
+    <div className="ts-dialog" data-testid="sync-dialog">
+      <section
+        className="ts-dialog__panel ts-dialog__panel--md"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('sync.title')}
+        data-testid="sync-panel"
+      >
+        <header className="ts-dialog__header">
+          <h2 className="ts-dialog__title">
+            <GitBranch size={15} aria-hidden="true" /> {t('sync.title')}
+          </h2>
+          <button
+            type="button"
+            className="ts-dialog__close"
+            onClick={() => onClose?.()}
+            title={t('editor.close')}
+            aria-label={t('editor.close')}
+          >
+            <X size={15} aria-hidden="true" />
+          </button>
+        </header>
+        <div className="ts-dialog__body">{content}</div>
       </section>
     </div>
   )

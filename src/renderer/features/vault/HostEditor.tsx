@@ -186,10 +186,7 @@ export function HostEditor({ host, groups, hosts, onClose, onSaved }: HostEditor
 
   return (
     <div
-      className="ts-vault__modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="ts-host-editor-title"
+      className="ts-dialog"
       data-testid="host-editor"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
@@ -197,20 +194,23 @@ export function HostEditor({ host, groups, hosts, onClose, onSaved }: HostEditor
     >
       {/* noValidate：交给 validate() 做字段级错误，否则原生校验气泡会先拦住提交 */}
       <form
-        className="ts-vault__card ts-vault__card--dialog"
+        className="ts-dialog__panel ts-dialog__panel--md"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ts-host-editor-title"
         noValidate
         onSubmit={(event) => {
           event.preventDefault()
           void save()
         }}
       >
-        <header className="ts-vault__card-head">
-          <h2 className="ts-vault__card-title" id="ts-host-editor-title">
+        <header className="ts-dialog__header">
+          <h2 className="ts-dialog__title" id="ts-host-editor-title">
             {title}
           </h2>
           <button
             type="button"
-            className="ts-vault__card-close"
+            className="ts-dialog__close"
             onClick={onClose}
             disabled={busy}
             title={t('editor.close')}
@@ -221,7 +221,7 @@ export function HostEditor({ host, groups, hosts, onClose, onSaved }: HostEditor
           </button>
         </header>
 
-        <div className="ts-vault__card-body">
+        <div className="ts-dialog__body ts-vault__form">
           <div className="ts-vault__grid">
             <label className="ts-field">
               {requiredLabel(t('editor.label'))}
@@ -452,7 +452,6 @@ export function HostEditor({ host, groups, hosts, onClose, onSaved }: HostEditor
                   {t('editor.colorNone')}
                 </button>
               </div>
-              <span className="ts-vault__mono-inline">{draft.color ?? '—'}</span>
             </div>
           </div>
 
@@ -479,7 +478,7 @@ export function HostEditor({ host, groups, hosts, onClose, onSaved }: HostEditor
           {error !== null ? <p className="ts-vault__error">{error}</p> : null}
         </div>
 
-        <footer className="ts-vault__actions">
+        <footer className="ts-dialog__footer">
           {host !== null ? (
             <button type="button" className="ts-btn ts-btn--ghost ts-vault__danger" onClick={() => void remove()} disabled={busy}>
               <Trash2 size={14} aria-hidden="true" />

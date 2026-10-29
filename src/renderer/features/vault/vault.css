@@ -71,6 +71,14 @@
   outline: none;
 }
 
+/* 键盘可达（t37/#24）：输入框自己 border:0，焦点只能由容器显形；
+   三个 token 与 settings 输入、kit 焦点环同源，不再各写一套颜色 */
+/* 只画 outline、不再同时染 border：两者都染色时这圈（本来就有 1px 边框）会变成双线 */
+.ts-vault__search:focus-within {
+  outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
+  outline-offset: var(--ts-focus-ring-offset);
+}
+
 .ts-vault__scroll {
   flex: 1;
   min-height: 0;
@@ -102,9 +110,17 @@
   list-style: none;
 }
 
+/* 行容器：主机按钮 + 行内编辑入口并排（t37/#25）；按钮不再自己撑满宽度 */
+.ts-vault__host-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .ts-vault__host {
   display: flex;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   align-items: center;
   gap: 7px;
   padding: 5px 8px;
@@ -124,6 +140,38 @@
 .ts-vault__host--active {
   border-color: var(--ts-accent);
   background: var(--ts-bg-elevated);
+}
+
+/* 编辑入口：默认隐形（列表本身是连接入口），悬停或键盘聚焦时显形；
+   键盘用户另有 F2，避免只靠鼠标 */
+.ts-vault__host-edit {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--ts-radius-sm);
+  background: transparent;
+  color: var(--ts-text-muted);
+  opacity: 0;
+  cursor: pointer;
+  transition:
+    opacity var(--ts-motion-fast) ease,
+    color var(--ts-motion-fast) ease,
+    background var(--ts-motion-fast) ease;
+}
+
+.ts-vault__host-row:hover .ts-vault__host-edit,
+.ts-vault__host-edit:focus-visible {
+  opacity: 1;
+}
+
+.ts-vault__host-edit:hover {
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-primary);
 }
 
 .ts-vault__host-dot {
@@ -305,19 +353,6 @@
   color: var(--ts-status-error);
 }
 
-.ts-vault__modal {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: var(--ts-bg-overlay);
-  /* 与 settings 弹窗同一套遮罩语汇（t31/#12） */
-  backdrop-filter: blur(2px);
-}
-
 .ts-vault__card {
   display: flex;
   flex-direction: column;
@@ -335,20 +370,19 @@
   font-size: var(--ts-font-size-sm);
 }
 
-.ts-vault__card-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-size: var(--ts-font-size-lg);
-  font-weight: 600;
-}
-
 .ts-vault__subtitle {
   margin: 0 0 4px;
   font-size: var(--ts-font-size-sm);
   font-weight: 600;
   color: var(--ts-text-secondary);
+}
+
+/* 弹窗正文：kit 的 __body 只给内边距与滚动，字段之间的 14px 行距由本模块给
+   （t31 时这段在 .ts-vault__card-body 里，t37/#23 迁到 .ts-dialog__body 后必须跟着搬） */
+.ts-vault__form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .ts-vault__grid {
@@ -588,69 +622,6 @@
 
 /* ---------- 弹窗外壳：head / body / footer 三段，度量对齐 settings 弹窗（t31/#12） ---------- */
 
-.ts-vault__card--dialog {
-  width: min(640px, 100%);
-  max-height: min(760px, 100%);
-  gap: 0;
-  overflow: hidden;
-  padding: 0;
-}
-
-.ts-vault__card-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--ts-border);
-}
-
-.ts-vault__card-head .ts-vault__card-title {
-  flex: 1;
-  min-width: 0;
-}
-
-.ts-vault__card-close {
-  display: inline-flex;
-  width: 26px;
-  height: 26px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: var(--ts-radius-sm);
-  background: transparent;
-  color: var(--ts-text-muted);
-  cursor: pointer;
-}
-
-.ts-vault__card-close:hover:not(:disabled) {
-  background: var(--ts-bg-elevated);
-  color: var(--ts-text-primary);
-}
-
-.ts-vault__card-close:focus-visible {
-  outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
-  outline-offset: var(--ts-focus-ring-offset);
-}
-
-.ts-vault__card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 16px 18px 22px;
-}
-
-.ts-vault__card--dialog .ts-vault__actions {
-  padding: 12px 18px;
-  border-top: 1px solid var(--ts-border);
-}
-
-.ts-vault__card--compact {
-  width: min(480px, 92vw);
-}
-
 /* 内嵌到设置页签时不画外框：外层弹窗已经给了背景与圆角 */
 .ts-vault__card--embedded {
   width: 100%;
@@ -669,8 +640,9 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding-top: 12px;
-  border-top: 1px solid var(--ts-border);
+  /* t37/#26：这里原本是 `padding-top:12px + border-top`，在「标签框下方」渲染成一条
+     横贯弹窗的孤立细线。分组语义已由 .ts-vault__section-title 承担，改用留白分隔。 */
+  margin-top: 2px;
 }
 
 .ts-vault__section-title {
@@ -706,12 +678,6 @@
 
 .ts-vault__row--end {
   align-items: flex-end;
-}
-
-.ts-vault__mono-inline {
-  color: var(--ts-text-secondary);
-  font-family: var(--ts-font-mono);
-  font-size: var(--ts-font-size-sm);
 }
 
 /* ---------- 颜色选择（t31/#11） ---------- */

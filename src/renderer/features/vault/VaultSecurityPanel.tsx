@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Lock, KeyRound } from 'lucide-react'
+import { Download, Lock, KeyRound, X } from 'lucide-react'
 import * as api from './api'
 import { downloadTextFile } from './download'
 import { useVaultErrorText, useVaultStore } from './store'
@@ -152,13 +152,31 @@ export function VaultSecurityPanel({ onClose, embedded = false }: VaultSecurityP
     )
   }
 
+  // 独立弹窗形态：走 kit 的 .ts-dialog 外壳（与设置 / 主机编辑器同一套底座）
   return (
-    <div className="ts-vault__modal" role="dialog" aria-modal="true" aria-label={t('security.title')}>
-      <section className="ts-vault__card" data-testid="vault-security-panel">
-        <h2 className="ts-vault__card-title">
-          <KeyRound size={15} aria-hidden="true" /> {t('security.title')}
-        </h2>
-        {content}
+    <div className="ts-dialog" data-testid="security-dialog">
+      <section
+        className="ts-dialog__panel ts-dialog__panel--sm"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('security.title')}
+        data-testid="vault-security-panel"
+      >
+        <header className="ts-dialog__header">
+          <h2 className="ts-dialog__title">
+            <KeyRound size={15} aria-hidden="true" /> {t('security.title')}
+          </h2>
+          <button
+            type="button"
+            className="ts-dialog__close"
+            onClick={() => onClose?.()}
+            title={t('editor.close')}
+            aria-label={t('editor.close')}
+          >
+            <X size={15} aria-hidden="true" />
+          </button>
+        </header>
+        <div className="ts-dialog__body">{content}</div>
       </section>
     </div>
   )

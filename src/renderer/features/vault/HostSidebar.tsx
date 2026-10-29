@@ -21,7 +21,16 @@ import { useVaultErrorText, useVaultStore } from './store'
  * 页脚按语义分两组——「本机数据操作」（刷新 / 导入 ssh_config / 导入私钥）
  * 与「同步与安全」（Git 同步 / 锁定），全部同尺寸图标按钮 + `title` + `aria-label`。
  */
-export function HostSidebar(): JSX.Element {
+export interface HostSidebarProps {
+  /**
+   * 双击主机行 = 连接（产品约定）。外壳 `HostLibraryPane` 目前用捕获阶段抢事件实现，
+   * 它可以直接把这个回调传进来、删掉自己的捕获层（t37/#25 的正式通道）。
+   * 不传时双击退回「编辑」（HostTree 的默认语义）。
+   */
+  onConnect?: (hostId: string) => void
+}
+
+export function HostSidebar({ onConnect }: HostSidebarProps = {}): JSX.Element {
   const { t } = useTranslation('vaultsync')
   const status = useVaultStore((state) => state.status)
   const library = useVaultStore((state) => state.library)
@@ -205,6 +214,7 @@ export function HostSidebar(): JSX.Element {
                 onCreate={() => setCreating(true)}
                 onCreateGroup={() => setCreatingGroup(true)}
                 onImportSshConfig={() => void importSshConfig()}
+                {...(onConnect === undefined ? {} : { onConnect })}
               />
             )}
           </div>
@@ -322,19 +332,18 @@ export function HostSidebar(): JSX.Element {
       ) : null}
 
       {keyTarget !== null ? (
-        <div
-          className="ts-vault__modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t('hosts.importKey')}
-          data-testid="private-key-modal"
-        >
-          <div className="ts-vault__card ts-vault__card--compact">
-            <header className="ts-vault__card-head">
-              <h2 className="ts-vault__card-title">{t('key.title')}</h2>
+        <div className="ts-dialog" data-testid="private-key-modal">
+          <section
+            className="ts-dialog__panel ts-dialog__panel--sm"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('hosts.importKey')}
+          >
+            <header className="ts-dialog__header">
+              <h2 className="ts-dialog__title">{t('key.title')}</h2>
               <button
                 type="button"
-                className="ts-vault__card-close"
+                className="ts-dialog__close"
                 onClick={() => setKeyTarget(null)}
                 title={t('editor.close')}
                 aria-label={t('editor.close')}
@@ -342,7 +351,7 @@ export function HostSidebar(): JSX.Element {
                 <X size={15} aria-hidden="true" />
               </button>
             </header>
-            <div className="ts-vault__card-body">
+            <div className="ts-dialog__body">
               <PrivateKeyGuide
                 host={keyTarget}
                 onImported={() => {
@@ -355,7 +364,7 @@ export function HostSidebar(): JSX.Element {
                 }}
               />
             </div>
-          </div>
+          </section>
         </div>
       ) : null}
 

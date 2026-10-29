@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FileInput, Folder, FolderPlus, Plus, Server } from 'lucide-react'
+import { FileInput, Folder, FolderPlus, Pencil, Plus, Server } from 'lucide-react'
 import type { GroupRecord } from '@shared'
 import type { HostView, LibraryView } from './api'
 
@@ -10,6 +10,11 @@ interface HostTreeProps {
   selectedHostId: string | null
   onSelect: (hostId: string) => void
   onEdit: (hostId: string) => void
+  /**
+   * 双击主机行 = 连接（产品约定，e2e `connectHost()` 也是双击）。传了它，双击就连接，
+   * 编辑只走行内铅笔按钮 / F2；不传则双击退回「编辑」，旧调用方行为不变。
+   */
+  onConnect?: (hostId: string) => void
   onCreate: () => void
   onCreateGroup: () => void
   onImportSshConfig: () => void
@@ -56,6 +61,7 @@ export function HostTree({
   selectedHostId,
   onSelect,
   onEdit,
+  onConnect,
   onCreate,
   onCreateGroup,
   onImportSshConfig
@@ -103,12 +109,19 @@ export function HostTree({
             </div>
             <ul className="ts-vault__hosts" role="list">
               {node.hosts.map((host) => (
-                <li key={host.id}>
+                <li key={host.id} className="ts-vault__host-row">
                   <button
                     type="button"
                     className={`ts-vault__host${host.id === selectedHostId ? ' ts-vault__host--active' : ''}`}
                     onClick={() => onSelect(host.id)}
-                    onDoubleClick={() => onEdit(host.id)}
+                    onDoubleClick={() => (onConnect ? onConnect(host.id) : onEdit(host.id))}
+                    onKeyDown={(event) => {
+                      // F2 = 重命名/编辑（Windows/资源管理器惯例），不占用 Enter（Enter 是选中/连接）
+                      if (event.key === 'F2') {
+                        event.preventDefault()
+                        onEdit(host.id)
+                      }
+                    }}
                     data-testid="vault-host-item"
                     title={`${host.label}\n${host.username}@${formatAddress(host)}`}
                   >
@@ -121,6 +134,17 @@ export function HostTree({
                       <span className="ts-vault__host-label">{host.label}</span>
                       <span className="ts-vault__host-addr">{formatAddress(host)}</span>
                     </span>
+                  </button>
+                  {/* 编辑的显式入口：双击被「连接」占用后，这里是唯一不靠隐式手势的编辑入口（t37/#25） */}
+                  <button
+                    type="button"
+                    className="ts-vault__host-edit"
+                    onClick={() => onEdit(host.id)}
+                    data-testid="host-edit"
+                    title={`${t('hosts.edit')}：${host.label}`}
+                    aria-label={`${t('hosts.edit')}：${host.label}`}
+                  >
+                    <Pencil size={13} aria-hidden="true" />
                   </button>
                 </li>
               ))}
