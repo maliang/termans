@@ -382,6 +382,11 @@ unhandled error 不会让用例失败，只会让进程退出码变红，见 t29
 - **正确顺序**：`git rev-parse --short HEAD` 记下 → `pnpm build` → 截图（或跑 e2e） → 再 `git rev-parse --short HEAD`
   复核没变 → 把两个 hash 与 `stat -f '%Sm' out/main/index.js` 一起写进报告。任何"改完立刻截/立刻跑"的脚本，
   第一条命令都必须是 build（`npx playwright test` 不 build，见 §6.3.1）。
+- **截图/断言里出现版本号时，`launchApp` 必须传 `mainEntry: <repoRoot>`，否则拿到的是 Electron 版本**
+  （`e2e/harness.ts:69-70,129,138`：缺省入口是 `<repo>/out/main/index.js`，那个目录没有 `package.json`，
+  `app.getVersion()` 于是回落到 Electron 自己的版本 —— vault-sync 在 t42 截图时实测状态栏显示 `Termans 45.1.0`；
+  传仓库根目录（等价 `pnpm start` 走 `package.json` 的 `main`）才是用户看到的 `0.1.0`）。
+  这条差异会让任何"版本号"断言变成假红或假绿，而它与被测行为无关。
 
 ---
 
