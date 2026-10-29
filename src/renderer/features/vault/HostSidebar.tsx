@@ -45,6 +45,7 @@ export function HostSidebar(): JSX.Element {
   const [keyTarget, setKeyTarget] = useState<HostView | null>(null)
 
   const unlocked = status?.state === 'unlocked'
+  const hasHosts = (library?.hosts.length ?? 0) > 0
   const filtered = useMemo(() => {
     if (library === null) return null
     const needle = query.trim().toLowerCase()
@@ -222,17 +223,20 @@ export function HostSidebar(): JSX.Element {
           >
             <RefreshCw size={15} aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            className="ts-icon-btn"
-            onClick={() => void importSshConfig()}
-            disabled={!unlocked || busy}
-            title={t('hosts.importSshConfig')}
-            aria-label={t('hosts.importSshConfig')}
-            data-testid="sidebar-import-ssh-config"
-          >
-            <FileInput size={15} aria-hidden="true" />
-          </button>
+          {/* 空库时导入入口只留空态里那一个（真实文字按钮），避免同一个动作出现两处 */}
+          {hasHosts ? (
+            <button
+              type="button"
+              className="ts-icon-btn"
+              onClick={() => void importSshConfig()}
+              disabled={!unlocked || busy}
+              title={t('hosts.importSshConfig')}
+              aria-label={t('hosts.importSshConfig')}
+              data-testid="sidebar-import-ssh-config"
+            >
+              <FileInput size={15} aria-hidden="true" />
+            </button>
+          ) : null}
           <button
             type="button"
             className="ts-icon-btn"
