@@ -292,6 +292,21 @@ xterm 在 GPU 可用时挂 WebGL，文字在 canvas 里，`.xterm-rows` 数量�
 验收窗口的处置权：跑三条命令之前，`e2e/` 里出现任何 `zz-*.spec.ts` 直接删（都是未跟踪脚本，能重建），
 在报告里记一行"清除了哪些"即可，不必等作者。
 
+**`probe-*` / `*-shots` 同样会被收集执行**——`testIgnore: ['**/zz-*']` 只挡 `zz-` 前缀，其余命名一律照跑。
+2026-10-29 有个 `e2e/probe-t37.spec.ts` 因此混进别人的全量窗口，用例条数与耗时都对不上。临时探针一律放
+`/tmp` 或 `scripts/`，放进 `e2e/` 就等于交付。
+
+**"退回旧版复现"必须在独立 worktree 里做**：
+
+```bash
+git worktree add /tmp/repro-<hash> <hash>     # 共享树里一个字节都不许动
+```
+
+理由：共享工作树是 5 个人同时在用的同一份文件。captain 曾在共享树里把 `e2e/fixtures/ui.ts` 退回补丁前版
+（13:21:52，跑了约 3 分钟再还原）做差异对照，正好覆盖了同时段 qa 的 6 轮稳定性测量——于是 qa 量出了一份
+"2/6 红"的假结论，还差点当成产品缺陷上报。做不到 worktree 的（例如要复用同一份 `userData`），就先在团队里
+声明「我要临时改 X 文件，窗口约 N 分钟」，改完 `git hash-object` 复核还原。
+
 ### 6.1 三条 verify 命令的判定口径
 
 只看 `passed` 数会误判——同一天里出现过 `Tests 622 passed` 与 `exit code 1` 同时成立（子进程 EPIPE 的
@@ -303,6 +318,17 @@ unhandled error 不会让用例失败，只会让进程退出码变红，见 t29
 3. 输出里 `grep -c "Unhandled Errors"` 等于 0；
 4. **跑前、跑后各记一次 `git rev-parse --short HEAD`，两次必须相同。** 并行成员一直在提交，HEAD 变了说明你验的是
    另一个 commit——那样的绿必须重跑，不能当成"本次交付绿的"。
+5. **flake 结论必须先证明"测的是同一份文件"**：每轮前后各记一次被测文件的 `git hash-object <file>`（以及
+   `git rev-parse --short HEAD`），任何一次变了就把该轮标 `FILE_CHANGED` **作废**，并在报告里写明作废理由。
+
+   这条是从一次真实事故里长出来的：qa 量 `dual-machine.spec.ts` 的稳定性，6 轮里 2 轮红（18 次执行 4 次红），
+   报错全是 `fixtures/ui.ts:516` 那一行 `/取消|cancel/i` —— 而那一行**只存在于补丁前的版本**
+   （`git show <补丁前>:e2e/fixtures/ui.ts` 第 516 行正是单分支点击）。真因是 captain 同时在同一棵树里
+   `git show <hash>^:e2e/fixtures/ui.ts > e2e/fixtures/ui.ts` 做「补丁前 vs 补丁后」对照，跑了 3 分钟又还原。
+   **4/18 红不是产品 flake，是两个人在同一棵树上测不同版本的同一个文件。**
+
+   判据不是"看一眼 git status 干净"——**未跟踪/未修改 ≠ 内容没被替换过**。要用内容哈希，且要跑前跑后各一次。
+   结论表里把作废轮次一并列出（哪一轮、为什么作废），**作废的理由本身是证据**。
 
 ### 6.2 已知时序：双机用例的 clone 等待为什么是 60s
 
@@ -383,3 +409,9 @@ DOM 契约是否还存在」，而不是「谁的产物旧」。这条曾被我�
 `npx playwright test` 立即报 `产物过期：先 pnpm build…` 并列出 `src/renderer/app/App.tsx`）；
 ②`pnpm test:e2e` 自带 build。**两者是冗余关系，不是替代关系**——闸门只能挡住「忘了 build」，
 挡不住「build 失败但旧产物还在」（那种情况 build 命令本身会 exit≠0，别把它的输出吞掉）。
+
+**共享工作树里这道闸门会经常红，这是它该有的样子**：5 个成员并行改 `src/`，你 `pnpm build` 之后 30 秒内就可能
+有人动了 `HostSidebar.tsx`，于是下一轮 `npx playwright test` 被闸门拦下、一条用例都没跑。实测 6 轮里 2 轮就是
+这样被拦的（闸门报 `产物过期…` 并列出来源文件），**这两轮要记成"作废（并发改动导致产物过期）"，不是"2 条红"**。
+所以：①官方入口用 `pnpm test:e2e`（它先 build）；②手动 `npx playwright test` 前必须紧挨着 build 一次；
+③看到闸门消息先看它列的文件，那是**别人刚改的**，不是你的错，重 build 再跑。

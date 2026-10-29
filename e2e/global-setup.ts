@@ -58,7 +58,7 @@ export default async function globalSetup(): Promise<void> {
     const more = newer.length > shown.length ? [`  … 另有 ${newer.length - shown.length} 个`] : []
     throw new Error(
       [
-        '产物过期：先 `pnpm build`（或用 `pnpm test:e2e`，它内置 build），否则这轮 e2e 红的是上一版界面。',
+        '产物过期：先 `pnpm build`（或用 `pnpm test:e2e`，它内置 build），否则这轮跑的是上一版界面——红与绿都不作数。',
         `判断依据：以下源码比最旧的产物（${oldest.replace(root + '/', '')}）新`,
         ...shown,
         ...more
