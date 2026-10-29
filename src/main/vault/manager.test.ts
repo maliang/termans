@@ -142,6 +142,53 @@ describe('VaultManager：创建与锁定', () => {
   })
 })
 
+describe('VaultManager：上锁回调（清凭据副本的接线点）', () => {
+  it('lock() 触发 onLock，且重复 lock 不再触发（幂等）', () => {
+    const manager = makeManager()
+    manager.create(PASSPHRASE)
+    let fired = 0
+    manager.onLock = () => {
+      fired += 1
+    }
+    manager.lock()
+    expect(fired).toBe(1)
+    manager.lock() // 已经锁着：不该再通知（否则组合根会反复扫会话）
+    expect(fired).toBe(1)
+  })
+
+  it('被动回锁（仓库读失败 → forceLock）也触发 onLock', () => {
+    const manager = makeManager()
+    manager.create(PASSPHRASE)
+    manager.createHost(hostInput({ credentialRef: 'ref-1' }))
+    let fired = 0
+    manager.onLock = () => {
+      fired += 1
+    }
+    // 把 vault.enc 改坏，再 reload —— 走的是 forceLock('read-failed')
+    const encPath = join(repoDir, 'vault.enc')
+    const bytes = readFileSync(encPath)
+    bytes[10] = bytes[10] === 0x41 ? 0x42 : 0x41
+    require('node:fs').writeFileSync(encPath, bytes)
+    const status = manager.reload()
+    expect(status.state).toBe('locked')
+    expect(manager.lastLockReason).toBe('read-failed')
+    expect(fired).toBe(1)
+  })
+
+  it('onLock 抛错不能把上锁流程带崩（凭据清理是尽力而为）', () => {
+    const manager = makeManager()
+    manager.create(PASSPHRASE)
+    manager.onLock = () => {
+      throw new Error('cleanup blew up')
+    }
+    const status = manager.lock()
+    expect(status.state).toBe('locked')
+    // VMK 与 payload 必须真的没了（否则「以为锁上了」比没锁更糟）
+    manager.assertStateConsistent()
+    expectIpc(() => manager.listLibrary(), 'E_VAULT_LOCKED', 'locked')
+  })
+})
+
 describe('VaultManager：口令与恢复码', () => {
   it('口令太短直接拒绝；弱口令需要「同口令二次提交」确认', () => {
     const manager = makeManager()

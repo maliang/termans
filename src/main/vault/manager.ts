@@ -306,6 +306,7 @@ export class VaultManager {
     // 「从未初始化」与「已初始化但锁着」在 UI 上是两个完全不同的界面：由 deriveState() 区分
     this.disarmIdleTimer()
     this.emit()
+    this.notifyLock()
     return this.status()
   }
 
@@ -919,6 +920,22 @@ export class VaultManager {
     this.disarmIdleTimer()
     this.lastLockReason = stage
     this.emit()
+    this.notifyLock()
+  }
+
+  /**
+   * 通知锁事件。**吞掉回调里的异常**：清理凭据是「尽力而为」，
+   * 不能因为它失败就让上锁流程（或 suspend 处理）半途抛错——
+   * 那会留下「以为锁上了、其实 VMK 还在」的更糟状态。
+   */
+  private notifyLock(): void {
+    try {
+      this.onLock?.()
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'test') {
+        console.warn(`[vault] onLock handler failed: ${(error as Error).message}`)
+      }
+    }
   }
 
   /** 仅供诊断/测试：任何时刻 state 必须与「真实挂载」一致，否则立刻炸 */
@@ -942,6 +959,18 @@ export class VaultManager {
       throw new Error(`vault state invariant violated: ${problems.join('; ')}`)
     }
   }
+
+  /**
+   * 上锁回调（组合根 `src/main/ipc/index.ts` 接上）。
+   *
+   * 用途：锁屏后**清掉主进程里残留的凭据副本**（`SshManager.releaseCredentials()`）。
+   * 刻意做成公有可赋值字段而不是构造参数：`VaultManager` 先于 ssh 引擎创建，
+   * 而这块只关心「锁了」这一件事，不需要把引擎对象塞进 vault 的依赖里。
+   *
+   * 产品口径：**不主动断开已建立的 SSH 会话**（用户可能在跑长任务，15 分钟空闲自动锁
+   * 不该把终端踢掉），只清内存里的明文副本。详见 docs/VAULT-SYNC.md §4。
+   */
+  onLock: (() => void) | null = null
 
   /** 最近一次「被动回锁」的原因（诊断用；主动 lock() 不记录） */
   lastLockReason: 'read-failed' | 'unlock-failed' | null = null

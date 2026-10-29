@@ -149,6 +149,24 @@ export class SshManager {
     return this.pendingChallenges.has(sessionId)
   }
 
+  /**
+   * 清掉所有存活会话里缓存的凭据副本（组合根在 vault 上锁时调用）。
+   *
+   * **不断开任何连接**：这是 captain 在 2026-10-29 的产品裁定——锁屏可能由 15 分钟空闲
+   * 自动触发，而用户可能正在跑长任务；已建连的通道用的是 ssh2 内部协商的密钥，
+   * 与本处的明文副本无关。真正要防的是「锁屏后内存里还留着别人的口令」。
+   *
+   * 返回被清理的会话数（只用于日志，不涉及任何凭据内容）。
+   */
+  releaseCredentials(): number {
+    let cleared = 0
+    for (const session of this.sessions.values()) {
+      session.clearCachedSecrets()
+      cleared += 1
+    }
+    return cleared
+  }
+
   disposeAll(): void {
     for (const sessionId of [...this.pendingChallenges.keys()]) this.cancelChallenge(sessionId, true)
     for (const session of this.sessions.values()) session.dispose()

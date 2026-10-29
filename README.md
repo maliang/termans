@@ -22,7 +22,7 @@ Electron + React + xterm.js + ssh2；主机库同步走 isomorphic-git，仓库�
 | AI 辅助 | 11 个供应商预设 + 自定义；流式对话、带终端上下文；**生成的命令必须先确认**才写入终端 |
 | 主题 | 4 套内置（Dark / Midnight / Light / High Contrast）+ 自定义主题编辑器（导入导出、实时预览） |
 | 多语言 | English / 简体中文，即时切换 |
-| 安全默认 | known_hosts 严格校验、空闲 15 分钟自动上锁、锁定时界面上不渲染任何主机名与 IP |
+| 安全默认 | known_hosts 严格校验、空闲 15 分钟自动上锁、锁定时主界面**不可见、不可交互**（内容不出现在截图、纯文本复制与可访问性树里） |
 
 ---
 
@@ -98,13 +98,40 @@ sudo dpkg -i termans_0.1.0_amd64.deb && termans                   # deb
 
 | 文件 | 内容 | 敏感 |
 | --- | --- | --- |
-| `manifest.json` | 明文元数据：`format`、`cipher`、KDF 参数（N/r/p）、`revision`、`payload_sha256`、`updated_at` | 否（不含任何主机名/IP） |
+| `manifest.json` | 明文元数据，**共十个字段**（清单见下方 §4.1.1） | 否（不含任何主机名/IP） |
 | `vault.enc` | **唯一敏感载体**：主机（IP/端口/用户/密码/passphrase/私钥路径/跳板机/分组/标签/备注/启动命令）、known_hosts 指纹、完整 `ssh_config` 文本、界面设置、AI 供应商配置与 API key | 是（密文） |
 | `themes/*.json` | 自定义主题 | 否（明文，便于 diff） |
+
+#### 4.1.1 `manifest.json` 的实际字段
+
+字段名以写入代码 `createVault()`（`src/main/crypto/envelope.ts`）与 schema `vaultManifestSchema` 为准：
+
+| 字段 | 内容 |
+| --- | --- |
+| `format` | 格式标记（`termans-vault`），用来在解析前就认出「这不是我们的文件」 |
+| `version` | 信封格式版本（当前 `1`）；比本机新的版本一律拒绝，不猜语义 |
+| `cipher` | 固定 `aes-256-gcm` |
+| `kdf` | `{ name: 'scrypt', N, r, p }` —— 只记参数，salt 在 `vault.enc` 里 |
+| `passphraseKey` | 口令槽：`{ nonce, tag, ciphertext }`，即「被 KEK 包裹的 VMK 密文」 |
+| `recoveryKey` | 恢复码槽：`{ salt, nonce, tag, ciphertext }`，独立 salt 的同一份 VMK 密文 |
+| `keywrap_sha256` | 规范化后密钥槽描述的摘要：用来区分「manifest 被改」与「口令错」 |
+| `revision` | 单调递增版本号，Git 同步乐观锁的判据 |
+| `payload_sha256` | `vault.enc` 落盘字节的 sha256，与 `revision` 一起构成乐观锁 |
+| `updated_at` | 上次写入时间（ISO 8601） |
+
+> `passphraseKey` 与 `recoveryKey` 只是**被 KEK 包裹的 VMK 密文 + 各自 salt**，
+> **不含任何主机信息**（没有主机名、IP、端口、用户名、密码、私钥或备注）；
+> 它们的作用是「拿到主口令/恢复码时能在不解密数据的前提下先验证口令对不对」。
+> 十个字段里唯一暴露的敏感信息是 `revision` 与 `updated_at`（能看出「你在什么时候改过库」），
+> 这也是为什么本机路径/内网拓扑不会出现在仓库里的原因。
 
 密钥层次：主口令经 **scrypt(N=2^17, r=8, p=1, salt 32B)** 派生出 KEK，KEK 用 **AES-256-GCM** 包裹一个随机 32 字节的
 VMK（主数据密钥），VMK 再加密 `vault.enc`。恢复码是独立的一条包裹路径（自己的 salt），所以换口令不影响它。
 AAD 绑定格式版本与 KDF 参数，篡改任何一位都会解密失败。细节见 [`docs/VAULT-SYNC.md`](docs/VAULT-SYNC.md)。
+
+KDF 参数来自**远端仓库**，所以有上限：`N ∈ [2^14, 2^18]`、`r ≤ 16`、`p ≤ 4`，
+且单次派生所需内存（`128*N*r`）必须低于 512 MiB —— 超出即在**派生之前**以 `bad-params` 拒绝
+（否则一个伪造的 `manifest.json` 就能让客户端分配 4 GiB 内存，等于一行 DoS）。
 
 私钥文件本体、Git token 的本机副本不进仓库（私钥只同步路径引用）。
 
@@ -248,6 +275,13 @@ node scripts/pack-guard.cjs restore
 9. **跳板机只支持单层**：多层跳板会被明确拒绝（`jump-unsupported`，提示只支持一层），不会静默退化成直连；
    跳板机自身连不上、host key 校验不过同样直接报错，不会悄悄改走直连。
 10. `~/.ssh/config` 只能**导入**：导出 / 写回通道（`ssh-config:export`、`ssh-config:write`）已实现并有测试，但界面还没加入口。
+11. **锁定时「看不见」≠「DOM 里没有」**：锁定分支用的是 `visibility: hidden`（`.ts-app[data-locked='true'] > :not(.ts-unlock)`，
+    见 `src/renderer/app/App.tsx`），所以内容不会出现在截图、纯文本复制与可访问性树里，但 DOM 仍然挂载着。
+    刻意如此：卸载主区域会销毁 xterm 实例，而仓库没有 serialize addon，解锁后终端 scrollback 会直接丢失。
+    因此威胁模型是「锁屏时旁人看不到、复制不到」，**不是**「防住已经拿到本机控制权（可开 DevTools）的人」。
+12. **上锁不终止已建立的 SSH 会话**：上锁只清主进程内存里的凭据副本与 VMK/payload，已连上的通道继续工作
+    （自动上锁可能由 15 分钟空闲触发，把正在跑长任务的终端踢掉不可接受）。代价是「锁屏时远端仍有一条活会话」，
+    要断线请显式断开页签。口径与实现见 [`docs/VAULT-SYNC.md`](docs/VAULT-SYNC.md) §4。
 
 ---
 

@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { randomBytes } from 'node:crypto'
 import {
+  SCRYPT_PRODUCTION,
   SCRYPT_TEST,
   VaultCryptoError,
+  assertCostWithinBounds,
   assertIntegrity,
   createVault,
+  estimateKdfMemoryBytes,
   keywrapDigest,
   openVault,
   parseEnvelope,
@@ -158,7 +161,7 @@ describe('envelope / 篡改与损坏必须失败', () => {
     )
   })
 
-  it('scrypt 参数越界 → bad-params（防恶意仓库把 N 拉到 2^22 撑爆内存）', () => {
+  it('scrypt 参数越界 → bad-params（防恶意仓库把 N 拉到 2^22 撑爆内存；新上限见下面两道闸门用例）', () => {
     const { manifest, encBytes } = newVault()
     const forgedCost: ScryptCost = { N: 1 << 22, r: 8, p: 1 }
     const envelope = parseEnvelope(encBytes)
@@ -173,6 +176,64 @@ describe('envelope / 篡改与损坏必须失败', () => {
       () => openVault({ manifest: forgedManifest, encBytes: huge, credential: { passphrase: PASSPHRASE } }),
       'bad-params'
     )
+  })
+
+  /**
+   * 伪造 manifest 的 DoS 场景（t27 / t10-F1）。
+   *
+   * 攻击面：kdf 参数来自**远端** `manifest.json`，而摘要都是公开算法 —— 攻击者可以
+   * 用任意参数造一个「自洽」的仓库（重算 payload_sha256 / keywrap_sha256 不需要任何密钥），
+   * 让受害者在自己机器上跑一次 4 GiB 的 scrypt。守门点：`assertIntegrity()` 在任何
+   * 派生之前就按 128*N*r 判预算，所以下面这条必须**快速失败**而不是先分配再报错。
+   */
+  function poisonedVault(cost: ScryptCost) {
+    const { manifest, encBytes } = newVault()
+    const envelope = parseEnvelope(encBytes)
+    const poisoned = serializeEnvelope({ ...envelope, kdf: { name: 'scrypt', ...cost, salt: envelope.kdf.salt } })
+    const poisonedManifest: VaultManifest = {
+      ...manifest,
+      kdf: { name: 'scrypt', ...cost },
+      payload_sha256: payloadDigest(poisoned)
+    }
+    poisonedManifest.keywrap_sha256 = keywrapDigest(poisonedManifest)
+    return { manifest: poisonedManifest, encBytes: poisoned }
+  }
+
+  it('伪造 manifest 声明 N=2^20,r=32,p=8 → 在派生之前就以 bad-params 拒绝（不 OOM、不卡死）', () => {
+    const { manifest, encBytes } = poisonedVault({ N: 1 << 20, r: 32, p: 8 })
+    const before = process.memoryUsage().rss
+    const startedAt = performance.now()
+    expectCryptoError(() => openVault({ manifest, encBytes, credential: { passphrase: PASSPHRASE } }), 'bad-params')
+    const elapsedMs = performance.now() - startedAt
+    const rssGrowthMb = (process.memoryUsage().rss - before) / (1024 * 1024)
+    // 真跑去派生的话：4 GiB 分配 + 数十秒 CPU；这里的判据是「根本没开始派生」
+    expect(elapsedMs).toBeLessThan(100)
+    // 不把 RSS 当硬断言（GC 抖动），但它必须远小于一次 4 GiB 分配
+    expect(rssGrowthMb).toBeLessThan(256)
+  })
+
+  it('两道闸门的边界值：maxN / maxR / maxP 各过一档，以及「字段都在区间内但超内存预算」', () => {
+    // 闸门 1：逐字段区间。刻意选「内存远低于预算」的组合，让这四条只可能被闸门 1 拒
+    // （否则闸门 2 会顺手拦下，测不出 maxN/maxR/maxP 各自是否真的生效——变异自检时踩过）
+    expect(estimateKdfMemoryBytes({ N: (1 << 18) * 2, r: 1 })).toBeLessThan(512 * 1024 * 1024)
+    expectCryptoError(() => assertCostWithinBounds({ N: (1 << 18) * 2, r: 1, p: 1 }), 'bad-params')
+    expectCryptoError(() => assertCostWithinBounds({ N: 1 << 14, r: 17, p: 1 }), 'bad-params')
+    expectCryptoError(() => assertCostWithinBounds({ N: 1 << 14, r: 8, p: 5 }), 'bad-params')
+    expectCryptoError(() => assertCostWithinBounds({ N: 1 << 13, r: 8, p: 1 }), 'bad-params')
+    // 闸门 2：N=2^18、r=16 每个字段都合法，但 128*N*r = 512 MiB（> 预算），必须拒
+    expect(estimateKdfMemoryBytes({ N: 1 << 18, r: 16 })).toBe(512 * 1024 * 1024)
+    expectCryptoError(() => assertCostWithinBounds({ N: 1 << 18, r: 16, p: 1 }), 'bad-params')
+    // 生产参数与测试参数必须都还在闸门内
+    expect(() => assertCostWithinBounds(SCRYPT_PRODUCTION)).not.toThrow()
+    expect(() => assertCostWithinBounds(SCRYPT_TEST)).not.toThrow()
+    expect(() => assertCostWithinBounds({ N: 1 << 18, r: 8, p: 4 })).not.toThrow()
+  })
+
+  it('合法参数照常解锁（收紧上限不能误伤生产/测试参数）', () => {
+    const { manifest, encBytes } = newVault()
+    const opened = openVault({ manifest, encBytes, credential: { passphrase: PASSPHRASE } })
+    expect(opened.payload).toBe(PAYLOAD)
+    zeroize(opened.vaultKey)
   })
 
   it('未来版本 → unsupported-format（不猜语义）', () => {

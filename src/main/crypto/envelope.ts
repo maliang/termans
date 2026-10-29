@@ -60,8 +60,32 @@ export const SCRYPT_PRODUCTION: ScryptCost = { N: 131_072, r: 8, p: 1 }
  */
 export const SCRYPT_TEST: ScryptCost = { N: 16_384, r: 8, p: 1 }
 
-/** 允许的参数上限：防止恶意仓库用 N=2^22 把内存打爆（DoS） */
-const COST_LIMITS = { minN: 1 << 14, maxN: 1 << 20, maxR: 32, maxP: 8 } as const
+/**
+ * 允许的 kdf 参数区间 + 内存预算。
+ *
+ * kdf 参数来自**远端** `manifest.json`（同步仓库可被投毒），而 scrypt 的内存开销是
+ * 128*N*r 字节 —— 一条 N=2^20,r=32 的声明就是一次 4 GiB 分配，等于把「打开别人的仓库」
+ * 变成一行 DoS。所以设**两道独立闸门**：
+ *
+ * 1. 逐字段区间（COST_LIMITS）：挡住形状离谱的组合；
+ * 2. 内存预算（KDF_MEMORY_BUDGET_BYTES）：按 128*N*r 实算，超预算就拒。
+ *
+ * 只留闸门 1 不够：N=2^18、r=16 每个字段都在区间内，但 128*2^18*16 = 512 MiB，
+ * 加上 Node 的额外副本足以拖垮低内存机器；只留闸门 2 也不够，它对「N 不是 2 的幂」
+ * 这类形状没有意见。两道都要有，因为 `maxmem` 是这块唯一的硬闸。
+ *
+ * 区间取「生产参数附近」：生产是 N=2^17,r=8,p=1（134 MiB）；上限 N=2^18（8 倍工作量）、
+ * r=16、p=4，给未来把 N 提到 2^18 留出余量。
+ */
+const COST_LIMITS = { minN: 1 << 14, maxN: 1 << 18, maxR: 16, maxP: 4 } as const
+
+/** scrypt 单次派生的内存硬预算：512 MiB（生产 134 MiB，留约 3.8 倍余量） */
+export const KDF_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024
+
+/** scrypt 的近似内存占用（RFC 7914：128 * N * r 字节） */
+export function estimateKdfMemoryBytes(cost: Pick<ScryptCost, 'N' | 'r'>): number {
+  return 128 * cost.N * cost.r
+}
 
 export type VaultCryptoFailure = 'bad-passphrase' | 'bad-recovery-code' | 'corrupt' | 'unsupported-format' | 'bad-params'
 
@@ -165,16 +189,39 @@ function decodeFixed(value: string, length: number, failure: VaultCryptoFailure,
   return buffer
 }
 
-function assertCostWithinBounds(cost: ScryptCost, failure: VaultCryptoFailure = 'bad-params'): void {
+/**
+ * kdf 参数闸门：**必须在任何派生之前**调用（`assertIntegrity()` 里是唯一入口，
+ * 所以伪造 manifest 在 `deriveKek()` 之前就会被拒，不会真的去分配几百 MB）。
+ *
+ * 导出是为了让测试能直接断言边界值，而不必真的跑一次大参数 scrypt。
+ */
+export function assertCostWithinBounds(cost: ScryptCost, failure: VaultCryptoFailure = 'bad-params'): void {
   const { N, r, p } = cost
   if (!Number.isInteger(N) || !Number.isInteger(r) || !Number.isInteger(p)) {
     throw new VaultCryptoError(failure, 'scrypt cost must be integers')
   }
   if ((N & (N - 1)) !== 0 || N < COST_LIMITS.minN || N > COST_LIMITS.maxN) {
-    throw new VaultCryptoError(failure, `scrypt N out of range: ${N}`)
+    throw new VaultCryptoError(
+      failure,
+      `scrypt N out of range: ${N} (allowed ${COST_LIMITS.minN}..${COST_LIMITS.maxN})`
+    )
   }
   if (r < 1 || r > COST_LIMITS.maxR || p < 1 || p > COST_LIMITS.maxP) {
-    throw new VaultCryptoError(failure, `scrypt r/p out of range: r=${r} p=${p}`)
+    throw new VaultCryptoError(
+      failure,
+      `scrypt r/p out of range: r=${r} p=${p} (allowed r<=${COST_LIMITS.maxR} p<=${COST_LIMITS.maxP})`
+    )
+  }
+  // 闸门 2：逐字段都在区间内也可能刚好顶到预算（N=2^18, r=16 → 512 MiB），
+  // 按 128*N*r 实算一遍；**达到或超过**预算即拒（预算本身就是上限，不做「等于预算」的分配）
+  const required = estimateKdfMemoryBytes({ N, r })
+  if (required >= KDF_MEMORY_BUDGET_BYTES) {
+    throw new VaultCryptoError(
+      failure,
+      `scrypt kdf needs ${Math.round(required / (1024 * 1024))} MiB (128*N*r), over the ${Math.round(
+        KDF_MEMORY_BUDGET_BYTES / (1024 * 1024)
+      )} MiB budget: N=${N} r=${r} p=${p}`
+    )
   }
 }
 
@@ -213,10 +260,15 @@ export function openBox(key: Buffer, box: SealedBox, aad: string, failure: Vault
   }
 }
 
-/** scrypt 派生 KEK。必须显式给 maxmem：N=2^17 时默认 32MB 上限会直接失败。 */
+/**
+ * scrypt 派生 KEK。必须显式给 maxmem：N=2^17 时默认 32MB 上限会直接失败。
+ * 参数闸门（`assertCostWithinBounds`）在这里再跑一次——即使调用方跳过了
+ * `assertIntegrity()`（例如内存里的 VMK 路径），也不可能带着超预算参数进 scrypt。
+ */
 export function deriveKek(secret: string, cost: ScryptCost, salt: Buffer): Buffer {
   assertCostWithinBounds(cost)
-  const maxmem = 128 * cost.N * cost.r * 2 + 1024 * 1024
+  // 128*N*r 是数据区，scrypt 还需要同等量级的临时缓冲；给 2 倍 + 1 MiB 余量
+  const maxmem = estimateKdfMemoryBytes(cost) * 2 + 1024 * 1024
   return scryptSync(secret.normalize('NFKC'), salt, KEY_BYTES, { N: cost.N, r: cost.r, p: cost.p, maxmem })
 }
 

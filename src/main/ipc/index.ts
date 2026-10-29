@@ -100,6 +100,17 @@ export function registerIpcHandlers(ctx: IpcContext): IpcRuntime {
     overrides: { readPrivateKey: createVaultPrivateKeyReader(vault) }
   })
 
+  // 上锁 → 清掉存活 SSH 会话里缓存的凭据副本。
+  // **不断开连接**（产品裁定，见 docs/VAULT-SYNC.md §4「上锁不终止已建立的 SSH 会话」）：
+  // 已建连的通道用的是 ssh2 内部协商的密钥，与本处缓存的明文口令无关；
+  // 而自动上锁可能由 15 分钟空闲触发，那时用户可能正在跑长任务。
+  vault.onLock = () => {
+    const cleared = engine.releaseCredentials()
+    if (cleared > 0) {
+      console.info(`[vault] cleared cached credentials in ${cleared} live ssh session(s)`)
+    }
+  }
+
   registerAppHandlers({ getAppInfo: ctx.getAppInfo })
   registerSettingsHandlers({ settings: ctx.settings })
   registerThemeHandlers({ userDataDir })

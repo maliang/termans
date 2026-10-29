@@ -374,6 +374,52 @@ $ codesign -dv dist/mac-arm64/Termans.app 2>&1 | head -3
      还是 `createFileSecretBox()` 兜底；`SecretBox.available()` 仍然是同步布尔（启动时求值一次后缓存），
      这样解锁流程保持同步，改动面收敛在装配处。
 
+8. **ssh2 1.17.0 的 ed25519 密钥生成缺陷（上游，未修；我们靠夹具规避）**
+
+   - 现象：`ssh2.utils.generateKeyPairSync('ed25519')` 生成的私钥里，约 **1/256** 会把内嵌公钥串
+     写成 31 字节（正常 32），于是整个 OpenSSH 私钥容器的公钥段是 **50 字节而非 51**，
+     连 ssh2 **自己的** `utils.parseKey()` 都解析不了，报 `Malformed OpenSSH private key`。
+     机制是「公钥按大整数往返」时前导 `0x00`（mpint 的正号填充）被吞掉，长度前缀随之少 1。
+   - **本地实测（2026-10-29，本机 Node 26 / ssh2 1.17.0）**：两轮各 20000 次生成，
+     `errCount = 76`（0.38% ≈ 1/263）与 `errCount = 90`（**0.45% ≈ 1/222**），
+     合起来约 **1/240**，与「约 1/256」一致（坏样本 `pubBlobLen=50` / `declaredKeyLen=31`），
+     把同一把 key 的**公钥单行**单独 `parseKey` 也返回 Error。
+     核对命令（**注意 `parseKey` 是「返回 Error」而不是抛异常**，`try/catch` 统计会得 0）：
+     ```bash
+     node -e '
+     const { utils } = require("ssh2")
+     let bad = 0
+     for (let i = 0; i < 20000; i++) if (utils.parseKey(utils.generateKeyPairSync("ed25519").private) instanceof Error) bad++
+     console.log({ bad, rate: bad / 20000 })'
+     # 实测输出（两轮）：{ bad: 76, rate: 0.0038 } / { bad: 90, rate: 0.0045 }
+     ```
+   - 影响的三条代码路径（逐条核过）：
+     1. `src/main/ssh/auth.ts` 的 `parsePrivateKey()`（`:87-102`）—— **受影响**：`utils.parseKey`
+        返回 Error 时映射成 `SshError('key-invalid', 'Cannot parse private key: …')`，
+        用户看到的是「私钥解析失败」。只影响**用 ssh2 自己生成**的私钥文本（用户从 `ssh-keygen`
+        或 ssh2 以外工具生成的密钥不受影响：OpenSSH 的写入器不会少这一个字节）。
+     2. `src/main/ssh/known-hosts.ts` 的 `keyTypeFromPublicKeyBlob()` / `fingerprintSha256FromKey()`
+        —— **不受影响**：吃的是 SSH **线格式二进制 blob**（握手时拿到的），不解析私钥文本。
+     3. `src/main/ssh/session.ts` 的 `hostVerifier` —— **不受影响**：比对的是握手得到的
+        `ParsedKey`，同样与私钥文本无关。
+   - 我们的规避（已落库，别「顺手简化」）：
+     * `src/main/ssh/__tests__/helpers/keys.ts` 头注释完整记录了这条缺陷，并钉死
+       `FIXTURE_HOST_KEY`（常量私钥 + 公钥单行 + 指纹三者互相一致，有用例守着）；
+       需要「另一把密钥」时走 `generateValidKeyPair()`——生成后**自校验、坏了重掷**。
+     * `src/main/ssh/__tests__/helpers/fake-server.ts:305-309` 默认用钉死的宿主密钥。
+     * `tests/fixtures/ssh-server.ts:32-38` 的 `FIXTURE_HOST_KEY` 与 `:51` 写死的
+       `FIXTURE_HOST_KEY_FINGERPRINT`（`SHA256:JFBdXZUT972M8J3vCxY7vjCbanHm8qQYb7UI28O4dLk`）。
+       不钉死的后果不是「偶尔一把坏密钥」，而是**每次全量跑约 1/3 概率随机红一条用例**（单跑绿、全量红）。
+     * 客户端密钥用 `node:crypto` 的 RSA（`harness.ts:260-284`），不碰 ssh2 的 ed25519 生成器。
+   - 以后升级 ssh2 时的复查动作：① 重跑上面那条 20000 次核对命令，`bad` 必须为 0；
+     ② 跑 `npx vitest run src/main/ssh/__tests__/keys.test.ts`；③ 全量 `pnpm test` 连跑 3 次
+     （用 `--sequence.shuffle` 更稳），确认无「随机红」；④ 若上游已修，可以考虑把
+     `generateValidKeyPair()` 的重掷逻辑简化掉（但钉死夹具仍然值得保留：跨进程指纹稳定、
+     断言可读）。
+   - 上游 issue：属于 ssh2（`mscdex/ssh2`）的 `utils.generateKeyPairSync` 实现问题，
+     **issue 编号未在本轮核实**（没有可靠链接就不写编号，免得下游当事实引用）；
+     判定依据以上面的本地实测为准。
+
 ---
 
 ## 10. README §1 功能表取证（2026-10-29，HEAD `aef5ef8` 之后）

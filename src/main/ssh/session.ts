@@ -848,6 +848,27 @@ export class SshSession {
     this.options.onClosed?.(this.sessionId, reason)
   }
 
+  /* ------------------------------------------------------- 凭据副本的生命周期 */
+
+  /** 缓存里还有几条明文凭据副本（诊断/测试用；只返回条数，不返回内容） */
+  get cachedSecretCount(): number {
+    return this.secrets.length
+  }
+
+  /**
+   * 清掉内存里的凭据副本（vault 上锁时由 `SshManager.releaseCredentials()` 调用）。
+   *
+   * 只清**缓存**，不动连接：已建立的通道用的是 ssh2 内部协商出的会话密钥，
+   * 与这里缓存的明文口令/口令短语无关；用户可能正跑长任务，锁屏就断线不可接受
+   * （产品口径见 docs/VAULT-SYNC.md §4「上锁不终止已建立的 SSH 会话」）。
+   *
+   * 注意 JS 字符串是不可变的，这里只能丢弃引用，无法像 Buffer 那样 zeroize；
+   * 真正保证「不残留」的手段是：凭据只在连接期持有、不写日志、不落盘。
+   */
+  clearCachedSecrets(): void {
+    this.secrets.length = 0
+  }
+
   private teardownTransport(): void {
     const channel = this.channel
     const client = this.client
@@ -890,6 +911,10 @@ export class SshSession {
         /* 已关闭 */
       }
     }
+    // 收尾即丢弃明文凭据副本：close / error / 远端 exit / 重连前 都要经过这里，
+    // 所以「会话生命周期结束后内存里不再有用户口令」不依赖调用方记得清。
+    // 重连路径会在下一次 connectClient 之前重新 resolveSecret 并重新入缓存。
+    this.clearCachedSecrets()
   }
 }
 

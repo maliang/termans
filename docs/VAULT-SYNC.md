@@ -30,7 +30,7 @@ ocean.json
 
 | 文件 | 明文? | 内容 |
 | --- | --- | --- |
-| `manifest.json` | 是 | `format/version/cipher/kdf(N,r,p)/revision/payload_sha256/keywrap_sha256/updated_at` + 两个「包裹主密钥」的密文盒。**没有任何主机信息**（测试断言它连 `hosts` 字样都没有） |
+| `manifest.json` | 是 | **十个字段**：`format` / `version` / `cipher` / `kdf{name,N,r,p}` / `passphraseKey` / `recoveryKey` / `keywrap_sha256` / `revision` / `payload_sha256` / `updated_at`。其中 `passphraseKey`/`recoveryKey` 只是「被 KEK 包裹的 VMK 密文 + 各自 salt」，**不含任何主机信息**（测试断言它连 `hosts` 字样都没有） |
 | `vault.enc` | 否 | 唯一的敏感载体：hosts（主机名/IP、端口、用户、备注、标签、分组、IdentityFile 路径、ProxyJump、启动命令）、groups、snippets、settings、known_hosts 指纹、完整 ssh_config 文本、主机密码与私钥 passphrase、AI key 与 Git token |
 | `themes/*.json` | 是（非敏感） | 主题定义，保留 git diff 可读性 |
 
@@ -84,8 +84,15 @@ VMK（32B 随机主数据密钥）──AES-256-GCM──▶ vault.enc（payload
 
 1. `crypto.scrypt` 默认 `maxmem = 32MB`，N=2^17,r=8 需要 ≈134MB，**不显式传 maxmem 会直接抛错**；
    实现里传 `128 * N * r * 2 + 1MB`。
-2. 恶意仓库可以把 `N` 写成 2^22 把用户内存打爆，所以有 `COST_LIMITS = {minN: 2^14, maxN: 2^20, maxR: 32, maxP: 8}`，
-   越界 → `bad-params`（`E_INVALID_ARGUMENT`），不是「尝试解密」。
+2. 恶意仓库可以把 `N` 写成 2^20 让客户端分配 4 GiB 内存（kdf 参数来自**远端** `manifest.json`，
+   而摘要都是公开算法，攻击者能造一个「自洽」的坏仓库）。所以设**两道独立闸门**，越界一律
+   `bad-params`（`E_INVALID_ARGUMENT`），**不是「尝试解密」**：
+   * 逐字段区间：`COST_LIMITS = {minN: 2^14, maxN: 2^18, maxR: 16, maxP: 4}`；
+   * 内存预算：按 `128*N*r` 实算，**达到或超过 512 MiB 即拒**（`maxmem` 是这块唯一的硬闸）。
+     `N=2^18,r=16` 每个字段都合法，但正好 512 MiB → 拒绝。
+   闸门位置：`assertCostWithinBounds()` 在 `assertIntegrity()` 里、**任何派生之前**被调用，
+   `deriveKek()` 里再兜一次（内存里的 VMK 路径也绕不过去）。回归用例见
+   `src/main/crypto/envelope.test.ts`（伪造 `N=2^20,r=32,p=8` 必须 <100ms 就抛，不 OOM、不卡死）。
 
 ### 2.3 「口令错」与「数据损坏」必须能区分
 
@@ -186,7 +193,17 @@ Git 历史里的旧 `vault.enc` 快照不会被「轮换」追溯性保护，谁
 * **闲置自动上锁**：`policy.autoLockMinutes`（默认 15，来自 `settings.security.autoLockMinutes`），
   每次写操作重置计时器；`lock()` 清内存 payload 并 `zeroize(VMK)`。
 * **锁定时不显示任何主机信息**：`useVaultStore.applyStatus()` 收到非 unlocked 立刻清空 library/sync/conflicts，
-  `HostSidebar` 不挂载 `<HostTree>`——不是 CSS 隐藏，DOM 里没有主机名/IP。
+  `HostSidebar` 不挂载 `<HostTree>`——主机节点在 DOM 里根本不存在（不是 CSS 隐藏）。
+  整壳（终端/页签/AI 面板）则用 `.ts-app[data-locked='true'] > :not(.ts-unlock){visibility:hidden}`：
+  **内容不出现在截图、纯文本复制与可访问性树里，但 DOM 仍挂载**——卸载会销毁 xterm 实例、
+  解锁后 scrollback 全丢（仓库没有 serialize addon），这条边界写在 README §11 第 11 条。
+* **上锁不终止已建立的 SSH 会话**（产品裁定，2026-10-29）：`lock()` / 被动回锁（`forceLock`）都会调
+  `VaultManager.onLock`，组合根据此执行 `SshEngine.releaseCredentials()` —— 遍历存活会话
+  `SshSession.clearCachedSecrets()`，**只清主进程内存里的明文凭据副本**，不动连接。
+  理由：自动上锁可能由 15 分钟空闲触发，用户可能正在跑长任务；已建连的通道用的是 ssh2 内部
+  协商出的会话密钥，与本处缓存的明文无关。会话收尾（`teardownTransport()`，close/error/远端 exit
+  都经过它）同样会清空副本，所以不依赖调用方记得清。代价：锁屏时远端仍有一条活会话，
+  要断线需显式断开页签（README §11 第 12 条）。
 
 ---
 

@@ -54,6 +54,11 @@ export interface SshEngine {
   manager: SshManager
   /** 注册 ssh:* 六个通道（必须早于 registerIpcHandlers 里的 installPlaceholders） */
   registerIpc(): void
+  /**
+   * 清掉所有存活会话缓存的凭据副本（vault 上锁时调用；**不断开连接**）。
+   * 转发到 `manager.releaseCredentials()`，让组合根不必自己抓着 manager。
+   */
+  releaseCredentials(): number
   dispose(): void
 }
 
@@ -87,6 +92,9 @@ export function createSshEngine(options: CreateSshEngineOptions): SshEngine {
     manager,
     registerIpc(): void {
       registerSshHandlers({ manager })
+    },
+    releaseCredentials(): number {
+      return manager.releaseCredentials()
     },
     dispose(): void {
       manager.disposeAll()
