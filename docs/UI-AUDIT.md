@@ -103,3 +103,21 @@
 写系统剪贴板后，在终端区域右键（`XtermSurface.tsx:71` 的 `contextmenu` → `requestPaste`）仍未弹出确认框，
 三次尝试均无弹窗，因此**这一项没有截图**，只有代码证据：`PasteWarningDialog.tsx:47-80` 已改用
 `.ts-dialog__panel--md` + `__header/__body/__footer`。请 qa 在 t8 里补一条能驱动它的用例（或在 `docs/TESTING.md` 记下这个限制）。
+
+## 附：2026-10-30 对比度专项（用户反馈「提示看不清」）
+
+来源：主人反馈「设置主口令界面有黄色背景白色字的提示，提示看不清，这配色不符合主题同时查看其他类似问题」。
+
+四套内置主题 × 5 个界面状态（未初始化 / 弱口令警告 / 设置-安全 / 设置-外观 / 主界面）做了一次
+DOM 级对比度全量扫描（逐元素取 computed `color` 与其最近不透明祖先底色，按 WCAG 相对亮度算比值），
+**修前 63 处低于 AA 阈值，修后 0 处**。三类真实问题：
+
+| 类别 | 修前实测 | 修法 |
+| --- | --- | --- |
+| 提示条「品牌色实底 + 正文色文字」 | 深色 1.07:1、浅色 2.46:1（白字压奶油 `#ffe2a8`） | 改「表面色 + 琥珀薄涂」（color-mix 14%），文字仍为 `--ts-text-primary` |
+| 弱化文案 `--ts-text-muted` | 深色 2.99–4.08:1、浅色 3.06–3.49:1 | 深色 `#63718c → #8593ad`、浅色 `#7c8aa3 → #5f6b80`，三对背景层全部 ≥4.5:1 |
+| 浅色主题主按钮 hover | `#a85505` 上的黑字 3.97:1 | `--ts-accent-strong` 改 `#bc5f07`（4.78:1） |
+
+回归守卫：`src/renderer/theme/contrast.ts` 的配对从 9 组扩到 12 组（muted 从 1 对扩成 app/surface/elevated 3 对、
+新增 button-hover 对，全部 `min: 4.5`），由 `tests/contract/theme-contrast.test.ts` 逐主题断言；
+改后证据图：`after-warn-dark.png` / `after-warn-light.png`（弱口令警告条，1320×860 @2x）。
