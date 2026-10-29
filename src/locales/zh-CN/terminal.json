@@ -49,5 +49,16 @@
   "tab.quickConnect.busy": "正在连接…",
   "tab.quickConnect.unavailable": "快速连接需要主机库，而主机库尚未接线。",
   "tab.local": "本地",
-  "toolbar.find": "在终端中查找"
+  "toolbar.find": "在终端中查找",
+  "hostKey.title": "校验主机密钥",
+  "hostKey.reason.unknown": "首次连接这台主机 —— 请与服务提供方核对指纹。",
+  "hostKey.reason.mismatch": "主机密钥**变了**。可能是服务器重装，也可能是有人在中间人劫持。",
+  "hostKey.host": "主机",
+  "hostKey.keyType": "密钥类型",
+  "hostKey.fingerprint": "SHA256 指纹",
+  "hostKey.previous": "此前信任的指纹",
+  "hostKey.remember": "记住这台主机（写入 known_hosts）",
+  "hostKey.accept": "信任并连接",
+  "hostKey.reject": "拒绝",
+  "hostKey.busy": "正在提交…"
 }

@@ -49,5 +49,16 @@
   "tab.quickConnect.busy": "Connecting…",
   "tab.quickConnect.unavailable": "Quick connect needs the host library, which is not wired up yet.",
   "tab.local": "Local",
-  "toolbar.find": "Find in terminal"
+  "toolbar.find": "Find in terminal",
+  "hostKey.title": "Verify host key",
+  "hostKey.reason.unknown": "First connection to this host — compare the fingerprint with the server owner.",
+  "hostKey.reason.mismatch": "The host key CHANGED. This can mean the server was reinstalled, or that someone is intercepting the connection.",
+  "hostKey.host": "Host",
+  "hostKey.keyType": "Key type",
+  "hostKey.fingerprint": "SHA256 fingerprint",
+  "hostKey.previous": "Previously trusted",
+  "hostKey.remember": "Remember this host (write to known_hosts)",
+  "hostKey.accept": "Trust and connect",
+  "hostKey.reject": "Reject",
+  "hostKey.busy": "Answering…"
 }
