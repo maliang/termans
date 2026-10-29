@@ -1,6 +1,6 @@
 // 必须在 features/vault 之前求值：它给 i18next v26 补回 addResourceBundle（原因见该文件头）
 import './layout/i18next-compat'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MenuCommand } from '@shared'
 import { AiPanel } from '@renderer/features/ai'
@@ -12,6 +12,7 @@ import { initializeVaultFeature } from '@renderer/features/vault'
 import { call, describeError, subscribe } from '../platform/ipc'
 import { useLocaleBootstrap } from '../i18n/useLocale'
 import { SettingsDialogHost, SettingsEntry } from '../theme/SettingsDialogHost'
+import { closeSettingsDialog } from '../theme/settings-dialog'
 import { useThemeBootstrap } from '../theme/hooks'
 import { useShellStore } from './store'
 import { ErrorToast } from './layout/ErrorToast'
@@ -104,6 +105,15 @@ export function App(): JSX.Element {
   // 「未初始化」= 首启还没建库：同样要铺解锁屏（那里提供「创建加密包」流程），
   // 否则用户会看到一个空壳界面却无从下手。
   const locked = previewLocked || vault === 'locked' || vault === 'uninitialized'
+
+  // 锁定时必须收起设置对话框：`.ts-dialog` 在锁定态被抬到 z-index 70（高于解锁屏 60），
+  // 对话框一旦开着，遮罩就会挡住解锁屏的「解锁」按钮，用户点不动、也看不出为什么。
+  // 只在「进入锁定」的那一次转换里关，不阻止用户在锁定态主动点齿轮进设置（那是 t45 的兜底入口）。
+  const wasLocked = useRef(locked)
+  useEffect(() => {
+    if (locked && !wasLocked.current) closeSettingsDialog()
+    wasLocked.current = locked
+  }, [locked])
 
   return (
     <div
