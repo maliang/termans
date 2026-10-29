@@ -57,6 +57,9 @@ export async function createVault(page: Page, passphrase = VAULT_PASSPHRASE): Pr
 /** 已有加密包时解锁（错误口令用例也用它，结果由调用方断言） */
 export async function unlockVault(page: Page, passphrase = VAULT_PASSPHRASE): Promise<void> {
   await expect(page.getByTestId('unlock-screen')).toBeVisible()
+  // 先把可能盖在解锁屏上的模态关掉（当前只有「设置」对话框会盖，见 dismissBlockingOverlay）：
+  // 不关的话 `unlock-vault` 会被 `settings-overlay` 吃掉点击，表现成 30s 超时而不是解锁失败。
+  await dismissBlockingOverlay(page)
   await page.getByTestId('passphrase-input').fill(passphrase)
   await page.getByTestId('unlock-vault').click()
 }
@@ -496,6 +499,13 @@ export async function pullSync(page: Page): Promise<void> {
 /**
  * 关掉挡住解锁屏的模态（当前只有「设置」对话框会挡：t45 起同步面板内嵌在它里面）。
  *
+ * t45 起同步面板内嵌在「设置」对话框里（`settings-embed-sync`），而首次 connect 的
+ * `alignFreshFromRemote` 结束时产品会把 vault 重新锁上、**却不会关掉这个对话框**：
+ * 解锁屏在下面画出来了，`settings-overlay` 盖在上面，点「解锁」被遮罩吃掉（实测 30s 超时，
+ * 报 `<dl class="ts-vault__meta"> … subtree intercepts pointer events`）。真实用户此时也只能
+ * 先关弹窗，所以 helper 照做；产品是否应当在锁定时自动关弹窗是独立问题，已作为观察项上报，
+ * 不用 e2e 替产品掩盖。
+ *
  * 只做「看得见才关」的最小动作，关不掉也不抛——由调用方后续的断言给出真实失败信息；
  * 之所以不在这里 `expect(...).toBeHidden()`，是因为要关的模态属于「预期之外的遮挡」，
  * 报错点留在解锁失败那一行更容易定位。
@@ -517,13 +527,6 @@ export async function waitForVaultUnlocked(page: Page, passphrase: string): Prom
   let stable = 0
   while (Date.now() < deadline) {
     if (await page.getByTestId('unlock-screen').isVisible().catch(() => false)) {
-      // t45 起同步面板内嵌在「设置」对话框里（`settings-embed-sync`），而首次 connect 的
-      // alignFreshFromRemote 结束时产品会把 vault 重新锁上、**却不会关掉这个对话框**：
-      // 解锁屏在下面画出来了，`settings-overlay` 盖在上面，点「解锁」被遮罩吃掉
-      // （实测报 `<dl class="ts-vault__meta"> … subtree intercepts pointer events`，30s 超时）。
-      // 真实用户此时也只能先关弹窗，所以 helper 照做；产品侧是否应当锁定时自动关弹窗
-      // 是独立问题，已作为观察项上报，不在 e2e 里替产品掩盖。
-      await dismissBlockingOverlay(page)
       await unlockVault(page, passphrase)
       stable = 0
       continue
