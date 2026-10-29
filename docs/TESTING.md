@@ -269,3 +269,59 @@ xterm 在 GPU 可用时挂 WebGL，文字在 canvas 里，`.xterm-rows` 数量�
 「解锁屏还没出现、外壳看着还在、同步面板按钮已经 hidden」——此时直接 `click()` 会 30s 超时。
 `waitForVaultUnlocked(page, passphrase)` 要求「已解锁」连续两次抽样成立才返回，并在遇到解锁屏时自动解锁。
 `createVault()` 同样改成了重试循环：口令判弱要求「同口令再点一次创建」，而弱口令提示与外壳渲染谁先到是竞态的。
+
+---
+
+## 6. `e2e/` 目录的硬规则（t8 收口时定的团队约束）
+
+**`e2e/` 只放交付用例。** 截图、探针、一次性的"看一眼渲染结果"脚本一律不许进来，放
+`scripts/shots/<名字>.mjs`（node 直接跑，不进 Playwright）或仓库外 `/tmp` + 独立 config。
+
+原因不是洁癖，而是这个目录被**三处**自动捡起，放进去的东西会被当成交付物对待：
+
+| 捡起它的地方 | 后果 |
+| --- | --- |
+| `playwright.config.ts` 的 `testDir: './e2e'` | 被当正式用例执行：`npx playwright test e2e/` 的条数变了，红一条就整套红 |
+| `tsconfig.node.json` 的 include `e2e/**/*.ts` | 被 tsc 检查：`TS6133 声明未使用`、`TS2488 NodeListOf 不是可迭代` 这类**只在临时脚本里出现**的错误会让全仓 `pnpm typecheck` 变红 |
+| `git ls-files e2e` 对账 | `git ls-files e2e \| wc -l` 与 `find e2e -type f ! -name '.DS_Store' \| wc -l` 不再相等 |
+
+**禁止 `zz-` 前缀的 spec 留在 `e2e/`**（历史上这些是最常见的脚手架命名）。`playwright.config.ts` 里加了
+`testIgnore: ['**/zz-*']` —— 那是**安全带不是许可**：它只能保证别人的脚手架不在验收窗口把整套 e2e 拖红，
+不能解决 tsc 报错与对账不齐，所以规则照旧禁止。
+
+验收窗口的处置权：跑三条命令之前，`e2e/` 里出现任何 `zz-*.spec.ts` 直接删（都是未跟踪脚本，能重建），
+在报告里记一行"清除了哪些"即可，不必等作者。
+
+### 6.1 三条 verify 命令的判定口径
+
+只看 `passed` 数会误判——同一天里出现过 `Tests 622 passed` 与 `exit code 1` 同时成立（子进程 EPIPE 的
+unhandled error 不会让用例失败，只会让进程退出码变红，见 t29）。所以一条命令算"绿"要三个条件同时成立：
+
+1. 退出码 0；
+2. 用例数符合预期（当前：`pnpm test` = 51 files / 622+ passed；`pnpm test:e2e` = 26 passed）；
+3. 输出里 `grep -c "Unhandled Errors"` 等于 0。
+
+### 6.2 已知时序：双机用例的 clone 等待为什么是 60s
+
+`e2e/dual-machine.spec.ts` 里 B/C 机"等仓库被对齐到远端那次提交"的上限从 30s 放宽到 60s。
+这不是掩盖偶发红：实测全量跑（26 条、workers=1、前面还压着 20 多条 Electron 启动）时，clone 落地
+偶发超过 30s，单独跑该文件则 3 passed (18~20s)。等待本身是 `expect.poll` 轮询 `git log --oneline -1`
+里出现 `termans:`（目标状态），不是固定 sleep；60s 只是给"机器忙"留的余量。如果后续再红，
+先看是不是轮询条件本身错了（例如此刻仓库还没 init），而不是继续加时间。
+
+---
+
+## 7. 两条"看一眼就少走十分钟"的实测坑（ai 截图时踩的，captain 要求收进来）
+
+**7.1 读终端内容前必须 `--disable-gpu`**
+
+- 症状：`terminalText(page)` 抛异常，或断言"终端里没有 banner"，而界面上文字明明看得见；截图里文字也正常。
+- 原因：xterm 在 GPU 可用时装载 WebGL 渲染器，文字画在 canvas 里，DOM 中 `.xterm-rows` 数量为 0。
+- 正确写法：`launchApp({ args: ['--disable-gpu'] })`——**所有会读 `.xterm-rows` 的用例（含截图脚本）都加**，
+  漏了就只有 WebGL 路径，`terminalText()` 永远取不到文本。
+
+**7.2 `enableAi()` 之后要重新 `openAiPanel(page)` 才能截图 AI 面板**
+
+- 症状：开了 AI 总开关后立刻截 AI 面板，截出来的是别的界面，或 `ai-panel` 不可见。
+- 原因：`settings:changed` 会同步外壳状态 `aiPanelVisible`，把面板收起来（开关变 true ≠ 面板打开）。
+- 正确写法：`enableAi()` → `openAiPanel(page)` → 等 `ai-panel` 可见 → 再截图/断言。

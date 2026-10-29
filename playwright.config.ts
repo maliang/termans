@@ -6,6 +6,10 @@ import { defineConfig } from '@playwright/test'
  */
 export default defineConfig({
   testDir: './e2e',
+  // 安全带，不是许可：`e2e/` 禁止留一次性脚本（规则见 docs/TESTING.md §6）。但同一天里出现过 4 个
+  // 别人的 `zz-*-shots.spec.ts` 截图脚本，它们会被 testDir 当成正式用例执行、把整套 e2e 拖红，
+  // 所以在配置层再兜一道。真要留脚本请放 `scripts/shots/` 或仓库外 `/tmp`。
+  testIgnore: ['**/zz-*'],
   outputDir: './artifacts/playwright',
   timeout: 60_000,
   expect: { timeout: 10_000 },
