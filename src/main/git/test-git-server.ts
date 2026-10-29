@@ -20,14 +20,55 @@ export interface TestGitServer {
   close(): Promise<void>
 }
 
+/**
+ * 跑一条 git 子进程命令，安全地把 `input` 写进 stdin。
+ *
+ * 为什么要这么小心翼翼：git 常常**先退出**再轮到我们写 stdin（`receive-pack` 拒绝一个
+ * 非快进 push、参数错误、仓库不存在……）。进程一退，写端 socket 就关了，`stdin.end()`
+ * 会抛 `EPIPE`，而 `ChildProcess.stdin` 是 `Socket`——没人监听它的 `'error'` 时，这个
+ * EPIPE 会升级成**进程级 uncaughtException**。vitest 的表现就是「Tests 622 passed
+ * 全绿，但 Utilities 报 1 error，进程 exit code = 1」，而调用方什么都看不到。
+ *
+ * 三条纪律：
+ * 1. `'error'` 监必须在写之前挂上，且 EPIPE / ECONNRESET / ERR_STREAM_DESTROYED 一律吞掉
+ *    ——写失败不代表命令失败，命令的成败只由 `execFile` 的 callback 判定；
+ * 2. 写之前判 `destroyed`，并且在 try/catch 里写（某些平台下 `end()` 会同步抛）；
+ * 3. `resolve/reject` 用一次性闸门，避免「流 error 先 reject、callback 又 reject」双触发。
+ */
 function runGit(args: string[], input?: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) => {
+    let settled = false
+    const settle = (finish: () => void): void => {
+      if (settled) return
+      settled = true
+      finish()
+    }
+
     const child = execFile('git', args, { encoding: 'buffer', maxBuffer: 128 * 1024 * 1024 }, (error, stdout) => {
-      if (error) reject(error)
-      else resolve(stdout)
+      if (error) settle(() => reject(error))
+      else settle(() => resolve(stdout))
     })
-    child.stdin?.end(input ?? Buffer.alloc(0))
+
+    // 必须在 end()/write() 之前挂：晚挂一个 tick 都可能已经错过 error 事件。
+    child.stdin?.on('error', (error: NodeJS.ErrnoException) => {
+      if (isBrokenPipe(error)) return
+      settle(() => reject(error))
+    })
+
+    const stdin = child.stdin
+    if (stdin === null || stdin === undefined || stdin.destroyed) return
+    try {
+      stdin.end(input ?? Buffer.alloc(0))
+    } catch (error) {
+      if (!isBrokenPipe(error as NodeJS.ErrnoException)) settle(() => reject(error))
+    }
   })
+}
+
+/** 写端已断的几种错误码：对夹具来说都只是「写不进去」，不是命令失败 */
+function isBrokenPipe(error: NodeJS.ErrnoException | null | undefined): boolean {
+  const code = error?.code
+  return code === 'EPIPE' || code === 'ECONNRESET' || code === 'ERR_STREAM_DESTROYED'
 }
 
 /** 同步跑一条 git 命令（验收/断言用，例如 `ls-tree`、`show`） */
