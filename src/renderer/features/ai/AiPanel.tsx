@@ -723,8 +723,10 @@ function PreviewDialog({
 }): JSX.Element {
   const { t } = useTranslation(['ai', 'common'])
   return (
-    <div className="ts-ai-modal" role="dialog" aria-modal="true" data-testid="ai-preview-dialog">
-      <div className="ts-ai-modal__panel">
+    // 遮罩/居中/模糊都来自 kit 的 .ts-dialog 外壳（docs/UI-KIT.md §4），
+    // 这里只叠 .ts-ai-modal 作为本模块的定位钩子，颜色一个都不自己写。
+    <div className="ts-dialog ts-ai-modal" role="dialog" aria-modal="true" data-testid="ai-preview-dialog">
+      <div className="ts-dialog__panel ts-dialog__panel--md ts-ai-modal__panel">
         <h3 className="ts-ai-modal__title">
           <Eye size={15} /> {t('ai:context.previewTitle')}
         </h3>
@@ -759,8 +761,8 @@ function ConfirmExecuteDialog({
   const { t } = useTranslation(['ai', 'common'])
   const { assessment } = pending
   return (
-    <div className="ts-ai-modal" role="dialog" aria-modal="true" data-testid="ai-execute-dialog">
-      <div className={`ts-ai-modal__panel ${assessment.highRisk ? 'is-danger' : ''}`}>
+    <div className="ts-dialog ts-ai-modal" role="dialog" aria-modal="true" data-testid="ai-execute-dialog">
+      <div className={`ts-dialog__panel ts-dialog__panel--md ts-ai-modal__panel ${assessment.highRisk ? 'is-danger' : ''}`}>
         <h3 className="ts-ai-modal__title">
           <AlertTriangle size={15} aria-hidden="true" /> {t('ai:command.confirmTitle')}
         </h3>

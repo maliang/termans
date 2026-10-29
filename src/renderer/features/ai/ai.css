@@ -462,33 +462,30 @@
   font-size: var(--ts-font-size-sm);
 }
 
-/* ---------- 弹窗（预览 / 二次确认） ---------- */
+/* ---------- 弹窗（预览 / 二次确认） ----------
+   外壳（遮罩色、居中、模糊、宽度档位、圆角、投影）全部复用 kit 的 .ts-dialog /
+   .ts-dialog__panel（src/renderer/theme/theme.css，token 见 --ts-dialog-*）。
+   本模块**不重定义外壳**：这里只留 `.ts-ai-modal` 当定位钩子（无颜色声明），
+   面板只补 kit 没有的 `gap`，以及危险态那一条描边覆盖。 */
 
-.ts-ai-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgb(0 0 0 / 45%);
-}
-
-.ts-ai-modal__panel {
+/* 选择器带 .ts-dialog 前缀不是凑特异性，而是**必须**：theme.css（kit）在 ai.css 之后加载，
+   同特异性的 min-height/overflow 会被 kit 覆盖回去（踩过：写了 min-height:0 却仍是 360px 高）。 */
+.ts-dialog .ts-ai-modal__panel {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: min(640px, 100%);
-  max-height: 80vh;
-  padding: 16px;
+  /* kit 的 .ts-dialog__panel 本身不带内边距（padding 在 .ts-dialog__body 上）。
+     AI 弹窗结构是平的、没有 body 包裹，所以直接用同一个 token 补上，视觉与设置弹窗一致。 */
+  padding: var(--ts-dialog-pad);
+  /* kit 给的是固定 max-height + body 内滚；AI 弹窗内容短，改成整体滚动更省事，
+     尺寸仍由 kit 的 --ts-dialog-max-h 决定。 */
   overflow: auto;
-  border: 1px solid var(--ts-border);
-  border-radius: var(--ts-radius-lg);
-  background: var(--ts-bg-elevated);
-  box-shadow: 0 18px 40px rgb(0 0 0 / 35%);
+  /* kit 用 --ts-dialog-min-h（min(360px,56vh)）给设置弹窗撑一个稳定外壳；
+     二次确认只有几行，撑到 360px 会在按钮下方留一大片空白，所以这里放弃下限。 */
+  min-height: 0;
 }
 
+/* 危险命令：只改描边色（两处 class 的特异性高于 kit 的 border 简写，与加载顺序无关） */
 .ts-ai-modal__panel.is-danger {
   border-color: var(--ts-danger);
 }
@@ -682,7 +679,9 @@
   background: var(--ts-bg-elevated);
   color: var(--ts-text-primary);
   font-size: var(--ts-font-size-sm);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
+  /* 阴影颜色走 --ts-bg-overlay（主题里是带透明度的深色），偏移量刻意比 kit 的
+     --ts-dialog-shadow（24px/60px）小一号：那是居中弹窗的大投影，贴边 toast 用会糊住半个面板。 */
+  box-shadow: 0 6px 18px var(--ts-bg-overlay);
   z-index: 30;
 }
 
