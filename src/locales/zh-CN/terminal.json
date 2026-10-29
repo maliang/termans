@@ -60,5 +60,6 @@
   "hostKey.remember": "记住这台主机（写入 known_hosts）",
   "hostKey.accept": "信任并连接",
   "hostKey.reject": "拒绝",
-  "hostKey.busy": "正在提交…"
+  "hostKey.busy": "正在提交…",
+  "tab.confirmClose.bodySameHost": "「{{title}}」仍有活动会话，关闭页签会结束该会话。"
 }

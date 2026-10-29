@@ -17,5 +17,7 @@
   "state.loading": "加载中…",
   "state.empty": "这里还没有内容",
   "state.vault": "加密包：{{state}}",
-  "state.tabs": "页签：{{count}}"
+  "state.tabs": "页签：{{count}}",
+  "state.vaultLocked": "加密包：已锁定",
+  "state.vaultUnlocked": "加密包：已解锁"
 }

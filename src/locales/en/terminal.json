@@ -60,5 +60,6 @@
   "hostKey.remember": "Remember this host (write to known_hosts)",
   "hostKey.accept": "Trust and connect",
   "hostKey.reject": "Reject",
-  "hostKey.busy": "Answering…"
+  "hostKey.busy": "Answering…",
+  "tab.confirmClose.bodySameHost": "\"{{title}}\" still has an active session. Closing the tab ends it."
 }

@@ -78,6 +78,21 @@ textarea {
    主机库侧栏
    ========================================================================== */
 
+/* 外壳把侧栏包了一层 `.ts-sidebar-host`（见 src/renderer/app/layout/HostLibraryPane.tsx），
+   那层是个普通 block div：grid 只把它拉到整行高，里面的 `<aside class="ts-sidebar">` 是
+   flex column、高度由内容决定 —— 结果侧栏只画到内容底部，下方露出 `--ts-bg-app`，
+   看起来像「侧栏断了」（t34 截图实测 height 265px vs 行高 836px）。这里把那层变成
+   flex 容器，让 aside 撑满；不靠改外壳组件，因为布局归样式层管。 */
+.ts-sidebar-host {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ts-sidebar-host > .ts-sidebar {
+  flex: 1;
+}
+
 .ts-sidebar {
   grid-area: sidebar;
   display: flex;

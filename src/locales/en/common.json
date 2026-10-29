@@ -17,5 +17,7 @@
   "state.loading": "Loading…",
   "state.empty": "Nothing here yet",
   "state.vault": "vault: {{state}}",
-  "state.tabs": "tabs: {{count}}"
+  "state.tabs": "tabs: {{count}}",
+  "state.vaultLocked": "vault: locked",
+  "state.vaultUnlocked": "vault: unlocked"
 }
