@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu, session, shell, type MenuItemConstructorOptio
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { emitToAll, registerIpcHandlers } from './ipc'
+import { clearStaleSingletonLock } from './singleton-lock'
 import { SettingsStore } from './store/settings-store'
 import type { AppInfo, AppPlatform, MenuCommand } from '@shared'
 
@@ -211,6 +212,20 @@ function ensureMainWindow(): BrowserWindow | null {
   return mainWindow
 }
 
+/**
+ * 申请单实例锁，拿不到时先排查「陈旧锁」（实现见 `./singleton-lock.ts`）。
+ *
+ * 为什么要这一步：应用被强杀/崩溃后 SingletonLock 会残留并指向已死的 pid，此时
+ * requestSingleInstanceLock() 可能返回 false 而实际没有任何活实例；旧代码直接 app.quit()，
+ * 用户看到的就是「双击/点图标毫无反应，进程 0、无窗口、无报错」。
+ * 只在锁主确实已死时清锁并重试一次，活实例时绝不干涉单实例语义。
+ */
+function acquireSingleInstanceLock(): boolean {
+  if (app.requestSingleInstanceLock()) return true
+  if (!clearStaleSingletonLock(app.getPath('userData'))) return false
+  return app.requestSingleInstanceLock()
+}
+
 function bootstrap(): void {
   app.setName('Termans')
 
@@ -246,8 +261,9 @@ function bootstrap(): void {
   })
 }
 
-// 单实例锁在 ready 之前申请；拿不到就退出（macOS 上由 second-instance 聚焦）
-if (!isE2E && !app.requestSingleInstanceLock()) {
+// 单实例锁在 ready 之前申请；拿不到就退出（macOS 上由 second-instance 聚焦）。
+// 拿不到时先自愈「陈旧锁」（进程被强杀/崩溃后残留、指向已死 pid），否则用户会看到双击没反应。
+if (!isE2E && !acquireSingleInstanceLock()) {
   app.quit()
 } else {
   bootstrap()
