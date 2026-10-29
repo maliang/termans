@@ -5,5 +5,6 @@
   "action.import": "导入",
   "action.newGroup": "新建分组",
   "empty.title": "还没有主机",
-  "empty.body": "新建一台主机，或导入已有的 ~/.ssh/config。所有数据加密存储，并通过你自己的 Git 仓库同步。"
+  "empty.body": "新建一台主机，或导入已有的 ~/.ssh/config。所有数据加密存储，并通过你自己的 Git 仓库同步。",
+  "editor.jumpHostHint": "只支持一层。跳板机凭据与主机密钥单独校验，连不上直接报错，不会退回直连。"
 }

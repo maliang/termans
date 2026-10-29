@@ -5,5 +5,6 @@
   "action.import": "Import",
   "action.newGroup": "New group",
   "empty.title": "No hosts yet",
-  "empty.body": "Add a host or import your existing ~/.ssh/config. Everything stays encrypted and syncs through your own Git repo."
+  "empty.body": "Add a host or import your existing ~/.ssh/config. Everything stays encrypted and syncs through your own Git repo.",
+  "editor.jumpHostHint": "One level only. Jump host credentials and its host key are verified separately — a broken jump host errors out instead of silently going direct."
 }

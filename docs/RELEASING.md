@@ -373,3 +373,55 @@ $ codesign -dv dist/mac-arm64/Termans.app 2>&1 | head -3
      `isAsyncEncryptionAvailable?(): Promise<boolean>`；组合根改成 `await` 之后再决定用 `wrapSafeStorage()`
      还是 `createFileSecretBox()` 兜底；`SecretBox.available()` 仍然是同步布尔（启动时求值一次后缓存），
      这样解锁流程保持同步，改动面收敛在装配处。
+
+---
+
+## 10. README §1 功能表取证（2026-10-29，HEAD `aef5ef8` 之后）
+
+发版文档里的「功能表」是**声明**，声明必须有代码坐标支撑，否则它会被下游当成事实继承（本项目已经因此写过
+「端口转发」「导入/导出」这类不存在的功能）。本节把 README §1 的 9 行逐条拆成「声明 → 证据 → 结论」，
+供审查（t10）逐行复核。**证据都是当场 grep / 读文件得到的 `file:line`，不是记忆。**
+
+| # | 能力 | README §1 声明（当前措辞） | 证据 | 结论 |
+| --- | --- | --- | --- | --- |
+| 1 | 多页签终端 | WebGL 渲染、失败回退 DOM、自适应尺寸、搜索、选中即复制、右键粘贴、链接走系统浏览器 | `src/renderer/features/terminal/xterm-factory.ts:6` 引 `@xterm/addon-webgl`；`:58-70` `attachRenderer(…, () => new WebglAddon(), () => { renderer = 'dom'; input.onRendererChange?.('dom') })`（回退分支）；同文件 `fit.fit()` + 注释「真正的尺寸由 ResizeObserver 收敛」；`:4,38` SearchAddon；`XtermSurface.tsx:57,64` `addEventListener('mouseup', …)`（注释：用 mouseup 而非 onSelectionChange）；`XtermSurface.tsx:71` `addEventListener('contextmenu', …)`；`runtime.ts:91` `void call('app:open-external', { url: uri })` | 已做（逐项对上） |
+| 2 | 主机库 | 分组树、分组与标签（可编辑、参与搜索）、搜索、跳板机（**单层** ProxyJump）、启动命令、备注；`~/.ssh/config` **导入**（导出通道已实现，界面暂无入口） | 分组树 `HostTree.tsx:41,54-63`（`buildGroups` + `.ts-vault__group`）；搜索 + 标签参与搜索 `HostSidebar.tsx:53` `host.tags.some((tag) => tag.toLowerCase().includes(needle))`、`:116-118` 搜索框；标签编辑 `HostEditor.tsx:195-196`、模型 `src/shared/models/host.ts:67`（标签**不在**树里渲染 chip，只渲染色点 + 名称 + `hostname:port`）；启动命令 `src/shared/models/host.ts:65` + `src/main/ssh/session.ts:682` + `HostEditor.tsx:252-255`；备注 `HostEditor.tsx:52`（注释：随 `hosts:update` 扩展键提交，落 `payload.hostNotes`）、`:61,84-85`；跳板机 `src/main/ssh/jump.ts`（多级 → `jump-unsupported`，8 例测试 `src/main/ssh/__tests__/jump.test.ts`）；导入 `HostSidebar.tsx:69-79,141` + `src/main/vault/register.ts:197-202`；导出 handler 真实（`register.ts:206-213`）但**全 renderer 无 tsx 调用 `exportSshConfig`**（仅 `api.ts:180` wrapper） | 已做，但两处措辞必须改：删「端口转发」；「导入/导出」→「导入（导出暂无 UI）」 |
+| 3 | 加密主机库 | 主口令 scrypt + AES-256-GCM；IP/端口/用户名/密码/passphrase/known_hosts/ssh_config 全在密文里 | `src/main/crypto/envelope.ts:1,18-19`（`scryptSync`；注释 `passphrase --scrypt--> KEK_pass --AES-GCM--> [包裹 VMK]`）；`src/shared/models/vault.ts:8` payload 注释 `payload{hosts, groups, knownHosts, secrets, integrations, settings, sshConfig, …}`；`:16`「主机密码与私钥 passphrase 存在 `payload.secrets`」；`:59` `secretsExcluded` 保证明文里不出现密码/passphrase/API key/Git token | 已做 |
+| 4 | Git 同步 | 只推 `manifest.json` + `vault.enc`（有自定义主题时另加明文 `themes/*.json`）；换机解锁即见主机 | `src/main/vault/manager.ts:104` 注释「仓库工作区（userData/vault）：只有 manifest.json / vault.enc / themes/*.json」；`src/main/git/sync.test.ts:116` 与 `sync-robustness.test.ts:93` 断言无主题时仓库树 `toEqual(['manifest.json','vault.enc'])`；`src/main/vault/manager.test.ts:475,492`「themes 落成明文 `themes/*.json`（保留 git diff 可读性），其余仍在密文里」 | 已做；原文把 `themes/*.json` 写成恒有，需加「有自定义主题时」 |
+| 5 | 私钥 | 私钥本体**永不同步**，只记路径；缺文件时连接前明确报错，并给「导入私钥 / 粘贴私钥 / 改用密码」三个入口 | `src/renderer/features/vault/PrivateKeyGuide.tsx:61` `t('key.import')`、`:65` `t('key.paste')`、`:68` `t('key.usePassword')`；`src/renderer/features/vault/i18n.ts:101-105` 三处英文文案（'Import key file' / 'Paste key' / 'Switch to password'）；不进同步见 `src/shared/models/vault.ts:59` 的 `secretsExcluded` | 已做 |
+| 6 | AI 辅助 | 11 个供应商预设 + 自定义；流式对话、带终端上下文；生成的命令必须先确认 | `src/renderer/features/ai/presets.ts` 的 `PROVIDER_PRESETS` 条目 id 依次 openai / deepseek / moonshot / dashscope / openrouter / vllm / lmstudio / ollama / anthropic / gemini / gemini-native = **11 个**（`grep -c 'id:'` 得 15 是因为同文件还有别的对象，不能用来数预设）；命令确认写死在契约 `src/shared/models/settings.ts:57` `commandConfirmation: z.literal(true)`；聊天门禁 `src/main/ai/service.ts:214-228` | 已做 |
+| 7 | 主题 | 4 套内置（Dark / Midnight / Light / High Contrast）+ 自定义主题编辑器（导入导出、实时预览） | `src/renderer/theme/builtin.ts:277-280` `builtinTheme('termans-dark', …)` / `('termans-midnight', …)` / light / contrast；`:8-11` 注释说明 midnight/contrast 只在 TS 里存在，切换时整组覆盖 CSS 变量 | 已做 |
+| 8 | 多语言 | English / 简体中文，即时切换 | `src/locales/{en,zh-CN}/` 各有 8 个 namespace JSON（ai/auth/common/errors/hosts/settings/sync/terminal）；即时切换 `src/renderer/i18n/useLocale.ts`；缺 key 告警与兜底见 `docs/i18n.md` §5 | 已做 |
+| 9 | 安全默认 | known_hosts 严格校验、空闲 15 分钟自动上锁、锁定时不渲染任何主机名与 IP | `src/shared/models/settings.ts:128` `knownHostsPolicy: 'strict'`、同块 `autoLockMinutes: 15`；锁定清空内存 `src/renderer/features/vault/store.ts:16,55-60`（收到非 `unlocked` 即清 `library` / `selectedHostId` / `conflicts`，「锁定态不缓存主机数据」）；锁定时整层隐藏 `src/renderer/app/App.tsx:106,113,139,150`（`data-locked` + `.ts-app[data-locked='true'] > :not(.ts-unlock){visibility:hidden}`） | 已做 |
+
+### 10.1 复核用命令（贴实跑输出即可，不用重读代码）
+
+```bash
+# 端口转发：只应出现在 §11（功能表已移除）
+grep -n "端口转发" README.md
+
+# 跳板机措辞：功能表与 §11 都应写「单层」
+grep -n "单层" README.md
+
+# ssh_config 导出没有 UI：只应命中 api.ts 的 wrapper
+grep -rn "exportSshConfig" src/renderer --include=*.tsx   # 期望：无输出
+grep -rn "exportSshConfig" src/renderer                  # 期望：仅 features/vault/api.ts:180
+
+# 锁定时不渲染主机名：vault store 收到非 unlocked 即清库
+grep -n "status.state === 'unlocked' ? get().library : null" src/renderer/features/vault/store.ts
+```
+
+### 10.2 本轮对 README 的实际改动
+
+1. §1 第 2 行：删「端口转发」；「跳板机（ProxyJump）」→「跳板机（**单层** ProxyJump）」；「标签」→「分组与标签（可编辑、参与搜索）」；「导入/导出」→「导入（导出通道已实现，界面暂无入口）」。
+2. §1 第 4 行：`themes/*.json` 加上「有自定义主题时」这一前提（无主题时仓库里只有 `manifest.json` + `vault.enc`）。
+3. §11 追加 3 条：第 8 条端口转发未实现（`PortForward` 只有类型预留）、第 9 条多级跳板明确报错不静默直连、第 10 条 `ssh_config` 导出暂无界面入口。
+4. `src/renderer/features/vault/HostEditor.tsx` 跳板机字段加一行辅助文案（`data-testid="jump-host-hint"`），文案走 i18n：
+   新增 key `hosts:editor.jumpHostHint`（`src/locales/{en,zh-CN}/hosts.json`）。
+
+> 与 t24 派单的一处偏离：派单写「写进 `src/locales/{en,zh-CN}/vault.json`」，但仓库里**没有** `vault.json`；
+> vault / 解锁界面的文案在 `src/renderer/features/vault/i18n.ts` 里以运行时 bundle（namespace `vaultsync`）注入，
+> 而 `vaultsync` 不在 `src/shared/i18n.ts` 的 `I18N_NAMESPACES` 里。HostEditor 用的是 `useTranslation('vaultsync')`，
+> 因此新 key 落在契约内的 `hosts` namespace，调用处写带前缀的 `t('hosts:editor.jumpHostHint')`
+> （i18next 的 `extractFromKey` 在 `nsSeparator: ':'`、`keySeparator: false` 下必然解析前缀，见
+> `node_modules/i18next/dist/cjs/i18next.js:519-537`）。

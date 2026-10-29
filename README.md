@@ -15,9 +15,9 @@ Electron + React + xterm.js + ssh2；主机库同步走 isomorphic-git，仓库�
 | 能力 | 说明 |
 | --- | --- |
 | 多页签终端 | xterm.js（WebGL 渲染，失败自动回退 DOM）、自适应尺寸、搜索、选中即复制、右键粘贴、链接走系统浏览器 |
-| 主机库 | 分组树、标签、搜索、跳板机（ProxyJump）、端口转发、启动命令、备注；支持从 `~/.ssh/config` 导入/导出 |
+| 主机库 | 分组树、分组与标签（可编辑、参与搜索）、搜索、跳板机（**单层** ProxyJump）、启动命令、备注；支持从 `~/.ssh/config` 导入（导出通道已实现，界面暂无入口） |
 | 加密主机库 | 主口令（scrypt + AES-256-GCM）端到端加密；IP、端口、用户名、密码、passphrase、known_hosts、ssh_config 全在密文里 |
-| Git 同步 | 自己的仓库（GitHub/GitLab/自建 http(s)），只推 `manifest.json` + `vault.enc` + `themes/*.json`；换机后解锁即可看到主机 |
+| Git 同步 | 自己的仓库（GitHub/GitLab/自建 http(s)），只推 `manifest.json` + `vault.enc`（有自定义主题时另加明文 `themes/*.json`，便于 diff 与共享）；换机后解锁即可看到主机 |
 | 私钥 | 私钥文件本体**永不同步**；只在主机上记路径引用。缺文件时连接前明确报错，并给「导入私钥 / 粘贴私钥 / 改用密码」三个入口 |
 | AI 辅助 | 11 个供应商预设 + 自定义；流式对话、带终端上下文；**生成的命令必须先确认**才写入终端 |
 | 主题 | 4 套内置（Dark / Midnight / Light / High Contrast）+ 自定义主题编辑器（导入导出、实时预览） |
@@ -244,6 +244,10 @@ node scripts/pack-guard.cjs restore
 5. 系统休眠自动上锁已在主进程接好（`powerMonitor.on('suspend')` → `vaultManager.lock()`，见 `src/main/ipc/index.ts`）；个别 Linux 桌面环境的 suspend 事件可能不触发，空闲上锁不受影响。
 6. 没有 SFTP / 文件传输界面（引擎侧能力留待后续里程碑）。
 7. 数据库式并发未建模：同一账号在多台机器同时改同一台主机，靠乐观锁 + 人工选边处理。
+8. **端口转发未实现**：数据模型里有 `PortForward` 类型预留，但既没有引擎实现、也没有界面（功能表已不再声称支持）。
+9. **跳板机只支持单层**：多层跳板会被明确拒绝（`jump-unsupported`，提示只支持一层），不会静默退化成直连；
+   跳板机自身连不上、host key 校验不过同样直接报错，不会悄悄改走直连。
+10. `~/.ssh/config` 只能**导入**：导出 / 写回通道（`ssh-config:export`、`ssh-config:write`）已实现并有测试，但界面还没加入口。
 
 ---
 

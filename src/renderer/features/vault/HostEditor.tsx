@@ -175,9 +175,13 @@ export function HostEditor({ host, groups, hosts, onClose, onSaved }: HostEditor
               ))}
             </select>
           </label>
-          <label className="ts-field">
-            <span className="ts-field__label">{t('editor.jumpHost')}</span>
+          {/* 跨两列：辅助文案要在一行内读完，半列宽（约 260px）会折成三行 */}
+          <div className="ts-field" style={{ gridColumn: '1 / -1' }}>
+            <label className="ts-field__label" htmlFor="ts-host-jump">
+              {t('editor.jumpHost')}
+            </label>
             <select
+              id="ts-host-jump"
               value={draft.jumpHostId ?? ''}
               onChange={(event) => patch({ jumpHostId: event.target.value === '' ? null : event.target.value })}
             >
@@ -190,7 +194,10 @@ export function HostEditor({ host, groups, hosts, onClose, onSaved }: HostEditor
                   </option>
                 ))}
             </select>
-          </label>
+            <p className="ts-vault__hint" data-testid="jump-host-hint">
+              {t('hosts:editor.jumpHostHint')}
+            </p>
+          </div>
           <label className="ts-field">
             <span className="ts-field__label">{t('editor.tags')}</span>
             <input value={tagsText} onChange={(event) => setTagsText(event.target.value)} placeholder="prod, web" />
