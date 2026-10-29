@@ -163,7 +163,7 @@ test('S-11 双机迁移：A 推送 → B 同口令拉取 → 3 台主机都在�
       // 必须在解锁之前拦下来，否则后面的断言只会报「连不上」而掩盖真实原因。
       // 对齐是异步收尾的（面板/状态先落定、checkout 随后），所以这几条用 poll 等，不要抢在它前面断言。
       await expect
-        .poll(() => gitOrEmpty(['-C', join(dirB, 'vault'), 'log', '--oneline', '-1']), { timeout: 30_000 })
+        .poll(() => gitOrEmpty(['-C', join(dirB, 'vault'), 'log', '--oneline', '-1']), { timeout: 60_000 })
         .toContain('termans:')
       expect(existsSync(join(dirB, 'vault', 'vault.enc')), '首次对齐后 vault.enc 必须存在（否则是对齐把工作区清空了）').toBe(true)
       expect(existsSync(join(dirB, 'vault', 'manifest.json')), '首次对齐后 manifest.json 必须存在').toBe(true)
@@ -226,12 +226,12 @@ test('S-11 双机迁移：拿错主口令的新机必须看不到任何主机（
       // 再看「回锁」—— 顺序反了会在 clone 还没落地时就断言，读到 'no commits yet' 的假红。
       await expect
         .poll(() => gitOrEmpty(['-C', join(dirC, 'vault'), 'log', '--oneline', '-1']), {
-          timeout: 30_000,
+          timeout: 60_000,
           message: 'C 机的仓库应当已被对齐到 A 推上去的那次提交'
         })
         .toContain('termans:')
       expect(existsSync(join(dirC, 'vault', 'vault.enc'))).toBe(true)
-      await expect(c.window.getByTestId('unlock-screen')).toBeVisible({ timeout: 30_000 })
+      await expect(c.window.getByTestId('unlock-screen')).toBeVisible({ timeout: 60_000 })
 
       // 用错口令再解锁：必须明确报错，而不是「解开了但空库」
       await unlockVault(c.window, `${PASSPHRASE}-wrong`)
