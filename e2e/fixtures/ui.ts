@@ -201,11 +201,19 @@ export async function openSettings(page: Page): Promise<void> {
   await expect(page.getByTestId('settings-dialog')).toBeVisible()
 }
 
-/** 读终端容器的计算背景色（主题切换断言用） */
+/**
+ * 读「终端背景」的实际取值。
+ *
+ * 为什么不读 `.xterm` 的 computed background：xterm 把主题画在自己的渲染层里
+ * （DOM 渲染器下 `.xterm-viewport` 始终是 `rgb(0, 0, 0)`，与主题无关），
+ * 只有 canvas/theme 对象知道真实底色，DOM 上没有可依赖的计算值。
+ * 所以取主题 token 的计算值 —— 它正是 `src/renderer/theme/xterm.ts` 传给
+ * `options.theme.background` 的那一个（`background: tokens['--ts-bg-app']`），
+ * 换个主题这个值必变，没变就说明主题没真正应用。
+ */
 export async function terminalBackground(page: Page): Promise<string> {
   return page.evaluate(() => {
-    const node = document.querySelector('.xterm') ?? document.querySelector('[data-testid="terminal-area"]')
-    if (!node) throw new Error('找不到终端容器')
-    return getComputedStyle(node).backgroundColor
+    if (document.querySelector('.xterm') === null) throw new Error('[e2e] 没有打开的终端')
+    return getComputedStyle(document.documentElement).getPropertyValue('--ts-bg-app').trim()
   })
 }
