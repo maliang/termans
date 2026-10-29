@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import './theme.css'
 import { useTranslation } from 'react-i18next'
+import { Bot, GitBranch, Palette, Settings, ShieldCheck, TerminalSquare } from 'lucide-react'
 import { subscribe } from '../platform/ipc'
 import { AiSettings } from './AiSettings'
 import { AppearanceSettings } from './AppearanceSettings'
@@ -91,24 +92,42 @@ export function SettingsDialogHost(): JSX.Element | null {
           </button>
         </header>
 
-        <nav className="ts-dialog__tabs" role="tablist" aria-label={t('settings:title')}>
-          {VISIBLE_SETTINGS_TABS.map((item) => (
-            <button
-              key={item}
-              type="button"
-              role="tab"
-              aria-selected={item === tab}
-              className={`ts-dialog__tab${item === tab ? ' ts-dialog__tab--active' : ''}`}
-              data-testid={`settings-tab-${item}`}
-              onClick={() => setTab(item)}
-            >
-              {t(`settings:tabs.${item}`)}
-            </button>
-          ))}
-        </nav>
+        {/*
+          竖向导航（t45）：分类在左、内容在右（VS Code 的设置界面同构）。
+          `data-testid` / `role` / `aria-selected` 与改造前的横向 tab **完全一致** ——
+          e2e（`e2e/fixtures/ui.ts` 的 `enableAi()`）与导出脚本靠 testid 点击，改名等于
+          把它们全弄红。本轮新增的只有 `aria-orientation="vertical"` 与 `data-testid="settings-nav"`。
+        */}
+        <div className="ts-dialog__main">
+          <nav
+            className="ts-settings__nav"
+            role="tablist"
+            aria-orientation="vertical"
+            aria-label={t('settings:title')}
+            data-testid="settings-nav"
+          >
+            {VISIBLE_SETTINGS_TABS.map((item) => {
+              const Icon = TAB_ICONS[item]
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  role="tab"
+                  aria-selected={item === tab}
+                  className={`ts-settings__nav-item${item === tab ? ' ts-settings__nav-item--active' : ''}`}
+                  data-testid={`settings-tab-${item}`}
+                  onClick={() => setTab(item)}
+                >
+                  <Icon size={14} aria-hidden="true" />
+                  {t(`settings:tabs.${item}`)}
+                </button>
+              )
+            })}
+          </nav>
 
-        <div className="ts-dialog__body">
-          <SettingsTabContent tab={tab} />
+          <div className="ts-dialog__body">
+            <SettingsTabContent tab={tab} />
+          </div>
         </div>
       </div>
     </div>
@@ -148,19 +167,52 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }): JSX.Element {
   return <AppearanceSettings />
 }
 
-/** 状态条/菜单里的设置入口按钮（集成到 StatusBar 用；带稳定 testid 方便 QA） */
-export function SettingsButton(): JSX.Element {
+/** 状态条/菜单/侧栏工具区里的设置入口按钮（带稳定 testid 方便 QA） */
+export interface SettingsEntryProps {
+  /**
+   * 传入不同 testid 是为了**避免同一个 testid 在 DOM 里出现两次**：侧栏工具区（解锁态）
+   * 与锁定态兜底入口可能同时挂载，两处都用 `open-settings` 会让 Playwright 的
+   * `getByTestId('open-settings')` 命中两个元素直接报 strict mode violation。
+   */
+  testId?: string
+  className?: string
+  size?: number
+}
+
+export function SettingsEntry({
+  testId = 'open-settings',
+  className = 'ts-icon-btn',
+  size = 15
+}: SettingsEntryProps = {}): JSX.Element {
   const { t } = useTranslation(['settings'])
   return (
     <button
       type="button"
-      className="ts-statusbar__button"
-      data-testid="open-settings"
+      className={className}
+      data-testid={testId}
       title={t('settings:title')}
       aria-label={t('settings:title')}
       onClick={() => useSettingsDialog.getState().openDialog('appearance')}
     >
-      ⚙
+      <Settings size={size} aria-hidden="true" />
     </button>
   )
+}
+
+/**
+ * 旧名字（m0001 期就在用，`theme/index.ts` 的 barrel 与 `docs/theming.md` 都还引用）。
+ * 现在只是 `SettingsEntry` 的别名 —— t45 把入口从状态栏右下角搬到了侧栏左下角，
+ * 但保留这个导出是为了不让第三方入口（菜单命令、文档片段、未来的托盘菜单）失效。
+ */
+export const SettingsButton = SettingsEntry
+
+/** 四个页签的图标（形状只表达分类，不含状态；颜色一律继承文字色） */
+const TAB_ICONS: Record<SettingsTab, typeof Settings> = {
+  appearance: Palette,
+  ai: Bot,
+  security: ShieldCheck,
+  sync: GitBranch,
+  // 预留页签（P0 契约里的 terminal/general）本轮不进导航，但类型上要齐全
+  terminal: TerminalSquare,
+  general: Settings
 }

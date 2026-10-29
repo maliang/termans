@@ -200,6 +200,8 @@ html {
   --ts-dialog-radius: var(--ts-radius-lg);
   --ts-dialog-backdrop: var(--ts-bg-overlay);
   --ts-dialog-shadow: 0 24px 60px var(--ts-bg-overlay);
+  /* 设置弹窗左侧竖向导航宽度（VS Code 式；窄窗时导航不缩、内容区让位，见 theme.css） */
+  --ts-dialog-nav-width: 180px;
 
   /* 动效：只用于 hover / 展开这类微交互，超过 200ms 会显得迟钝 */
   --ts-motion-fast: 120ms;

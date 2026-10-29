@@ -414,3 +414,141 @@ if (tab === 'sync') {
 | #20 间距/控件 token | ✅ 底座层 28 个 token（§1.1），`:root` 的 52 个契约 token 一个没动 | `src/renderer/styles/tokens.css`、`tests/contract/theme-scope.test.ts` |
 
 仍未做（归属别人，t34 复核时按 §7 清单逐条看）：#6 侧栏主机行溢出（`features/vault`）、#1/#2/#3 页签条与状态栏层次（`features/tabs`、`app/layout`）、#17/#18 AI 面板（`features/ai`）。
+
+---
+
+## 9. 布局骨架（t45 定稿）
+
+参考的是三个成熟产品的共识，不是自创：**Termius**（左侧主机库 + 右侧会话区 + 底部状态条）、**VS Code**（活动栏/侧栏/编辑区/面板四段、设置入口固定在左下角齿轮）、**Tabby**（页签条即标题栏，空白处可拖窗）。三家都做同一件事：**把「导航 / 内容 / 全局状态」分成固定的三条带，任何新功能只能落进既有带里，不许另起一条**。
+
+本项目的骨架（`src/renderer/styles/base.css:61`）：
+
+```
+┌───────────────┬──────────────────────────────┬──────────────┐
+│ 主机库 264px  │ 工作区                        │ AI 面板 360px │
+│ .ts-sidebar   │ ┌──────────────────────────┐ │ .ts-ai-panel  │
+│               │ │ 页签条 38px                │ │ （可关）      │
+│               │ ├──────────────────────────┤ │               │
+│               │ │ 终端 / 空会话态            │ │               │
+│ ───────────   │ │                          │ │               │
+│ 工具带 .ts-sidebar__tools 45px │          │ │               │
+├───────────────┴──────────────────────────────┴──────────────┤
+│ 状态条 28px .ts-statusbar                                     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+对应 `.ts-app` 的声明（**改骨架只改这里**，别在组件里各写一套）：
+
+```css
+.ts-app {
+  display: grid;
+  grid-template-columns: var(--ts-sidebar-width) minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'sidebar workspace ai'
+    'statusbar statusbar statusbar';
+  height: 100vh;
+}
+```
+
+| 带 | 尺寸来源 | 实测（1320×860） | 规矩 |
+|---|---|---|---|
+| 主机库 | `--ts-sidebar-width` = 264px | aside 264×787 | 只放「主机/分组」这类导航数据；**全局工具放底部工具带**，不放页脚动作区 |
+| 页签条 | `--ts-titlebar-height` = 38px | 38px | 它同时是 macOS 标题栏：空白处 `-webkit-app-region: drag`，可点元素单独 `no-drag` |
+| 工作区 | `minmax(0, 1fr)` | 696×787 | `minmax(0,…)` 必须写：否则长内容会把列撑开、整窗出现横向滚动条 |
+| AI 面板 | `--ts-ai-panel-width` = 360px | 关闭时列宽 0（`auto`） | 关掉时整列消失，工作区自动变宽，不要用 `display:none` 手工补宽度 |
+| 状态条 | `--ts-control-h-sm` = 28px | 28px | 只放**状态**（会话/加密包/同步/AI 开关），不放搜索、不放设置 |
+| 工具带（t45 新增） | `.ts-sidebar__tools` | 264×45，齿轮 28×28，左边距 10px | 放在 `.ts-sidebar-host` 里、aside **之外**：它是外壳的工具，不属于主机库 feature |
+
+### 9.1 设置入口：为什么最终在左下角
+
+演变过程（同一件事改了三版，留档避免再飘）：
+
+1. t32 之前：设置入口在占位状态栏最右的 ⚙ 里，而且 `open-settings` 菜单命令**无人处理**；
+2. t32：真实 `StatusBar` 右下角渲染 `<SettingsButton />`（`data-testid="open-settings"`）；
+3. t45（当前）：搬到侧栏底部工具带左端（`src/renderer/theme/SidebarTools.tsx`），状态栏**只剩** AI 开关与同步状态；锁定态另有一个固定右下角的 `open-settings-locked` 兜底。
+
+理由：设置是「全局、低频、与当前内容无关」的入口，成熟产品一致把它放在**外壳的固定角落**（VS Code 左下齿轮、Termius 侧栏底部、Chrome 的 ⋮）。放进状态栏右侧的问题有两个：① 状态栏语义是「只读状态」，塞动作会让人误以为它是状态指示；② 状态栏随窗口宽度变化最先被挤压，设置入口会被挤到看不见。
+
+### 9.2 锁定态的两个入口 + z-index 关系
+
+| 层 | z-index | 说明 |
+|---|---|---|
+| `.ts-unlock`（解锁屏） | 60 | 锁上后唯一可见的内容 |
+| `.ts-lock-tools`（t45 新增） | 70 | 固定右下角 28×28 齿轮，`position: fixed; right/bottom: var(--ts-space-4)` |
+| `.ts-dialog`（设置弹窗） | 40（常规）/ **70（锁定态）** | 锁着也要能改语言/主题，所以锁定时压过解锁屏 |
+
+锁定规则（`src/renderer/app/App.tsx` 的 `LOCKED_SHELL_CSS`）必须**排除**这两个元素，否则「锁上就再也进不去设置」：
+
+```css
+.ts-app[data-locked='true'] > :not(.ts-unlock):not(.ts-lock-tools):not(.ts-dialog) { visibility: hidden; }
+.ts-app[data-locked='true'] > .ts-dialog { z-index: 70; }
+```
+
+两个入口用**不同 testid**（`open-settings` / `open-settings-locked`）：锁定态两者同时在 DOM 里，同名会让 `getByTestId('open-settings')` 命中两个元素，Playwright strict mode 直接报错。
+
+---
+
+## 10. 输入类控件三件套：`.ts-input` / `.ts-select` / `.ts-textarea`
+
+三个共用同一组声明（`src/renderer/styles/base.css` 的 kit 段），**只写差异**：
+
+| 属性 | 值 | 说明 |
+|---|---|---|
+| 高度 | `var(--ts-control-h)`（32px） | 与 `.ts-btn--primary` 同高，一行里对齐 |
+| 左右内边距 | `var(--ts-control-px)`（10px） | |
+| 边框 | `1px solid var(--ts-border)`，hover 转 `--ts-border-strong` | |
+| 圆角 | `var(--ts-radius-sm)`（6px） | |
+| 背景 | `var(--ts-bg-app)` | 这就是「下沉」底：比 `--ts-bg-surface` 深一档。**不新造 `--ts-bg-sunken`**——契约层 52 个 token 已冻结，加一个会让用户既有的导出主题 JSON 缺 token 判失败（M-08 回归），需要下沉感就用 `--ts-bg-app` |
+| 文字/占位 | `--ts-text-primary` / `--ts-text-muted` | |
+| 焦点 | 边框转 `--ts-accent` + 三元组焦点环，`outline-offset: 0` | 输入框的环要贴边，否则与边框叠成两条线 |
+| 禁用 | `opacity: .55; cursor: not-allowed` | |
+| 校验失败 | `[aria-invalid='true']` 边框 `--ts-status-error`，聚焦时 `outline-color` 也转红 | 一处告诉用户「错了」，不要只靠颜色文字 |
+
+```css
+.ts-select {
+  appearance: none;                     /* 干掉系统箭头，换成下面自绘的 */
+  padding-right: calc(var(--ts-control-px) + var(--ts-space-4));
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--ts-text-secondary) 50%),
+    linear-gradient(135deg, var(--ts-text-secondary) 50%, transparent 50%);
+  background-position: calc(100% - 17px) calc(50% + 1px), calc(100% - 12px) calc(50% + 1px);
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+.ts-textarea {
+  height: auto;
+  min-height: 96px;
+  padding: var(--ts-space-2) var(--ts-space-3);
+  line-height: var(--ts-line-height);
+  resize: vertical;                     /* 只许纵向拉，横向由栅格决定 */
+}
+```
+
+**箭头为什么不用 SVG data-URI**：`background-image: url("data:image/svg+xml,...")` 里的颜色写死在字符串里，`var()` 进不去，换主题时箭头不跟色（变成深色主题上一条浅色箭头）。两个 45°/135° 的 `linear-gradient` 用 `var(--ts-text-secondary)` 拼出一个「v」，随主题变色、零依赖、零请求。`mask-image` 的写法更糟：它会把元素内容一起遮掉。
+
+### 10.1 `<select>` 的原生弹出层：实测结论（别再重复试）
+
+| 尝试 | 结果 |
+|---|---|
+| `option { background: var(--ts-bg-elevated); color: var(--ts-text-primary) }` | 计算值**被接受**（实测 `rgb(28,39,70)` / `rgb(232,237,247)`），但 macOS 的原生菜单由系统绘制，**实际弹层不采用**这两个值。留着无害（Windows/Linux 与部分 Linux GTK 主题会用到），但**不要指望它修好 macOS 上的白底弹层** |
+| `color-scheme: dark`（`applyThemeToDocument` 按主题写 `documentElement.style.colorScheme`） | 计算值随主题为 `dark`/`light`。这是**唯一可能影响原生控件**的开关，但它只影响「控件默认配色来自哪套系统色板」，不保证弹层底色 |
+| `page.screenshot()` 拍弹层 | **拍不到**。实测：点开 `<select>` 前后截同一块区域，字节不相等的区域只有焦点环本身，图里没有下拉列表（`/tmp/t45-shots/sel-open.png`）——原生弹层是独立窗口，不在页面渲染树里 |
+
+结论写进规矩：**任何需要「暗色下拉」的地方，别指望原生 `<select>` 在 macOS 上变成深色**。要么接受它（当前 4 处 `<select>` 都是低频操作：主题基准、语言、跳板机、AI 供应商），要么用自定义弹层组件替换——后者要自己处理键盘导航、Esc、点外关闭、滚动，成本远大于收益。当前选择：接受，并把差异记在这里。
+
+---
+
+## 11. 本轮落地（t45）
+
+| 项 | 状态 | 证据（选择器 / 实测值） |
+|---|---|---|
+| 设置入口移到侧栏底部 | ✅ | `[data-testid="sidebar-tools"]` 264×45，齿轮 28×28 位于 `x=10`（与侧栏 10px 内边距对齐）；状态栏 `button` 只剩 `status-sync` / `status-toggle-ai` |
+| 状态栏撤掉齿轮 | ✅ | `.ts-statusbar` 内 `[data-testid="open-settings"]` 数量 0 |
+| 设置对话框左侧竖向导航 | ✅ | `[data-testid="settings-nav"]` 宽 **180px**、`role=tablist`、`aria-orientation=vertical`、4 项（外观/AI/安全/同步，各 32–35px 高、带 14px 图标）；选中项 `border-left: 2px rgb(248,171,36)` + `background: rgb(28,39,70)` |
+| 既有 testid 未破 | ✅ | `settings-tab-{appearance,ai,security,sync}` 四个全在；点「安全」「同步」后 `[data-tab]` 分别变 `security` / `sync` |
+| 窄窗无横向滚动 | ✅ | 1024×700 下四页签 `document.documentElement.scrollWidth=1024`＝视口宽；`.ts-dialog__body` `scrollWidth == clientWidth`（689/698） |
+| 锁定态仍有设置入口 | ✅ | 锁定后 `[data-testid="open-settings-locked"]` `visibility: visible`；侧栏 `visibility: hidden`；点它弹窗 `z-index: 70` 且在解锁屏之上（`elementFromPoint` 命中 `.ts-dialog`）；锁定态 `body.innerText` 不含主机 IP |
+| kit 三件套 | ✅ | `.ts-select`: `appearance:none`、高 32px、圆角 6px、`cursor:pointer`、`padding-right:26px`；`.ts-textarea`: 高 96px、`resize:vertical`、padding `8px 12px`；`.ts-input` 有 `:disabled`（opacity .55）与 `[aria-invalid]`（边框 `rgb(224,85,59)`） |

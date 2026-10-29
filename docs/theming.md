@@ -197,11 +197,14 @@ useEffect(() => {
 
 ### 当前接线状态（给 QA / integration）
 
-`src/renderer/app/App.tsx` 目前仍渲染 `app/placeholders/*`（真终端、真页签条由集成任务 t7 替换），
-所以**现在还点不出 xterm 实例**。集成时需要做两件事：
+（历史段落，2026-10-30 校正）这段写的是 t6 当时的接线状态：那时 `App.tsx` 还渲染
+`app/placeholders/*`、点不出 xterm 实例。**现在两件事都已经落地**，只有第 2 条仍然有效：
 
-1. 真实 `StatusBar` 里保留 `<SettingsButton />`（`import { SettingsButton } from '@renderer/theme'`），
-   否则设置面板没有入口；
+1. 设置入口的位置后来变过两次：t32 从占位状态栏搬进真实 `StatusBar` 右下角，
+   **t45 又搬到侧栏左下角的全局工具带**（`theme/SidebarTools.tsx`，
+   `data-testid="open-settings"` 未变；锁定态另有 `open-settings-locked` 兜底）。
+   所以「真实 StatusBar 里保留 `<SettingsButton />`」这句话**已经过期**——
+   状态栏现在只有 AI 开关与同步状态，别再往那儿加齿轮；
 2. 若真实页签条/终端改用 `@renderer/theme` 的 `registerXterm`，就删掉 `runtime.ts` 里那段
    MutationObserver + `bumpTheme`，别留两套（否则一次切主题会重赋两次 theme）。
 

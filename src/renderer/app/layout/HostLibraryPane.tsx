@@ -1,5 +1,6 @@
 import { HostSidebar, useVaultStore } from '@renderer/features/vault'
 import { useTabStore } from '@renderer/features/tabs/tab-store'
+import { SidebarTools } from '@renderer/theme/SidebarTools'
 
 /**
  * 左侧主机库（真正的 vault feature + 产品语义接线）。
@@ -14,11 +15,16 @@ import { useTabStore } from '@renderer/features/tabs/tab-store'
  * 现在由 feature 的正式通道接管：`HostSidebar` 透传 `onConnect`，`HostTree` 收到后
  * 双击即连接；**不传时它退回「编辑」**，所以外壳必须一直传，否则双击会变成编辑器。
  * 编辑的显式入口是行内铅笔按钮（`data-testid="host-edit"`）与行按钮上的 F2。
+ *
+ * 第二行 `SidebarTools` 是外壳的**全局工具带**（t45：设置入口固定在左下角）。
+ * 它刻意放在 `.ts-sidebar-host` 里而不是主机库内部——设置入口属于外壳，不属于主机库；
+ * `.ts-sidebar-host` 是 flex column，aside 占 `flex:1`，这条工具带自然被顶到底部。
  */
 export function HostLibraryPane(): JSX.Element {
   return (
     <div className="ts-sidebar-host">
       <HostSidebar onConnect={connectSelectedHost} />
+      <SidebarTools />
     </div>
   )
 }

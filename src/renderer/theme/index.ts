@@ -21,7 +21,10 @@ export * from './tokens'
 export * from './validate'
 export * from './xterm'
 
-export { SettingsDialogHost, SettingsButton } from './SettingsDialogHost'
+// t45：设置入口从状态栏搬到侧栏左下角，对外暴露 `SettingsEntry`（可指定 testid 的齿轮按钮）；
+// `SettingsButton` 保留为别名，第三方入口（菜单命令、未来托盘菜单、既有文档片段）不会断。
+export { SettingsDialogHost, SettingsButton, SettingsEntry } from './SettingsDialogHost'
+export { SidebarTools } from './SidebarTools'
 export { AiSettings } from './AiSettings'
 export { AppearanceSettings } from './AppearanceSettings'
 export { ThemeEditor } from './ThemeEditor'

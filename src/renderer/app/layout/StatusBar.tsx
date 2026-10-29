@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GitBranch, Lock, LockOpen } from 'lucide-react'
-import { SettingsButton } from '@renderer/theme/SettingsDialogHost'
 import { SessionStatus } from '@renderer/features/terminal/SessionStatus'
 import { useTabStore } from '@renderer/features/tabs/tab-store'
 import { SyncPanel, useVaultStore } from '@renderer/features/vault'
@@ -146,7 +145,11 @@ export function StatusBar(): JSX.Element {
           >
             AI
           </button>
-          <SettingsButton />
+          {/*
+            设置入口已经搬到侧栏左下角（t45，`theme/SidebarTools.tsx`）：
+            状态栏右侧原来那个 ⚙ 挤在「页签数 / 版本号 / AI」后面，既不好找也不符合
+            成熟项目的位置约定（VS Code 固定在左下角）。这里只留 AI 开关与同步状态。
+          */}
         </div>
 
         {lastError ? (

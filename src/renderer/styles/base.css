@@ -104,92 +104,50 @@ textarea {
   border-right: 1px solid var(--ts-border);
 }
 
-.ts-sidebar__brand {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 2px 4px 6px;
-}
+/* ---------------------------------------------------------------------------
+   侧栏底部工具区（外壳层，t45）
 
-.ts-brand-mark {
+   历史：这里原先还有 `.ts-sidebar__brand*` / `__search*` / `__actions` / `__tree` /
+   `__footer` / `__locale` 一整组规则，是 P0 占位侧栏（`app/placeholders/HostSidebar.tsx`）
+   留下的。占位组件在 t7 被真实 `features/vault/HostSidebar` 替换后，这组类名**全仓已无
+   任何节点使用**（`grep -rl ts-sidebar__tree src/renderer --include=*.tsx` 无输出），
+   于是整组删掉——顺带纠正一处误判：t34 在 `.ts-sidebar__search:focus-within` 上补的焦点环
+   从未命中真实搜索框（真实的是 `vault.css:77` 的 `.ts-vault__search:focus-within`）。
+
+   现在这个类由 `theme/SidebarTools.tsx` 渲染，位于 `<aside class="ts-sidebar">` **之下**
+   （外壳包裹层 `.ts-sidebar-host` 的第二行），语义是「全局工具条」：
+   设置入口固定在左下角（VS Code 的位置约定），锁定动作的入口位也留在这条带子里，
+   但**动作仍归主机库页脚**（本轮只留布局空间，不新接功能）。
+   --------------------------------------------------------------------------- */
+.ts-sidebar__tools {
   flex: none;
-  border-radius: var(--ts-radius-sm);
-}
-
-.ts-sidebar__brand-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.ts-sidebar__brand-name {
-  font-size: var(--ts-font-size-lg);
-  font-weight: 600;
-  letter-spacing: 0.2px;
-}
-
-.ts-sidebar__brand-tagline {
-  font-size: 10px;
-  letter-spacing: 0.9px;
-  text-transform: uppercase;
-  color: var(--ts-text-muted);
-}
-
-.ts-sidebar__search {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border: 1px solid var(--ts-border);
-  border-radius: var(--ts-radius-sm);
-  background: var(--ts-bg-app);
-  color: var(--ts-text-muted);
-}
-
-/* 输入框本身 `outline: none`（它没有边框，画环会贴着文字），焦点环移到外层 wrapper 上。
-   注意必须用 `:focus-within`：少了它键盘用户在这两个搜索框上就完全没有焦点提示（UI 审计 #19）。 */
-.ts-sidebar__search:focus-within {
-  outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
-  outline-offset: var(--ts-focus-ring-offset);
-}
-
-.ts-sidebar__search input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  outline: none;
-  color: var(--ts-text-primary);
-}
-
-.ts-sidebar__actions {
-  display: flex;
-  gap: 6px;
-}
-
-.ts-sidebar__actions .ts-btn--primary {
-  flex: 1;
-}
-
-.ts-sidebar__tree {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  border-radius: var(--ts-radius-sm);
-}
-
-.ts-sidebar__footer {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding-top: 8px;
+  gap: var(--ts-space-2);
+  /* 左右内边距与 `.ts-sidebar` 的 `padding: … 10px` 对齐，齿轮才会和主机行左缘同一条线 */
+  padding: var(--ts-space-2) 10px;
   border-top: 1px solid var(--ts-border);
+  background: var(--ts-bg-surface);
 }
 
-.ts-sidebar__locale {
+/* 工具区里「不属于工具的动作位」——本轮只占位（锁定入口仍在上方页脚），
+   `margin-left:auto` 把后续可能加的次要动作推到右侧，和左侧的齿轮分开。 */
+.ts-sidebar__tools-slot {
   margin-left: auto;
-  font-size: var(--ts-font-size-sm);
-  color: var(--ts-text-muted);
+  width: var(--ts-control-h-sm);
+  height: var(--ts-control-h-sm);
+}
+
+/* 锁定态下的兜底设置入口（侧栏不渲染时的唯一出口，见 App.tsx 的 `.ts-lock-tools`）。
+   z-index 必须高于解锁屏的 60，否则被它整块盖住。 */
+.ts-lock-tools {
+  position: fixed;
+  right: var(--ts-space-4);
+  bottom: var(--ts-space-4);
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: var(--ts-space-2);
 }
 
 /* ==========================================================================
@@ -530,7 +488,11 @@ textarea {
   color: var(--ts-text-secondary);
 }
 
-.ts-field input {
+/* select 与 input 同排同高（t45）：`.ts-field` 里还有一批没上 `.ts-select` 的原生下拉
+   （主机编辑器的认证方式、跳板机等），它们至少要和输入框等高对齐。textarea 不在此列——
+   它没有固定高度体系，混进这条会被压成一行。 */
+.ts-field input,
+.ts-field select {
   height: var(--ts-control-h);
   padding: 0 var(--ts-control-px);
   border: 1px solid var(--ts-border);
@@ -539,7 +501,8 @@ textarea {
   color: var(--ts-text-primary);
 }
 /* 不要写 outline:none —— 那等于抹掉键盘用户唯一的反馈；弱化也只用同一组 token */
-.ts-field input:focus-visible {
+.ts-field input:focus-visible,
+.ts-field select:focus-visible {
   border-color: var(--ts-accent);
   outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
   outline-offset: 0;
@@ -562,6 +525,108 @@ textarea {
   color: var(--ts-status-error);
   font-size: var(--ts-font-size-sm);
 }
+
+/* ==========================================================================
+   kit 表单控件：.ts-input / .ts-select / .ts-textarea（t45）
+   --------------------------------------------------------------------------
+   这三个类是一套：同一组 token、同一组状态（hover / focus-visible / disabled /
+   aria-invalid / placeholder），所以写在一起——分开写必然漂移（审计 #20 的根因）。
+   用法：`<input className="ts-input">`、`<select className="ts-select">`、
+   `<textarea className="ts-textarea">`；放在 `.ts-field` 里时不需要再写样式，
+   `.ts-field` 会补 label/hint/error 的排布。
+   ========================================================================== */
+
+.ts-input,
+.ts-select,
+.ts-textarea {
+  width: 100%;
+  min-width: 0;
+  height: var(--ts-control-h);
+  padding: 0 var(--ts-control-px);
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  /* sunken 底：`--ts-bg-app` 在两个主题里都比 `--ts-bg-surface` 更「凹」一层
+     （dark #05080e < #0d1424；light #f7f8fb 略暗于 #ffffff），所以不新造 token——
+     新造 `--ts-bg-sunken` 会落进契约 52 个之外，见 tokens.css 的分层说明。 */
+  background: var(--ts-bg-app);
+  color: var(--ts-text-primary);
+  font-family: inherit;
+  font-size: var(--ts-font-size-base);
+  line-height: var(--ts-line-height-tight);
+}
+
+/* 悬停：只提亮边框，不动底色（动底色会让整块表单在鼠标划过时闪） */
+.ts-input:hover:not(:disabled),
+.ts-select:hover:not(:disabled),
+.ts-textarea:hover:not(:disabled) {
+  border-color: var(--ts-border-strong);
+}
+
+.ts-input:focus-visible,
+.ts-select:focus-visible,
+.ts-textarea:focus-visible {
+  border-color: var(--ts-accent);
+  outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
+  outline-offset: 0;
+}
+
+.ts-input:disabled,
+.ts-select:disabled,
+.ts-textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ts-input[aria-invalid='true'],
+.ts-select[aria-invalid='true'],
+.ts-textarea[aria-invalid='true'] {
+  border-color: var(--ts-status-error);
+}
+
+.ts-input[aria-invalid='true']:focus-visible,
+.ts-select[aria-invalid='true']:focus-visible,
+.ts-textarea[aria-invalid='true']:focus-visible {
+  outline-color: var(--ts-status-error);
+}
+
+.ts-input::placeholder,
+.ts-textarea::placeholder {
+  color: var(--ts-text-muted);
+}
+
+/* 下拉：去掉原生箭头，自己用两条 45° 渐变拼一个 chevron。
+   为什么不用 data-URI SVG：背景图没法用 `var()`，换主题时箭头颜色不会跟着变；
+   `mask-image` 能把颜色交给 background-color，但会把整个 select（含文字）一起遮掉。
+   两条渐变的颜色可以写 `var(--ts-text-secondary)`，因此这是**唯一随主题变色**的画法。 */
+.ts-select {
+  appearance: none;
+  padding-right: calc(var(--ts-control-px) + var(--ts-space-4));
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--ts-text-secondary) 50%),
+    linear-gradient(135deg, var(--ts-text-secondary) 50%, transparent 50%);
+  background-position:
+    calc(100% - 17px) calc(50% + 1px),
+    calc(100% - 12px) calc(50% + 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+/* 原生下拉列表（弹出层）由 OS 绘制，CSS 只能影响少数平台；见 docs/UI-KIT.md §9 的实测结论 */
+.ts-select option {
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-primary);
+}
+
+/* 多行文本：与 .ts-input 同 token，只是高度体系从「固定 32」换成「最小 96 + 可拖高」 */
+.ts-textarea {
+  height: auto;
+  min-height: 96px;
+  padding: var(--ts-space-2) var(--ts-space-3);
+  line-height: var(--ts-line-height);
+  resize: vertical;
+}
+
 
 /* 行内二次确认（危险动作专用，docs/UI-KIT.md §3） */
 .ts-confirm {

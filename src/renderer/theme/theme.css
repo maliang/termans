@@ -97,35 +97,73 @@
   color: var(--ts-text-primary);
 }
 
-.ts-dialog__tabs {
+/* 弹窗主体：左侧竖向导航 + 右侧内容（t45，参考 VS Code 的设置界面）
+   —— 原来是一排横向 tab（`.ts-dialog__tabs/__tab`，只有设置弹窗用过，随本次改造删除）。
+   页签条在窄窗下会被挤成换行、且四个中文页签占掉整条顶边，竖向导航把「分类」和
+   「内容」的层级拉直，也和左下角固定入口的 VS Code 心智一致。 */
+.ts-dialog__main {
   display: flex;
-  gap: var(--ts-space-1);
-  padding: var(--ts-space-2) var(--ts-space-4) 0;
-  border-bottom: 1px solid var(--ts-border);
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
 }
 
-.ts-dialog__tab {
+.ts-settings__nav {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: var(--ts-dialog-nav-width);
+  padding: var(--ts-space-2);
+  overflow: auto;
+  border-right: 1px solid var(--ts-border);
+  /* 与内容区（`--ts-bg-surface`）拉开一层，导航看起来像「凹进去的侧轨」 */
+  background: var(--ts-bg-app);
+}
+
+.ts-settings__nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--ts-space-2);
+  width: 100%;
   padding: var(--ts-space-2) var(--ts-space-3);
-  border: none;
-  border-bottom: 2px solid transparent;
+  border: 0;
+  /* 选中态的左竖条：2px accent，靠 border-left 占位，未选中时透明但不跳动 */
+  border-left: 2px solid transparent;
+  border-radius: 0 var(--ts-radius-sm) var(--ts-radius-sm) 0;
   background: transparent;
   color: var(--ts-text-secondary);
   font-size: var(--ts-font-size-base);
+  text-align: left;
   cursor: pointer;
-  transition: color var(--ts-motion-fast) ease;
+  transition:
+    background var(--ts-motion-fast) ease,
+    color var(--ts-motion-fast) ease;
 }
 
-.ts-dialog__tab:hover {
+.ts-settings__nav-item:hover {
+  background: var(--ts-bg-elevated);
   color: var(--ts-text-primary);
 }
 
-.ts-dialog__tab--active {
-  border-bottom-color: var(--ts-accent);
+/* 焦点环内缩 2px：导航项贴着容器边缘，offset 2px 会被导航的 padding 裁掉一半 */
+.ts-settings__nav-item:focus-visible {
+  outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
+  outline-offset: -2px;
+}
+
+.ts-settings__nav-item--active {
+  border-left-color: var(--ts-accent);
+  background: var(--ts-bg-elevated);
   color: var(--ts-text-primary);
+  font-weight: var(--ts-font-weight-strong);
 }
 
 .ts-dialog__body {
   flex: 1;
+  /* min-width:0 是「窄窗不出现横向滚动条」的关键：flex 子项默认 min-width:auto，
+     内容里任何一条不换行的长文本都会把面板撑宽 */
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   padding: var(--ts-dialog-pad);

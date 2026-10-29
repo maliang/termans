@@ -11,7 +11,7 @@ import { UnlockScreen } from '@renderer/features/unlock'
 import { initializeVaultFeature } from '@renderer/features/vault'
 import { call, describeError, subscribe } from '../platform/ipc'
 import { useLocaleBootstrap } from '../i18n/useLocale'
-import { SettingsDialogHost } from '../theme/SettingsDialogHost'
+import { SettingsDialogHost, SettingsEntry } from '../theme/SettingsDialogHost'
 import { useThemeBootstrap } from '../theme/hooks'
 import { useShellStore } from './store'
 import { ErrorToast } from './layout/ErrorToast'
@@ -136,6 +136,18 @@ export function App(): JSX.Element {
       <SettingsDialogHost />
       {/* 首次连接/指纹变化时必须有人回答 ssh:host-key-challenge，否则连接会静默卡住 */}
       <HostKeyPrompt />
+      {/*
+        锁定态兜底设置入口（t45）：锁定后侧栏整块不渲染（`.ts-sidebar-host` 仍是 DOM，
+        但被上面那条 `visibility: hidden` 关掉），如果设置入口只放在侧栏底部，用户锁上之后
+        就再也进不去设置（改语言/换主题都被锁在门外）。所以锁屏时补一个固定在下行右侧的齿轮。
+        testid 用 `open-settings-locked` 而不是 `open-settings`：两个入口会同时存在于 DOM，
+        同名会让 Playwright 的 `getByTestId('open-settings')` 命中两个元素直接报错。
+      */}
+      {locked ? (
+        <div className="ts-lock-tools" data-testid="lock-tools">
+          <SettingsEntry testId="open-settings-locked" />
+        </div>
+      ) : null}
       {locked ? <UnlockScreen /> : null}
     </div>
   )
@@ -146,8 +158,16 @@ export function App(): JSX.Element {
  *
  * 用 `visibility` 而不是 `display:none`：布局尺寸不变，解锁后 xterm 不需要重新 fit；
  * `visibility:hidden` 同时让内容退出可访问性树与 `innerText`，读屏与截图都拿不到主机信息。
+ *
+ * 两个例外（t45）：
+ * - `.ts-lock-tools`：锁定态唯一的设置入口，必须看得见、点得到；
+ * - `.ts-dialog`：设置对话框本身（锁着也能改语言/主题）。它在解锁屏（z-index 60）
+ *   之上弹出来，否则点开等于没反应。
  */
-const LOCKED_SHELL_CSS = `.ts-app[data-locked='true'] > :not(.ts-unlock) { visibility: hidden; }`
+const LOCKED_SHELL_CSS = `
+.ts-app[data-locked='true'] > :not(.ts-unlock):not(.ts-lock-tools):not(.ts-dialog) { visibility: hidden; }
+.ts-app[data-locked='true'] > .ts-dialog { z-index: 70; }
+`
 
 /**
  * 菜单 / 快捷键统一入口。
