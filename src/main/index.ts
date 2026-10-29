@@ -171,15 +171,53 @@ function createWindow(): BrowserWindow {
   return win
 }
 
+/** 把已存在但可能被隐藏/最小化/失焦的窗口拉回前台 */
+function revealWindow(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  // 关闭窗口后 app 在 macOS 上仍驻留；从 Dock/launcher 再进来时窗口可能是隐藏态，
+  // 只 focus() 不会把它显示出来（用户视角＝点了没反应）
+  if (!win.isVisible()) win.show()
+  win.focus()
+}
+
+/**
+ * 确保有一个可用的主窗口：有就拉回前台，没有就新建。
+ *
+ * 二次启动（`open -n -a`，多数启动器/LaunchNext 的做法）与 Dock 点击（`activate`）
+ * 都走这里。此前 `second-instance` 首行 `if (!mainWindow) return` 在「用户已经关掉窗口、
+ * 进程还活着」时直接返回，于是新实例被单实例锁挡掉、旧实例什么都不做——现象就是点了打不开。
+ */
+function ensureMainWindow(): BrowserWindow | null {
+  const candidate = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+
+  if (candidate) {
+    revealWindow(candidate)
+    return candidate
+  }
+
+  // mainWindow 可能已被置空（closed 回调），但窗口对象还没销毁——先复用再谈新建
+  const existing = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed())
+  if (existing) {
+    mainWindow = existing
+    revealWindow(existing)
+    return existing
+  }
+
+  // 冷启动阶段（ready 之前）拿不到 BrowserWindow，交给 whenReady 里的首次创建
+  if (!app.isReady()) return null
+
+  mainWindow = createWindow()
+  return mainWindow
+}
+
 function bootstrap(): void {
   app.setName('Termans')
 
-  // 单实例：第二次启动只聚焦已有窗口。
+  // 单实例：第二次启动聚焦已有窗口；窗口已被关闭则重开一个（自愈，不再静默 return）。
   // e2e 例外——测试会独立起进程，抢锁会让 playwright 拿不到窗口、现象是 firstWindow 超时。
   app.on('second-instance', () => {
-    if (!mainWindow) return
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
+    ensureMainWindow()
   })
 
   void app.whenReady().then(() => {
@@ -198,7 +236,8 @@ function bootstrap(): void {
     mainWindow = createWindow()
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow()
+      // 窗口存在但被隐藏时也要 show()；只有真没有窗口才新建
+      ensureMainWindow()
     })
   })
 
