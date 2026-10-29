@@ -1,7 +1,7 @@
 {
   "panel.title": "AI 助手",
   "empty.title": "AI 尚未配置",
-  "empty.body": "在设置里添加供应商与 API key。AI 给出的命令一律需要你确认后才会执行。",
+  "empty.body": "就在本面板里添加供应商与 API key。AI 给出的命令一律需要你确认后才会执行。",
   "input.placeholder": "就当前会话提问…",
   "action.send": "发送",
   "action.stop": "停止",
@@ -96,5 +96,8 @@
   "error.vaultLocked": "加密包已锁定，解锁后才能管理 AI key。",
   "error.aiProvider": "供应商不可用：检查模型、key 与 Base URL。",
   "error.network": "网络错误：连不上供应商。",
-  "error.invalidArgument": "参数不合法 —— 检查模型名与参数。"
+  "error.invalidArgument": "参数不合法 —— 检查模型名与参数。",
+  "disabled.title": "AI 辅助未启用",
+  "disabled.body": "关闭状态下不会向任何供应商发送内容。到「设置 → AI」打开总开关、选好默认供应商后回到这里。",
+  "disabled.action": "去设置里开启"
 }

@@ -91,23 +91,6 @@ export function registerIpcHandlers(ctx: IpcContext): IpcRuntime {
     emit: emitToAll
   })
 
-  // 首次保存供应商 = 用户明确要用 AI，此时把 settings.ai.enabled 打开。
-  // 为什么兜在接线层：设置对话框（src/renderer/theme）目前只有外观页，没有 AI 开关，
-  // 而 AiService.chat 会以 E_AI_PROVIDER「AI 辅助未启用」硬拒 —— 不兜这一下，
-  // 用户把供应商和 key 都配好了仍然发不出消息（接线缺口）。等设置页补上开关后可删。
-  const saveProvider = ai.service.saveProvider.bind(ai.service)
-  ai.service.saveProvider = async (input, extras) => {
-    const saved = await saveProvider(input, extras)
-    const current = ctx.settings.get().ai
-    if (!current.enabled || current.defaultProviderId === null) {
-      ctx.settings.update({
-        ai: { enabled: true, defaultProviderId: current.defaultProviderId ?? saved.id }
-      })
-      console.info(`[ai] enabled after provider save id=${saved.id}`)
-    }
-    return saved
-  }
-
   const engine = createSshEngine({
     userDataDir,
     getSettings: () => ctx.settings.get().ssh,

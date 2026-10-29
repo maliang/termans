@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import './theme.css'
 import { useTranslation } from 'react-i18next'
 import { subscribe } from '../platform/ipc'
+import { AiSettings } from './AiSettings'
 import { AppearanceSettings } from './AppearanceSettings'
 import { ThemeEditor } from './ThemeEditor'
 import { useSettingsDialog, type SettingsTab } from './settings-dialog'
@@ -13,8 +14,8 @@ import { useThemeStore } from './store'
  * 为什么由主题模块自带宿主而非塞进 App：
  * - `open-settings` 菜单命令原先在 App 的 switch 里落到 default 分支（无人处理），
  *   这里自己订阅 `app:menu-command`，集成成员替换 `placeholders/*` 时不会被弄丢；
- * - 设置里当前只有「外观」（语言 + 主题）是真实功能，编辑器与主题列表也都在本模块内，
- *   放在一起可以避免跨成员改 App 的排版。
+ * - 设置页分「外观」（语言 + 主题）与「AI」（总开关 / 默认供应商 / 上下文行数）两页，
+ *   编辑器与主题列表也都在本模块内，放在一起可以避免跨成员改 App 的排版。
  *
  * 关闭方式：右上角 ×、Escape、点击遮罩。
  */
@@ -49,7 +50,7 @@ export function SettingsDialogHost(): JSX.Element | null {
 
   if (!open) return null
 
-  const tabs: SettingsTab[] = ['appearance']
+  const tabs: SettingsTab[] = ['appearance', 'ai']
 
   return (
     <div
@@ -99,7 +100,9 @@ export function SettingsDialogHost(): JSX.Element | null {
           </nav>
         ) : null}
 
-        <div className="ts-dialog__body">{draft ? <ThemeEditor /> : <AppearanceSettings />}</div>
+        <div className="ts-dialog__body">
+          {draft ? <ThemeEditor /> : tab === 'ai' ? <AiSettings /> : <AppearanceSettings />}
+        </div>
       </div>
     </div>
   )

@@ -16,6 +16,7 @@ import {
   Eraser,
   Eye,
   Plus,
+  PowerOff,
   Send,
   Settings2,
   Sparkles,
@@ -25,6 +26,7 @@ import {
 } from 'lucide-react'
 import type { AiUsage } from '@shared/models/ai'
 import { useShellStore } from '@renderer/app/store'
+import { openSettingsDialog } from '@renderer/theme/settings-dialog'
 import * as api from './api'
 import { ProviderForm } from './ProviderForm'
 import { CommandGuard, extractCommandBlocks } from './command-guard'
@@ -63,6 +65,8 @@ interface PendingExecution {
 export function AiPanel({ getContext, getSelection, runCommand, hasSession = false }: AiPanelProps): JSX.Element {
   const { t } = useTranslation(['ai', 'common'])
   const aiSettings = useShellStore((state) => state.settings.ai)
+  /** 总开关（设置 → AI）。关掉时这里只显示「未启用」空态，绝不发请求、也不留红色报错 */
+  const aiEnabled = aiSettings.enabled
   const providers = useAiStore((state) => state.providers)
   const providersLoaded = useAiStore((state) => state.providersLoaded)
   const activeProviderId = useAiStore((state) => state.activeProviderId)
@@ -98,6 +102,25 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
     })
   }, [])
 
+  // 关掉总开关后，上一次失败留下的红条会让人以为「配置坏了」——面板该表达的是「没启用」而不是「出错了」。
+  // 只在关闭时清；开启时不主动清，免得把真正的配置错误（例如没配 key）藏起来。
+  useEffect(() => {
+    if (!aiEnabled) useAiStore.getState().setError(null)
+  }, [aiEnabled])
+
+  // 设置里的「默认供应商」：新会话/首次进入时生效；用户在本面板手动切过之后不再覆盖。
+  // 用 ref 记住「已经为哪个默认值做过决定」，避免 providers 列表刷新时把用户的手选抢回去。
+  const appliedDefaultProvider = useRef<string | null>(null)
+  useEffect(() => {
+    const defaultProviderId = aiSettings.defaultProviderId
+    if (!defaultProviderId) return
+    if (providers.length === 0) return
+    if (appliedDefaultProvider.current === defaultProviderId) return
+    if (!providers.some((provider) => provider.id === defaultProviderId)) return
+    appliedDefaultProvider.current = defaultProviderId
+    useAiStore.getState().setActiveProvider(defaultProviderId)
+  }, [aiSettings.defaultProviderId, providers])
+
   // ② 自动滚到底（流式输出时跟随）
   useEffect(() => {
     const body = bodyRef.current
@@ -124,6 +147,9 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
   /** 所有「要发送」的入口都走这里：有上下文必须先看预览 */
   const composeAndSend = useCallback(
     (prompt: string, snapshotOverride?: TerminalSnapshot | null) => {
+      // 关闭状态下不建预览、不发请求（主进程也会以 E_AI_PROVIDER 拒绝，这里先挡住，
+      // 免得把用户的真实终端输出打进一个「本来就不打算发出去」的预览里）
+      if (!aiEnabled) return
       const trimmed = prompt.trim()
       if (trimmed.length === 0) return
       const snapshot = snapshotOverride !== undefined ? snapshotOverride : takeSnapshot()
@@ -149,7 +175,7 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
       }
       void useAiStore.getState().send(trimmed, null)
     },
-    [contextLines, takeSnapshot]
+    [aiEnabled, contextLines, takeSnapshot]
   )
 
   const confirmPreview = useCallback(() => {
@@ -220,7 +246,7 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
     }
   }
 
-  const disabled = streaming || providers.length === 0
+  const disabled = !aiEnabled || streaming || providers.length === 0
 
   return (
     <aside className="ts-ai-panel" data-testid="ai-panel" aria-label={t('ai:panel.title')}>
@@ -251,7 +277,7 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
               value={activeProviderId ?? ''}
               onChange={(event) => useAiStore.getState().setActiveProvider(event.target.value || null)}
               aria-label={t('ai:provider.field.active')}
-              disabled={providers.length === 0}
+              disabled={!aiEnabled || providers.length === 0}
             >
               {providers.length === 0 && <option value="">{t('ai:provider.list.empty')}</option>}
               {providers.map((provider) => (
@@ -298,7 +324,25 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
 
         {view === 'chat' && (
           <>
-            {providersLoaded && providers.length === 0 && (
+            {/* 总开关关闭：只表达「未启用」+ 一个直达设置页的入口。
+                主进程本来会以 E_AI_PROVIDER 硬拒，用户看到的却是一条红色错误，容易被当成故障。 */}
+            {!aiEnabled && (
+              <div className="ts-empty ts-empty--compact" data-testid="ai-disabled">
+                <PowerOff size={20} aria-hidden="true" />
+                <p className="ts-empty__title">{t('ai:disabled.title')}</p>
+                <p className="ts-empty__body">{t('ai:disabled.body')}</p>
+                <button
+                  type="button"
+                  className="ts-btn ts-btn--primary"
+                  data-testid="ai-disabled-open-settings"
+                  onClick={() => openSettingsDialog('ai')}
+                >
+                  {t('ai:disabled.action')}
+                </button>
+              </div>
+            )}
+
+            {aiEnabled && providersLoaded && providers.length === 0 && (
               <div className="ts-empty ts-empty--compact">
                 <Sparkles size={20} aria-hidden="true" />
                 <p className="ts-empty__title">{t('ai:empty.title')}</p>
@@ -313,7 +357,7 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
               </div>
             )}
 
-            {messages.length === 0 && providers.length > 0 && (
+            {aiEnabled && messages.length === 0 && providers.length > 0 && (
               <div className="ts-empty ts-empty--compact">
                 <TerminalSquare size={20} aria-hidden="true" />
                 <p className="ts-empty__title">{t('ai:chat.empty.title')}</p>
@@ -343,18 +387,18 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
               </article>
             ))}
 
-            {error && (
+            {aiEnabled && error && (
               <p className="ts-ai-error" data-testid="ai-error">
                 <AlertTriangle size={13} /> <span>{t(`ai:error.${errorMessageKey(error)}`, { defaultValue: error })}</span>
               </p>
             )}
 
-            {usage && <UsageLine usage={usage} />}
+            {aiEnabled && usage && <UsageLine usage={usage} />}
           </>
         )}
       </div>
 
-      {view === 'chat' && (
+      {view === 'chat' && aiEnabled && (
         <div className="ts-ai-panel__composer">
           <div className="ts-ai-context">
             <label className="ts-ai-context__toggle">

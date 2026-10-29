@@ -22,6 +22,7 @@ export * from './validate'
 export * from './xterm'
 
 export { SettingsDialogHost, SettingsButton } from './SettingsDialogHost'
+export { AiSettings } from './AiSettings'
 export { AppearanceSettings } from './AppearanceSettings'
 export { ThemeEditor } from './ThemeEditor'
 export {

@@ -68,5 +68,18 @@
   "terminal.fontSize": "字号",
   "terminal.lineHeight": "行高",
   "sync.autoSync": "自动同步",
-  "security.autoLock": "闲置自动锁定（分钟）"
+  "security.autoLock": "闲置自动锁定（分钟）",
+  "tabs.ai": "AI",
+  "ai.enabled": "启用 AI 辅助",
+  "ai.enabledHint": "默认关闭。开启后，你发送的提示词、以及（在面板里另行开启的）最近终端输出会被发给你自己配置的第三方服务；关闭状态下不会发送任何内容。",
+  "ai.disclosure": "AI 建议由你自己配置的第三方服务生成：命令与终端上下文会离开本机。任何建议命令在写入终端之前，都必须由你二次确认。",
+  "ai.provider.label": "默认供应商",
+  "ai.provider.none": "未设置",
+  "ai.provider.hint": "用于新对话；在 AI 面板里仍然可以随时切换供应商。",
+  "ai.provider.empty": "还没有配置供应商。",
+  "ai.provider.add": "去 AI 面板添加",
+  "ai.provider.locked": "供应商存放在加密包里，当前加密包已锁定。解锁后重试即可选择默认供应商。",
+  "ai.provider.loadFailed": "读取供应商列表失败：{{detail}}",
+  "ai.contextLines.label": "终端上下文行数",
+  "ai.contextLines.hint": "发送上下文时最多附带多少行最近的终端输出（默认 {{fallback}} 行，上限 {{max}} 行）。行数越多，费用越高，也越容易把敏感输出带出去。"
 }

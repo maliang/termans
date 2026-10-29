@@ -1,7 +1,7 @@
 {
   "panel.title": "AI assistant",
   "empty.title": "AI is not configured",
-  "empty.body": "Add a provider and API key in Settings. Suggestions are never executed without your confirmation.",
+  "empty.body": "Add a provider and API key in this panel (right here). Suggestions are never executed without your confirmation.",
   "input.placeholder": "Ask about this session…",
   "action.send": "Send",
   "action.stop": "Stop",
@@ -96,5 +96,8 @@
   "error.vaultLocked": "The vault is locked. Unlock it to manage AI keys.",
   "error.aiProvider": "The provider is not usable: check the model, key and base URL.",
   "error.network": "Network error: the provider could not be reached.",
-  "error.invalidArgument": "Invalid argument — check the model name and parameters."
+  "error.invalidArgument": "Invalid argument — check the model name and parameters.",
+  "disabled.title": "AI assistant is turned off",
+  "disabled.body": "Nothing is sent to any provider while it is off. Turn it on in Settings → AI, pick a default provider, then come back.",
+  "disabled.action": "Open AI settings"
 }

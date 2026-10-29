@@ -9,7 +9,7 @@ import { create } from 'zustand'
  * 因此不需要 App 的菜单 switch 里再加一个 case。
  */
 
-export type SettingsTab = 'appearance' | 'terminal' | 'general'
+export type SettingsTab = 'appearance' | 'ai' | 'terminal' | 'general'
 
 export interface SettingsDialogState {
   open: boolean
