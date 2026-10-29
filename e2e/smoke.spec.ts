@@ -151,6 +151,22 @@ test('设置持久化到临时 userData，主题变量已生效', async () => {
       accent: g.getComputedStyle(root).getPropertyValue('--ts-accent').trim()
     }
   })
+  // 主题是**异步**落到 documentElement 上的：渲染进程要先拿到 settings（`settings:get`）才调
+  // `applyThemeToDocument()`（`src/renderer/theme/apply.ts:29` 写 `dataset['theme']`）。
+  // 2026-10-29 实测过一次竞态：启动首页刚 `did-finish-load` 时 `dataset.theme` 还是 undefined，
+  // 直接断言 `toBe('dark')` 会偶发红（当时全量跑 1 failed / 25 passed，报 `Received: undefined`）。
+  // 所以这里轮询到「主题已应用」再断言值——轮的是目标状态，不是 sleep。
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const g = globalThis as unknown as {
+            document: { documentElement: { dataset: Record<string, string | undefined> } }
+          }
+          return g.document.documentElement.dataset['theme']
+        }),
+      { message: '主题应当被 applyThemeToDocument() 异步应用到 documentElement 上', timeout: 10_000 }
+    )
+    .toBe('dark')
   expect(themeState.accent.length).toBeGreaterThan(0)
-  expect(themeState.theme).toBe('dark')
 })
