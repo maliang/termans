@@ -145,7 +145,16 @@ export class VaultManager {
   private encBytes: Buffer | null = null
   private payload: VaultPayload | null = null
   private vaultKey: Buffer | null = null
-  private state: VaultState = 'uninitialized'
+  /**
+   * 单一真源：state 不再是一个可以独立赋值的字段，而是每次都从「payload 是否真的挂载」推导。
+   * 曾经 state 与 payload 各走各的，于是出现过「vault:status 说 unlocked、hosts:list 抛 E_VAULT_LOCKED」
+   * 这种自相矛盾（t8 的 F-1）。派生之后，两者不可能再不一致。
+   */
+  private deriveState(): VaultState {
+    if (this.payload !== null && this.vaultKey !== null) return 'unlocked'
+    if (this.manifest !== null || this.repoError !== null || this.local.createdAt !== null) return 'locked'
+    return 'uninitialized'
+  }
 
   private failedAttempts = 0
   private lockedUntilMs = 0
@@ -183,10 +192,8 @@ export class VaultManager {
       this.manifest = snapshot.manifest
       this.envelope = snapshot.envelope
       this.encBytes = snapshot.encBytes
-      this.state = 'locked'
       if (!this.requirePassphraseOnLaunch()) this.tryRestoreSession(snapshot)
     } else {
-      this.state = this.repoError === null ? 'uninitialized' : 'locked'
       this.manifest = null
       this.envelope = null
       this.encBytes = null
@@ -208,14 +215,14 @@ export class VaultManager {
     } catch {
       // 换机器 / keychain 变了 / 远端轮换过口令槽：静默丢弃会话，回到输入口令
       this.clearSession()
-      this.state = 'locked'
     }
   }
 
   status(): VaultStatus {
-    const unlocked = this.state === 'unlocked' && this.payload !== null
+    const state = this.deriveState()
+    const unlocked = state === 'unlocked'
     return {
-      state: this.state,
+      state,
       cipher: this.manifest ? 'aes-256-gcm' : null,
       kdf: this.manifest ? { ...this.manifest.kdf } : null,
       recoveryAvailable: this.manifest !== null,
@@ -231,7 +238,7 @@ export class VaultManager {
 
   /** 首次创建（同时返回一次性恢复码；此后再也拿不到，除非轮换） */
   create(passphrase: string): VaultCreateResult {
-    if (this.state !== 'uninitialized') {
+    if (this.deriveState() !== 'uninitialized') {
       throw vaultFail('E_INVALID_ARGUMENT', 'vault already exists', { reason: 'already-exists' })
     }
     this.assertPassphraseAcceptable(passphrase)
@@ -254,7 +261,6 @@ export class VaultManager {
     this.encBytes = created.encBytes
     this.payload = payload
     this.vaultKey = created.vaultKey
-    this.state = 'unlocked'
     this.local.createdAt = nowIso
     this.local.lastUnlockedAt = nowIso
     this.persistLocal()
@@ -293,12 +299,11 @@ export class VaultManager {
   }
 
   lock(): VaultStatus {
-    if (this.state !== 'unlocked' && this.payload === null) return this.status()
+    if (this.deriveState() !== 'unlocked') return this.status()
     zeroize(this.vaultKey)
     this.vaultKey = null
     this.payload = null
-    // 「从未初始化」与「已初始化但锁着」在 UI 上是两个完全不同的界面，不能混
-    this.state = this.manifest === null && this.repoError === null ? 'uninitialized' : 'locked'
+    // 「从未初始化」与「已初始化但锁着」在 UI 上是两个完全不同的界面：由 deriveState() 区分
     this.disarmIdleTimer()
     this.emit()
     return this.status()
@@ -347,7 +352,6 @@ export class VaultManager {
     this.payload = payload
     zeroize(this.vaultKey)
     this.vaultKey = opened.vaultKey
-    this.state = 'unlocked'
     this.local.lastUnlockedAt = new Date(this.now()).toISOString()
     // 记住本机的会话里放的是 VMK，轮换后 VMK 不变 → 只需刷新有效期
     if (this.hasSession()) this.writeSession(opened.vaultKey)
@@ -409,7 +413,6 @@ export class VaultManager {
     this.payload = parsePayload(opened.payload)
     zeroize(this.vaultKey)
     this.vaultKey = opened.vaultKey
-    this.state = 'unlocked'
     this.local.lastUnlockedAt = new Date(this.now()).toISOString()
     this.clearSession()
     this.persistLocal()
@@ -431,7 +434,7 @@ export class VaultManager {
     this.clearSession()
     this.local.repo = null
     this.persistLocal()
-    if (this.state === 'unlocked' && this.payload) {
+    if (this.deriveState() === 'unlocked' && this.payload !== null) {
       this.payload.integrations.gitToken = null
       this.afterMutation()
     }
@@ -695,7 +698,7 @@ export class VaultManager {
   /* ------------------------------------------------------------------ */
 
   updateSettings(settings: Settings): void {
-    if (this.state !== 'unlocked' || this.payload === null) return
+    if (this.deriveState() !== 'unlocked' || this.payload === null) return
     this.payload.settings = settings
     this.afterMutation()
   }
@@ -796,7 +799,7 @@ export class VaultManager {
   /* ------------------------------------------------------------------ */
 
   isUnlocked(): boolean {
-    return this.state === 'unlocked' && this.payload !== null && this.vaultKey !== null
+    return this.deriveState() === 'unlocked' && this.payload !== null && this.vaultKey !== null
   }
 
   vaultKeyForSync(): Buffer {
@@ -834,7 +837,7 @@ export class VaultManager {
       snapshot = readRepo(this.options.repoDir)
     } catch (error) {
       this.repoError = error
-      this.lockToState('locked')
+      this.forceLock('read-failed')
       return this.status()
     }
     if (snapshot === null) {
@@ -844,14 +847,13 @@ export class VaultManager {
       this.payload = null
       zeroize(this.vaultKey)
       this.vaultKey = null
-      this.state = 'uninitialized'
       this.emit()
       return this.status()
     }
     this.manifest = snapshot.manifest
     this.envelope = snapshot.envelope
     this.encBytes = snapshot.encBytes
-    if (this.state === 'unlocked' && this.vaultKey !== null) {
+    if (this.deriveState() === 'unlocked' && this.vaultKey !== null) {
       try {
         const opened = openVault({
           manifest: snapshot.manifest,
@@ -863,11 +865,11 @@ export class VaultManager {
         this.emit()
         return this.status()
       } catch {
-        this.lockToState('locked')
+        // 远端换了 VMK（别人轮换过口令/在别的机器重建过库）：内存里的密钥已经打不开它
+        this.forceLock('unlock-failed')
         return this.status()
       }
     }
-    this.state = 'locked'
     this.emit()
     return this.status()
   }
@@ -901,16 +903,48 @@ export class VaultManager {
     this.envelope = snapshot.envelope
     this.encBytes = snapshot.encBytes
     this.repoError = null
-    this.state = 'unlocked'
   }
 
-  private lockToState(next: 'locked' | 'uninitialized'): void {
+  /**
+   * 强制回锁（清内存里的 VMK 与 payload）。
+   *
+   * 关键：这里**必须 emit()**。t8 的 F-1 就是这条路径漏了通知 —— 主进程已经回锁，
+   * 但渲染层没有收到 `vault:state-changed`，界面上继续显示「已解锁的空库」，
+   * 而同一时刻 `hosts:list` 却抛 `E_VAULT_LOCKED`。
+   */
+  private forceLock(stage: 'read-failed' | 'unlock-failed'): void {
     zeroize(this.vaultKey)
     this.vaultKey = null
     this.payload = null
-    this.state = next
     this.disarmIdleTimer()
+    this.lastLockReason = stage
+    this.emit()
   }
+
+  /** 仅供诊断/测试：任何时刻 state 必须与「真实挂载」一致，否则立刻炸 */
+  assertStateConsistent(): void {
+    const state = this.deriveState()
+    const mounted = this.payload !== null && this.vaultKey !== null
+    const problems: string[] = []
+    if ((state === 'unlocked') !== mounted) {
+      problems.push(`state=${state} but mounted=${mounted}`)
+    }
+    if (state !== 'unlocked' && (this.payload !== null || this.vaultKey !== null)) {
+      problems.push('locked but payload/vaultKey still held in memory')
+    }
+    if (state === 'uninitialized' && this.manifest !== null) {
+      problems.push('uninitialized but manifest present')
+    }
+    if (this.status().state !== state) {
+      problems.push(`status() reported ${this.status().state}, derived ${state}`)
+    }
+    if (problems.length > 0) {
+      throw new Error(`vault state invariant violated: ${problems.join('; ')}`)
+    }
+  }
+
+  /** 最近一次「被动回锁」的原因（诊断用；主动 lock() 不记录） */
+  lastLockReason: 'read-failed' | 'unlock-failed' | null = null
 
   private readSnapshotOrThrow(): VaultRepoSnapshot {
     if (this.repoError !== null) {
@@ -926,7 +960,7 @@ export class VaultManager {
   }
 
   private requireUnlocked(): VaultPayload {
-    if (this.state !== 'unlocked' || this.payload === null || this.vaultKey === null) throw lockedError()
+    if (this.deriveState() !== 'unlocked' || this.payload === null || this.vaultKey === null) throw lockedError()
     return this.payload
   }
 
@@ -1054,7 +1088,7 @@ export class VaultManager {
 
   private armIdleTimer(): void {
     this.disarmIdleTimer()
-    if (this.state !== 'unlocked') return
+    if (this.deriveState() !== 'unlocked') return
     const minutes = this.autoLockMinutes()
     if (!(minutes > 0)) return
     this.idleTimer = setTimeout(() => {
