@@ -464,15 +464,37 @@ function settledState(now: SyncSnapshot, before: SyncSnapshot): string {
   return 'idle'
 }
 
+/**
+ * 面板上那条错误文案（`.ts-vault__error`，来源 `SyncPanel.tsx:223` 的 `useVaultErrorText()`）。
+ *
+ * 为什么还要读它：`sync:status` 的 `error` 字段会被 `refresh()` 冲掉（`sync.ts` 的 refresh 把
+ * 异常态改回 idle/ahead），一次**快速失败**的推送就可能既没有 `error` 也没有 `lastSyncedAt`
+ * 变化 —— 判据会一直读到 `idle`，最后只给你一句「没有落到稳定结果」，看不到真正原因
+ * （实测 `pnpm test:e2e` 全量跑时出现过一次，单跑不复现）。文案是渲染层状态，不会被 refresh 冲掉。
+ */
+async function syncErrorText(page: Page): Promise<string> {
+  return page
+    .evaluate(() => {
+      const el = document.querySelector('.ts-vault__error')
+      return el === null ? '' : (el.textContent ?? '').trim()
+    })
+    .catch(() => '')
+}
+
 async function waitForSyncOutcome(page: Page, action: 'push' | 'pull'): Promise<void> {
   const before = await syncSnapshot(page)
   await page.getByTestId(action === 'push' ? 'sync-push' : 'sync-pull').click()
   await expect
-    .poll(async () => settledState(await syncSnapshot(page), before), {
-      timeout: 30_000,
-      message: `${action} 没有在 30s 内落到稳定结果（settled/conflict/error）`
-    })
-    .toMatch(/settled|conflict|error/)
+    .poll(
+      async () => {
+        const state = settledState(await syncSnapshot(page), before)
+        if (state !== 'idle') return state
+        const text = await syncErrorText(page)
+        return text === '' ? state : `error: ${text}`
+      },
+      { timeout: 30_000, message: `${action} 没有在 30s 内落到稳定结果（settled/conflict/error）` }
+    )
+    .toMatch(/^(settled|conflict|error)/)
   await expect(page.getByTestId(action === 'push' ? 'sync-push' : 'sync-pull')).toBeEnabled({ timeout: 30_000 })
 }
 
