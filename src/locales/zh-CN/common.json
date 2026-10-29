@@ -19,5 +19,6 @@
   "state.vault": "加密包：{{state}}",
   "state.tabs": "页签：{{count}}",
   "state.vaultLocked": "加密包：已锁定",
+  "state.vaultUninitialized": "加密包：未初始化",
   "state.vaultUnlocked": "加密包：已解锁"
 }

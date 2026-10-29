@@ -19,5 +19,6 @@
   "state.vault": "vault: {{state}}",
   "state.tabs": "tabs: {{count}}",
   "state.vaultLocked": "vault: locked",
+  "state.vaultUninitialized": "vault: not set up",
   "state.vaultUnlocked": "vault: unlocked"
 }

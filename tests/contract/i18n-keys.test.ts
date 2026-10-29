@@ -42,8 +42,18 @@ interface KeyUsage {
 const usages: KeyUsage[] = []
 const LITERAL_KEY = /\bt\(\s*'([a-zA-Z][a-zA-Z-]*):([^'${}]+)'/g
 
+/**
+ * 注释里写出来的 `t('ns:key')` 不是真实调用，会制造假阳性：
+ * `src/renderer/app/layout/StatusBar.tsx:34` 的文档注释正是在解释本测试的规则，
+ * 里面就有一处字面量。所以扫描前先剥掉行注释与块注释（字符串里没有 `//`、`/*`，
+ * 这些源码不会跨行拼出伪注释，剥除是安全的）。
+ */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+}
+
 for (const file of sourceFiles(resolve(repoRoot, 'src/renderer'))) {
-  const source = readFileSync(file, 'utf8')
+  const source = stripComments(readFileSync(file, 'utf8'))
   for (const match of source.matchAll(LITERAL_KEY)) {
     usages.push({ namespace: match[1]!, key: match[2]!, file: relative(repoRoot, file) })
   }

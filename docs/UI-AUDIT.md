@@ -10,6 +10,9 @@
 截图脚本按 `docs/TESTING.md` 的规矩放在仓库外（`/tmp/t34-head/scripts/shots/`），**没有进 `e2e/`**。
 
 - 基线（同一脚本、同一夹具）：`git rev-parse --short HEAD` = `83cf76b`，17 张截图全部落到 `docs/assets/ui-audit/after-final-*.png`。
+- **口径**：表格里「已修」只用于「代码已落地、截图上看得见效果」的项。凡是本轮只补了文案 key、
+  组件还没接线的（例如 §五 #27 与 §六 里点名 t30 的项），一律写「key 已就位，接线在 t36」——
+  不能把「key 有了」写成「已修」，那等于把缺陷写成成果。
 - 20 条里 **19 条已修、1 条部分修**（#2 的「状态信息塞在工具栏」随 t30 改动移入状态栏，工具栏中间位留白已消除，
   但工具栏与页签条的间距仍由各自 padding 决定，没有共用 token —— 见 §六 #22）。
 - t34 收口时**新发现 6 条**（§六），其中 #21（侧栏高度只到内容底部）我在本轮直接修掉，其余按「谁的目录谁改」发了请求。
@@ -32,7 +35,7 @@
 
 | # | 现象 | 影响 | 优先级 | 状态 | 证据 |
 |---|---|---|---|---|---|
-| 8 | 密码框把规则写在 **placeholder** 里 | 用户不知道是覆盖还是保留 | P1 | **已修** | `7d7d431`：规则改成字段下方 `.ts-field__hint`（`HostEditor.tsx:365` `editor.passwordHint`），placeholder 只留「输入密码」 |
+| 8 | 密码框把规则写在 **placeholder** 里 | 用户不知道是覆盖还是保留 | P1 | **已修** | `7d7d431`：规则改成字段下方 `.ts-field__hint`（`HostEditor.tsx:365` `editor.passwordHint`），placeholder 只留「输入密码」。**口径**：已保存状态是按 `credentialRef !== null` 推断（`src/shared` 无「读取已存密码」通道，安全设计如此），故提示写「已保存密码 · 留空则保留」而不渲染掩码 |
 | 9 | 必填项无必填标记；弹窗无关闭 `X`，**Esc 关不掉** | 只有「取消」一条退路 | P1 | **已修** | `HostEditor.tsx:176` `requiredLabel()`（`*` + `aria-required`，:231）、`:95` Escape 关闭、右上 `X`（`host-editor-close`）；`after-final-04-host-editor.png` 标题行右侧 |
 | 10 | 「转发 SSH Agent」孤零零在备注下面，离认证区块 200+ px | 与认证相关的开关跑到表单末尾 | P1 | **已修** | `7d7d431`：并入「认证」`<section>`（`HostEditor.tsx:387`，代码注释点名 t31/#10） |
 | 11 | 颜色只有一个 12px 色块，无 label、无预设；跳板机说明是超长单行挤在字段之间 | 色块不知道点开会怎样；说明文字压扁布局 | P2 | **已修** | `7d7d431`：7 个预设色块 + 「无颜色」文字项（`role="group"` + `aria-label`，`HostEditor.tsx:424-440`）；跳板机改整行 + 一句短说明、全文进 `title`（`:413`） |
@@ -73,7 +76,7 @@
 | 24 | `.ts-vault__search input` 只有 `outline: none`，**没有任何替代焦点样式** —— 键盘用户在这个搜索框上零反馈（`vault.css:71`） | 可达性缺陷 | **待 t31** | 参照我在 `base.css` 的做法：环画在外层 `.ts-vault__search:focus-within` 上（`base.css:134-139`） |
 | 25 | 主机行「双击进编辑」**实际很难触发**：第一次 click 会 `onSelect` → 触发重渲染（`ts-vault__host--active` 换类）→ 第二次 click 落在新节点上，`dblclick` 没派发。截图脚本里 `dblclick()` 直接失败，只能改走「+ 新建」 | 用户会以为「双击没反应」 | **待 t31** | 用 `event.detail === 2` 在 `onPointerDown` 里判定，或把选中态从 class 换成不重建节点的 `data-active`；也可以给主机行加显式「编辑」入口 |
 | 26 | 主机编辑器「标签」输入框下方有一个**孤立的小横线**（`after-final-04-host-editor.png` 标签列下方，距输入框约 34px） | 看起来像坏掉的控件 | **待 t31** | 疑似自定义色块那行的 `<input type="color">` 或空 `.ts-field__hint` 占位，需要 owner 定位 |
-| 27 | 状态栏把 store 的原始英文状态直接插进中文句子：「加密包：unlocked」 | 中英混排 | **已提供 key，待 t30 接** | 我已在 `src/locales/*/common.json` 加 `state.vaultLocked` / `state.vaultUnlocked`（`加密包：已锁定/已解锁`）；同理新增 `terminal:tab.confirmClose.bodySameHost`（`「{{title}}」仍有活动会话…`）给「页签名恰好等于主机名」时用 |
+| 27 | 状态栏把 store 的原始英文状态直接插进中文句子：「加密包：unlocked」 | 中英混排 | **key 已就位（三个态齐全），接线在 t36** | `src/locales/*/common.json` 已有三态 `state.vaultUninitialized/vaultLocked/vaultUnlocked`（`加密包：未初始化/已锁定/已解锁`，en `vault: not set up/locked/unlocked`），`terminal:tab.confirmClose.bodySameHost` 也已加（`「{{title}}」仍有活动会话…`，页签名 == 主机名时用）；`StatusBar.tsx:38` 里的 `VAULT_UNINITIALIZED_KEY` 常量拼接等待 t36 换回字面量 |
 
 ---
 
