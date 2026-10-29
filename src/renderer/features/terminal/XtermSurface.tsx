@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { findTab, useTabStore } from '../tabs/tab-store'
 import { writeClipboardText } from './paste'
+import { EMPTY_INPUT_GUARD, noteTerminalData, shouldSuppressInput, type InputGuardState } from './input-guard'
 import { createResizeCoordinator } from './resize'
 import { useSessionStore } from './session-store'
 import { useTerminalRuntime, useTerminalUi } from './runtime-context'
@@ -44,8 +45,27 @@ export function XtermSurface({ tabId, active }: XtermSurfaceProps) {
     const sessionStore = useSessionStore.getState()
     sessionStore.ensure(tabId, { renderer: handle.renderer })
 
+    // 输入回声守卫：xterm 的 onData 有两个来源（keydown 直发 + input 的 insertText），
+    // 后者只在 keyup 尚未到达时才被忽略，事件顺序一旦变成 keydown → keyup → input
+    // 同一个字符就会被发两次（实测服务端 PTY 收到 "xx"）。详见 input-guard.ts 注释。
+    let inputGuard: InputGuardState = EMPTY_INPUT_GUARD
+    const textarea = handle.terminal.textarea
+    const onInputEvent = (event: Event): void => {
+      if (textarea === undefined || event.target !== textarea) return
+      const input = event as InputEvent
+      if (!shouldSuppressInput(inputGuard, input.data, input.inputType)) return
+      // 只吃一次：吞掉之后清空，用户真的连按同一个键时第二拍仍会照常送出
+      inputGuard = EMPTY_INPUT_GUARD
+      event.stopPropagation()
+      event.preventDefault()
+    }
+    window.addEventListener('input', onInputEvent, true)
+
     const subscriptions = [
-      handle.terminal.onData((data) => runtime.controller.sendInput(tabId, data)),
+      handle.terminal.onData((data) => {
+        inputGuard = noteTerminalData(inputGuard, data)
+        runtime.controller.sendInput(tabId, data)
+      }),
       handle.terminal.onBell(() => {
         if (runtime.settings().bellStyle === 'none') return
         setBellFlash(true)
@@ -96,6 +116,7 @@ export function XtermSurface({ tabId, active }: XtermSurfaceProps) {
       coordinator.dispose()
       element.removeEventListener('mouseup', onMouseUp)
       element.removeEventListener('contextmenu', onContextMenu)
+      window.removeEventListener('input', onInputEvent, true)
       for (const subscription of subscriptions) subscription.dispose()
       runtime.pool.dispose(tabId)
     }
