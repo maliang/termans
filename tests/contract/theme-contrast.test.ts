@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { BUILTIN_THEMES, findBuiltinTheme, resolveBuiltinTheme } from '@renderer/theme/builtin'
 import { CONTRAST_PAIRS, auditContrast, bodyContrastRatio, contrastProblems } from '@renderer/theme/contrast'
+import type { ResolvedTokens } from '@renderer/theme/tokens'
 
 /**
  * 主题可读性冒烟（SPEC M-06）。
@@ -40,9 +41,9 @@ describe('内置主题对比度', () => {
       expect(bodyContrastRatio(resolveBuiltinTheme(theme))).toBeGreaterThanOrEqual(4.5)
     })
 
-    // 曾经的浅色主按钮偏差（白字 #ffffff 落在 #c86a08 上 = 3.80:1）已修：浅色块改用纯黑字
-    // `--ts-accent-contrast: #000000`（5.52:1）。豁免表因此被删除，这里对所有内置主题一律要求 ≥ 4.5:1，
-    // 谁再把品牌琥珀底上的字改浅就会直接红。
+    // 浅色主按钮的两次调整（2026-10-30）：先是 #c86a08 + 白字 3.80:1 不达标 → 改黑字 5.52:1 达标，
+    // 但主人看图说「深色按钮上的字应该是浅色」，于是把底色压深到 #a85505 再配白字（5.29:1，hover #8f4500 6.96:1）。
+    // 豁免表已删除，这里对所有内置主题一律要求 ≥ 4.5:1——谁再让按钮底色浅、字也浅就会直接红。
     it(`${theme.id}: 主按钮文字（常态 + hover 态）≥ 4.5:1`, () => {
       for (const id of ['button', 'button-hover'] as const) {
         const result = auditContrast(resolveBuiltinTheme(theme)).find((item) => item.pair.id === id)!
@@ -74,14 +75,18 @@ describe('内置主题对比度', () => {
     expect(high).toBeGreaterThanOrEqual(20)
   })
 
-  it('contrastProblems 只挑出「低于底线或有警告」的配对', () => {
+  it('contrastProblems 只挑出「低于底线或有警告」的配对（合成输入守住警告路径）', () => {
     const light = resolveBuiltinTheme(findBuiltinTheme('termans-light')!)
-    const problems = contrastProblems(light)
+    // 内置主题现在全部达标，真实主题里已经没有自然出现的警告，故用**合成输入**守这条路径：
+    // 把状态绿调淡到 3–4.5:1 之间——不破 min 3（不能阻止保存），但必须进警告。
+    const synthetic: ResolvedTokens = { ...light, '--ts-status-ok': '#4e9a6a' }
+    const problems = contrastProblems(synthetic)
+    const ok = problems.find((item) => item.pair.id === 'status-ok-surface')
+    expect(ok, 'status-ok-surface 必须进警告').toBeDefined()
+    expect(ok!.failsMin, '只警告不阻止：不得判成低于底线').toBe(false)
+    expect(ok!.warns).toBe(true)
+    // 正文那几对不受影响，不该被顺带报警
     const ids = problems.map((item) => item.pair.id)
-    // 主按钮 5.52:1 已达建议值，不再进警告；浅色主题里琥珀落在浅底上的 accent-app（3.58:1）
-    // 不破 3:1 底线但低于建议值 4.5 → 必须出现在警告里，这条用于守住「只警告不阻止」的路径。
-    expect(ids).not.toContain('button')
-    expect(ids).toContain('accent-app')
     expect(ids).not.toContain('body-app')
     for (const problem of problems) expect(problem.failsMin || problem.warns).toBe(true)
   })

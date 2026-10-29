@@ -87,7 +87,7 @@
   --ts-ink-600: #dde3ee;
   --ts-amber: #f8ab24;
   --ts-amber-soft: #7a4a08;
-  --ts-amber-deep: #c86a08;
+  --ts-amber-deep: #a85505;
   --ts-mint: #16794f;
   --ts-danger: #c23b22;
 
@@ -102,9 +102,11 @@
   --ts-text-muted: #5f6b80;
   --ts-text-inverse: #ffffff;
   --ts-accent: var(--ts-amber-deep);
-  --ts-accent-strong: #bc5f07;
-  /* 浅色：琥珀底配纯黑字（5.52:1）；白字只有 3.80:1，会让主按钮读不清 */
-  --ts-accent-contrast: #000000;
+  --ts-accent-strong: #8f4500;
+  /* 浅色主按钮：深琥珀实底 + 白字（5.29:1，hover 用 --ts-accent-strong 时 6.96:1）。
+     原先是 #c86a08 配黑字（5.52:1）——达标但黑字压在琥珀上不像按钮；
+     把底色压深到 #a85505 后白字即达 AA，色相不变，只用明度换可读性。 */
+  --ts-accent-contrast: #ffffff;
   --ts-focus-ring: rgba(200, 106, 8, 0.45);
   --ts-selection: rgba(248, 171, 36, 0.35);
   --ts-status-ok: var(--ts-mint);

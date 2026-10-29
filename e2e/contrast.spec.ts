@@ -47,7 +47,14 @@ const EXCLUDE = {
    * 不是 CSS token；它的可读性由「主题 tokens → xterm theme」的映射单测负责。
    * 而且 xterm 会内联 style，混合算出来的比值不代表用户看到的配色。
    */
-  terminal: '.xterm, .xterm *'
+  terminal: '.xterm, .xterm *',
+  /**
+   * 失效控件：WCAG 1.4.3 明确把「inactive user interface component」的文本排除在对比度要求之外，
+   * 而且 .ts-btn:disabled 是 opacity 0.45 整体变淡（前景与底色一起退），拿 computed 值算出来的比值
+   * 并不等于用户能读到的比值。实测案例：浅色主题建库按钮在 busy 期间禁用 → 白字被 0.45 压成 #e7e7e8。
+   * 这里只排除「确实禁用」的控件，禁用态以外的文字照常扫描。
+   */
+  inactive: 'button:disabled, [aria-disabled="true"], input:disabled, select:disabled, textarea:disabled'
 } as const
 
 /**
@@ -181,6 +188,20 @@ function describe(theme: ThemeId, state: string, s: Sample): string {
   return [head, ...rows].join('\n')
 }
 
+/**
+ * 冻结一切过渡动画后再采样。
+ *
+ * 2026-10-30 实测：`data-theme-id` 是瞬间切换的，但按钮的 `transition: background/color`（`--ts-motion-fast`）
+ * 还在跑，于是 `getComputedStyle` 抓到的是**中间色**——浅色主题的主按钮被读成 `rgb(177, 95, 9)` 上的
+ * `rgb(248, 248, 248)`（真实值应是 `#a85505` 上的 `#ffffff`），凭空报出 2.18:1 的假红。
+ * 注入一条 `transition: none !important` 是视觉/对比度审计的标准做法：审计的是最终配色，不是动画。
+ */
+async function freezeAnimations(page: Page): Promise<void> {
+  await page.addStyleTag({
+    content: '*, *::before, *::after { transition: none !important; animation: none !important; }'
+  })
+}
+
 async function applyTheme(page: Page, theme: ThemeId): Promise<void> {
   await invokeInPage(page, 'settings:update', { themeId: theme })
   // settings:update 会广播 settings:changed → 主题 store 调 applyThemeToDocument()，
@@ -188,6 +209,7 @@ async function applyTheme(page: Page, theme: ThemeId): Promise<void> {
   await expect
     .poll(async () => page.evaluate(() => document.documentElement.dataset['themeId']), { timeout: 10_000 })
     .toBe(theme)
+  await freezeAnimations(page)
 }
 
 /**

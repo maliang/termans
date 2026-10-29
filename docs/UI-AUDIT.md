@@ -116,7 +116,7 @@ DOM 级对比度全量扫描（逐元素取 computed `color` 与其最近不透�
 | --- | --- | --- |
 | 提示条「品牌色实底 + 正文色文字」 | 深色 1.07:1、浅色 2.46:1（白字压奶油 `#ffe2a8`） | 改「表面色 + 琥珀薄涂」（color-mix 14%），文字仍为 `--ts-text-primary` |
 | 弱化文案 `--ts-text-muted` | 深色 2.99–4.08:1、浅色 3.06–3.49:1 | 深色 `#63718c → #8593ad`、浅色 `#7c8aa3 → #5f6b80`，三对背景层全部 ≥4.5:1 |
-| 浅色主题主按钮 hover | `#a85505` 上的黑字 3.97:1 | `--ts-accent-strong` 改 `#bc5f07`（4.78:1） |
+| 浅色主题主按钮 hover | `#a85505` 上的黑字 3.97:1 | 2026-10-30 二次调整后：浅色主按钮改为「深琥珀底 `#a85505` + 白字 5.29:1」，hover `#8f4500` 白字 6.96:1 |
 
 回归守卫：`src/renderer/theme/contrast.ts` 的配对从 9 组扩到 12 组（muted 从 1 对扩成 app/surface/elevated 3 对、
 新增 button-hover 对，全部 `min: 4.5`），由 `tests/contract/theme-contrast.test.ts` 逐主题断言；
