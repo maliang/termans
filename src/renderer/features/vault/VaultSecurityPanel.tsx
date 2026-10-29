@@ -6,7 +6,10 @@ import { downloadTextFile } from './download'
 import { useVaultErrorText, useVaultStore } from './store'
 
 interface VaultSecurityPanelProps {
-  onClose: () => void
+  /** 弹窗模式下关闭；内嵌到设置页签时不需要 */
+  onClose?: () => void
+  /** true = 只出内容（不渲染遮罩层/标题/取消按钮），供设置弹窗内嵌 */
+  embedded?: boolean
 }
 
 /**
@@ -18,7 +21,7 @@ interface VaultSecurityPanelProps {
  * 注意它的副作用（不是纯读操作）：**仓库会前进一次 revision，远端需要重新 push**，
  * 因此按钮文案写「重新生成」而不是「查看/导出」，并加一步显式确认。
  */
-export function VaultSecurityPanel({ onClose }: VaultSecurityPanelProps): JSX.Element {
+export function VaultSecurityPanel({ onClose, embedded = false }: VaultSecurityPanelProps): JSX.Element {
   const { t } = useTranslation('vaultsync')
   const busy = useVaultStore((state) => state.busy)
   const run = useVaultStore((state) => state.run)
@@ -45,16 +48,12 @@ export function VaultSecurityPanel({ onClose }: VaultSecurityPanelProps): JSX.El
     const status = await run(() => api.lockVault())
     if (status !== null) {
       applyStatus(status)
-      onClose()
+      onClose?.()
     }
   }
 
-  return (
-    <div className="ts-vault__modal" role="dialog" aria-modal="true" aria-label={t('security.title')}>
-      <section className="ts-vault__card" data-testid="vault-security-panel">
-        <h2 className="ts-vault__card-title">
-          <KeyRound size={15} aria-hidden="true" /> {t('security.title')}
-        </h2>
+  const content = (
+    <>
 
         <label className="ts-field">
           <span className="ts-field__label">{t('security.current')}</span>
@@ -132,12 +131,34 @@ export function VaultSecurityPanel({ onClose }: VaultSecurityPanelProps): JSX.El
             <Lock size={14} aria-hidden="true" /> {t('security.lock')}
           </button>
           <span className="ts-vault__spacer" />
-          <button type="button" className="ts-btn ts-btn--ghost" onClick={onClose}>
-            {t('editor.cancel')}
-          </button>
+          {embedded ? null : (
+            <button type="button" className="ts-btn ts-btn--ghost" onClick={() => onClose?.()}>
+              {t('editor.cancel')}
+            </button>
+          )}
         </div>
 
         {error !== null ? <p className="ts-vault__error">{error}</p> : null}
+
+    </>
+  )
+
+  // 内嵌模式：设置弹窗自己有标题与关闭按钮，这里只出内容（避免两层遮罩 + 两个「取消」）
+  if (embedded) {
+    return (
+      <section className="ts-vault__card ts-vault__card--embedded" data-testid="vault-security-panel">
+        {content}
+      </section>
+    )
+  }
+
+  return (
+    <div className="ts-vault__modal" role="dialog" aria-modal="true" aria-label={t('security.title')}>
+      <section className="ts-vault__card" data-testid="vault-security-panel">
+        <h2 className="ts-vault__card-title">
+          <KeyRound size={15} aria-hidden="true" /> {t('security.title')}
+        </h2>
+        {content}
       </section>
     </div>
   )

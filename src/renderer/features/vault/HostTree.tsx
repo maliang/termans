@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Folder, Server } from 'lucide-react'
+import { FileInput, Folder, FolderPlus, Plus, Server } from 'lucide-react'
 import type { GroupRecord } from '@shared'
 import type { HostView, LibraryView } from './api'
 
@@ -10,11 +10,20 @@ interface HostTreeProps {
   selectedHostId: string | null
   onSelect: (hostId: string) => void
   onEdit: (hostId: string) => void
+  onCreate: () => void
+  onCreateGroup: () => void
+  onImportSshConfig: () => void
 }
 
 interface TreeGroup {
   group: GroupRecord | null
   hosts: HostView[]
+}
+
+/** IPv6 用 [addr]:port 的写法，`2001:db8::42:22` 会被读成端口 22 还是地址的一部分分不清 */
+function formatAddress(host: { hostname: string; port: number }): string {
+  const isIpv6 = host.hostname.includes(':') && !host.hostname.startsWith('[')
+  return isIpv6 ? `[${host.hostname}]:${host.port}` : `${host.hostname}:${host.port}`
 }
 
 function buildGroups(library: LibraryView): TreeGroup[] {
@@ -35,8 +44,22 @@ function buildGroups(library: LibraryView): TreeGroup[] {
 /**
  * 主机树：分组在上、未分组在首。**只在解锁态渲染**（锁定态的父组件不会挂载本组件，
  * 所以锁屏时 DOM 里根本不存在主机名/IP）。
+ *
+ * 行布局（t31/#6）：
+ * - 每一行是 `dot + (label / host:port)` 的两段结构，两段都 `min-width:0` + 省略号，
+ *   窄侧栏时地址折到第二行（容器查询见 vault.css），**任何宽度下都不出现横向滚动条**；
+ * - label 用 UI 字体 + 中等字重、`host:port` 用等宽字体 + 次级色，扫一眼就知道「是哪台 + 连哪里」。
  */
-export function HostTree({ library, groups, selectedHostId, onSelect, onEdit }: HostTreeProps): JSX.Element {
+export function HostTree({
+  library,
+  groups,
+  selectedHostId,
+  onSelect,
+  onEdit,
+  onCreate,
+  onCreateGroup,
+  onImportSshConfig
+}: HostTreeProps): JSX.Element {
   const { t } = useTranslation('vaultsync')
   const tree = useMemo(() => buildGroups({ ...library, groups }), [library, groups])
 
@@ -46,6 +69,23 @@ export function HostTree({ library, groups, selectedHostId, onSelect, onEdit }: 
         <Server size={20} aria-hidden="true" />
         <p className="ts-empty__title">{t('hosts.empty')}</p>
         <p className="ts-empty__body">{t('hosts.emptyBody')}</p>
+        {/* 空态是「导入」最有说服力的位置：这里用真实文字，不是猜不透的图标 */}
+        <div className="ts-vault__empty-actions">
+          <button type="button" className="ts-btn ts-btn--primary ts-btn--block" onClick={onCreate} data-testid="host-empty-new">
+            <Plus size={14} aria-hidden="true" />
+            {t('hosts.new')}
+          </button>
+          <button
+            type="button"
+            className="ts-btn ts-btn--ghost ts-btn--block"
+            onClick={onImportSshConfig}
+            data-testid="host-empty-import"
+            title={t('hosts.importSshConfig')}
+          >
+            <FileInput size={14} aria-hidden="true" />
+            {t('hosts.importSshConfig')}
+          </button>
+        </div>
       </div>
     )
   }
@@ -58,7 +98,7 @@ export function HostTree({ library, groups, selectedHostId, onSelect, onEdit }: 
           <div key={key} className="ts-vault__group">
             <div className="ts-vault__group-title">
               <Folder size={13} aria-hidden="true" />
-              <span>{node.group?.name ?? t('hosts.groupUntitled')}</span>
+              <span className="ts-vault__group-name">{node.group?.name ?? t('hosts.groupUntitled')}</span>
               <span className="ts-vault__count">{node.hosts.length}</span>
             </div>
             <ul className="ts-vault__hosts" role="list">
@@ -70,12 +110,16 @@ export function HostTree({ library, groups, selectedHostId, onSelect, onEdit }: 
                     onClick={() => onSelect(host.id)}
                     onDoubleClick={() => onEdit(host.id)}
                     data-testid="vault-host-item"
-                    title={`${host.username}@${host.hostname}:${host.port}`}
+                    title={`${host.label}\n${host.username}@${formatAddress(host)}`}
                   >
-                    <span className="ts-vault__host-dot" style={host.color === null ? undefined : { background: host.color }} />
-                    <span className="ts-vault__host-label">{host.label}</span>
-                    <span className="ts-vault__host-addr">
-                      {host.hostname}:{host.port}
+                    <span
+                      className={`ts-vault__host-dot${host.color === null ? '' : ' ts-vault__host-dot--custom'}`}
+                      style={host.color === null ? undefined : { background: host.color }}
+                      aria-hidden="true"
+                    />
+                    <span className="ts-vault__host-main">
+                      <span className="ts-vault__host-label">{host.label}</span>
+                      <span className="ts-vault__host-addr">{formatAddress(host)}</span>
                     </span>
                   </button>
                 </li>
@@ -84,6 +128,18 @@ export function HostTree({ library, groups, selectedHostId, onSelect, onEdit }: 
           </div>
         )
       })}
+
+      {/* 建分组是低频动作：放在列表末尾做一行弱化文字入口，不再和「新建主机」抢按钮位（t31/#5） */}
+      <button
+        type="button"
+        className="ts-vault__tree-action"
+        onClick={onCreateGroup}
+        data-testid="host-new-group"
+        title={t('hosts.newGroup')}
+      >
+        <FolderPlus size={13} aria-hidden="true" />
+        {t('hosts.newGroupRow')}
+      </button>
     </div>
   )
 }

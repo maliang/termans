@@ -6,7 +6,10 @@ import * as api from './api'
 import { useVaultErrorText, useVaultStore } from './store'
 
 interface SyncPanelProps {
-  onClose: () => void
+  /** 弹窗模式下关闭；内嵌到设置页签时不需要 */
+  onClose?: () => void
+  /** true = 只出内容（不渲染遮罩层/标题/取消按钮），供设置弹窗内嵌 */
+  embedded?: boolean
 }
 
 /**
@@ -17,7 +20,7 @@ interface SyncPanelProps {
  * 2. 上次提交 / 上次同步时间 / 当前状态（ahead/behind/diverged 各有不同文案）；
  * 3. 冲突快照可以逐条选边（保留本地 / 保留远端 / 两边都留），**没有静默覆盖的按钮**。
  */
-export function SyncPanel({ onClose }: SyncPanelProps): JSX.Element {
+export function SyncPanel({ onClose, embedded = false }: SyncPanelProps): JSX.Element {
   const { t } = useTranslation('vaultsync')
   const syncStatus = useVaultStore((state) => state.syncStatus)
   const conflicts = useVaultStore((state) => state.conflicts)
@@ -81,12 +84,8 @@ export function SyncPanel({ onClose }: SyncPanelProps): JSX.Element {
     if (done === true) setNotice(t('sync.eraseDone'))
   }
 
-  return (
-    <div className="ts-vault__modal" role="dialog" aria-modal="true" aria-label={t('sync.title')}>
-      <section className="ts-vault__card" data-testid="sync-panel">
-        <h2 className="ts-vault__card-title">
-          <GitBranch size={15} aria-hidden="true" /> {t('sync.title')}
-        </h2>
+  const content = (
+    <>
         <p className="ts-vault__notice">
           <ShieldCheck size={14} aria-hidden="true" /> {t('sync.notice')}
         </p>
@@ -134,9 +133,11 @@ export function SyncPanel({ onClose }: SyncPanelProps): JSX.Element {
             ) : null}
             <div className="ts-vault__actions">
               <span className="ts-vault__spacer" />
-              <button type="button" className="ts-btn ts-btn--ghost" onClick={onClose}>
-                {t('editor.cancel')}
-              </button>
+              {embedded ? null : (
+                <button type="button" className="ts-btn ts-btn--ghost" onClick={() => onClose?.()}>
+                  {t('editor.cancel')}
+                </button>
+              )}
               <button type="submit" className="ts-btn ts-btn--primary" disabled={busy} data-testid="sync-connect">
                 {busy ? t('sync.connecting') : t('sync.connect')}
               </button>
@@ -209,15 +210,37 @@ export function SyncPanel({ onClose }: SyncPanelProps): JSX.Element {
                 {t('sync.eraseCredentials')}
               </button>
               <span className="ts-vault__spacer" />
-              <button type="button" className="ts-btn ts-btn--ghost" onClick={onClose}>
-                {t('editor.cancel')}
-              </button>
+              {embedded ? null : (
+                <button type="button" className="ts-btn ts-btn--ghost" onClick={() => onClose?.()}>
+                  {t('editor.cancel')}
+                </button>
+              )}
             </div>
           </>
         )}
 
         {notice !== null ? <p className="ts-vault__ok">{notice}</p> : null}
         {error !== null ? <p className="ts-vault__error">{error}</p> : null}
+
+    </>
+  )
+
+  // 内嵌模式：设置弹窗自己有标题与关闭按钮，这里只出内容
+  if (embedded) {
+    return (
+      <section className="ts-vault__card ts-vault__card--embedded" data-testid="sync-panel">
+        {content}
+      </section>
+    )
+  }
+
+  return (
+    <div className="ts-vault__modal" role="dialog" aria-modal="true" aria-label={t('sync.title')}>
+      <section className="ts-vault__card" data-testid="sync-panel">
+        <h2 className="ts-vault__card-title">
+          <GitBranch size={15} aria-hidden="true" /> {t('sync.title')}
+        </h2>
+        {content}
       </section>
     </div>
   )

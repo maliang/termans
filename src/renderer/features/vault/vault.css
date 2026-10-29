@@ -7,6 +7,8 @@
  */
 
 .ts-vault {
+  /* 容器查询的锚点：侧栏窄到 300px 以下时主机行改两行卡片式（t31/#6） */
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -72,6 +74,8 @@
 .ts-vault__scroll {
   flex: 1;
   min-height: 0;
+  /* 只允许纵向滚动：任何一行都不该把列表撑出横向滚动条（t31/#6） */
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
@@ -130,17 +134,50 @@
   background: var(--ts-text-muted);
 }
 
+.ts-vault__host-main {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 8px;
+  /* min-width:0 是省略号生效的前提：flex 子项默认 min-width:auto，会按内容撑宽 */
+  min-width: 0;
+}
+
 .ts-vault__host-label {
+  min-width: 0;
   overflow: hidden;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .ts-vault__host-addr {
+  flex: 0 1 auto;
+  min-width: 0;
   margin-left: auto;
+  overflow: hidden;
   color: var(--ts-text-muted);
   font-family: var(--ts-font-mono);
   font-size: var(--ts-font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 窄侧栏（260px 这类）把地址折到第二行：label 与 host:port 各自完整可读、行高一致 */
+@container (max-width: 300px) {
+  .ts-vault__host-main {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1px;
+  }
+
+  .ts-vault__host-addr {
+    margin-left: 0;
+  }
+}
+
+.ts-vault__host-dot--custom {
+  box-shadow: 0 0 0 1px var(--ts-border-strong);
 }
 
 .ts-vault__locked {
@@ -158,9 +195,40 @@
 .ts-vault__foot {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 4px;
   padding-top: 6px;
   border-top: 1px solid var(--ts-border);
+}
+
+.ts-vault__foot-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ts-vault__foot-sep {
+  width: 1px;
+  height: 16px;
+  flex: none;
+  background: var(--ts-border);
+}
+
+.ts-vault__foot .ts-icon-btn {
+  width: 27px;
+  height: 27px;
+  border-radius: var(--ts-radius-sm);
+  color: var(--ts-text-secondary);
+}
+
+.ts-vault__foot .ts-icon-btn:hover:not(:disabled) {
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-primary);
+}
+
+.ts-vault__foot .ts-icon-btn:disabled {
+  color: var(--ts-text-muted);
+  opacity: 0.55;
 }
 
 .ts-vault__spacer {
@@ -246,6 +314,8 @@
   justify-content: center;
   padding: 24px;
   background: var(--ts-bg-overlay);
+  /* 与 settings 弹窗同一套遮罩语汇（t31/#12） */
+  backdrop-filter: blur(2px);
 }
 
 .ts-vault__card {
@@ -258,8 +328,8 @@
   padding: 16px 18px;
   border: 1px solid var(--ts-border-strong);
   border-radius: var(--ts-radius-lg);
-  background: var(--ts-bg-elevated);
-  box-shadow: 0 18px 48px rgb(0 0 0 / 45%);
+  background: var(--ts-bg-surface);
+  box-shadow: 0 24px 60px var(--ts-bg-overlay);
   color: var(--ts-text-primary);
   font-family: var(--ts-font-ui);
   font-size: var(--ts-font-size-sm);
@@ -283,17 +353,18 @@
 
 .ts-vault__grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 10px;
+  /* minmax(0,…) 保证长内容不会把列撑爆；间距与 settings 弹窗的 grid2 对齐 */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
 }
 
-.ts-vault__grid .ts-field--narrow {
-  max-width: 120px;
+.ts-vault__grid > * {
+  min-width: 0;
 }
 
 .ts-vault__grid .ts-field--wide,
-.ts-vault__grid .ts-field:not(.ts-field--narrow) {
-  min-width: 0;
+.ts-vault__grid .ts-field--full {
+  grid-column: 1 / -1;
 }
 
 .ts-vault__actions {
@@ -513,4 +584,228 @@
   display: flex;
   justify-content: center;
   padding-top: 4px;
+}
+
+/* ---------- 弹窗外壳：head / body / footer 三段，度量对齐 settings 弹窗（t31/#12） ---------- */
+
+.ts-vault__card--dialog {
+  width: min(640px, 100%);
+  max-height: min(760px, 100%);
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.ts-vault__card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--ts-border);
+}
+
+.ts-vault__card-head .ts-vault__card-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.ts-vault__card-close {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--ts-radius-sm);
+  background: transparent;
+  color: var(--ts-text-muted);
+  cursor: pointer;
+}
+
+.ts-vault__card-close:hover:not(:disabled) {
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-primary);
+}
+
+.ts-vault__card-close:focus-visible {
+  outline: 2px solid var(--ts-focus-ring);
+  outline-offset: 1px;
+}
+
+.ts-vault__card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px 22px;
+}
+
+.ts-vault__card--dialog .ts-vault__actions {
+  padding: 12px 18px;
+  border-top: 1px solid var(--ts-border);
+}
+
+.ts-vault__card--compact {
+  width: min(480px, 92vw);
+}
+
+/* 内嵌到设置页签时不画外框：外层弹窗已经给了背景与圆角 */
+.ts-vault__card--embedded {
+  width: 100%;
+  max-height: none;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+/* ---------- 表单分段与字段态 ---------- */
+
+.ts-vault__section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ts-border);
+}
+
+.ts-vault__section-title {
+  margin: 0;
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-sm);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ts-vault__req {
+  margin-left: 3px;
+  color: var(--ts-status-error);
+}
+
+.ts-vault__field-error {
+  color: var(--ts-status-error);
+  line-height: 1.4;
+}
+
+.ts-vault__hint-ok {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ts-status-ok);
+}
+
+.ts-field--grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.ts-vault__row--end {
+  align-items: flex-end;
+}
+
+.ts-vault__mono-inline {
+  color: var(--ts-text-secondary);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-sm);
+}
+
+/* ---------- 颜色选择（t31/#11） ---------- */
+
+.ts-vault__swatches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ts-vault__swatch {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--ts-border-strong);
+  border-radius: var(--ts-radius-sm);
+  cursor: pointer;
+}
+
+.ts-vault__swatch--on {
+  outline: 2px solid var(--ts-accent);
+  outline-offset: 1px;
+}
+
+.ts-vault__swatch--custom {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--ts-bg-app);
+  color: var(--ts-text-muted);
+}
+
+.ts-vault__swatch--custom input[type='color'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* ---------- 空态行动区 / 树内弱化入口（t31/#5） ---------- */
+
+.ts-vault__empty-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.ts-vault__tree-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--ts-radius-sm);
+  background: transparent;
+  color: var(--ts-text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ts-vault__tree-action:hover {
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-secondary);
+}
+
+.ts-vault__group-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ts-field--grow,
+.ts-vault__grid > *,
+.ts-vault__host-main,
+.ts-vault__host-label,
+.ts-vault__host-addr,
+.ts-vault__group-name {
+  min-width: 0;
+}
+
+/* 字段下方的多条 hint（规则 + 已保存状态）竖排，避免挤成一行 */
+.ts-field .ts-vault__hint {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
