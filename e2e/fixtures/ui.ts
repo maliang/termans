@@ -356,7 +356,16 @@ export async function configureAiProvider(page: Page, config: AiProviderConfig):
   // 保存成功后 message 会被随后的 reloadProviders 冲掉，所以不盯 message，
   // 改盯「已配置的供应商」列表里真的出现了这条 —— 这是持久化生效的直接证据。
   await expect(form.getByRole('button', { name: new RegExp(`^${config.name} `) })).toBeVisible({ timeout: 15_000 })
-  await panel.getByRole('button', { name: /返回|back/i }).click()
+  // 配置宿主有两种（t47 把入口从「面板内视图」搬到「设置 → AI」）：
+  // ① 旧：AI 面板内的视图，收尾点「返回」；② 新：设置对话框，收尾关设置（`settings-close`）。
+  // 按宿主自动选，不写死其中一条 —— 否则入口每搬一次家就要改一次 helper，
+  // 而「产品已搬、helper 没跟」的那段时间里它会稳定红（t8 的 closeSyncPanel 踩过同一个坑）。
+  const closeSettings = page.getByTestId('settings-close')
+  if (await closeSettings.isVisible().catch(() => false)) {
+    await closeSettings.click()
+  } else {
+    await panel.getByRole('button', { name: /返回|back/i }).click()
+  }
   await expect(page.getByTestId('ai-provider-form')).toBeHidden()
 }
 
