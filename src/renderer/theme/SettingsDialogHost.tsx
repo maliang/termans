@@ -5,8 +5,14 @@ import { subscribe } from '../platform/ipc'
 import { AiSettings } from './AiSettings'
 import { AppearanceSettings } from './AppearanceSettings'
 import { ThemeEditor } from './ThemeEditor'
-import { VISIBLE_SETTINGS_TABS, useSettingsDialog, type SettingsTab } from './settings-dialog'
+import { VISIBLE_SETTINGS_TABS, closeSettingsDialog, useSettingsDialog, type SettingsTab } from './settings-dialog'
 import { useThemeStore } from './store'
+// 安全 / 同步面板归 vault-sync，本模块只负责摆放。按文件路径引入而不是 `features/vault`
+// 的 barrel：barrel 连 HostSidebar 一起拉进来，而 HostSidebar 又 import 了
+// `openSettingsDialog`，形成 theme ↔ features 的循环引用（能跑，但 HMR 边界上容易拿到
+// 半初始化的命名空间，也让人看不出这条依赖）。
+import { SyncPanel } from '../features/vault/SyncPanel'
+import { VaultSecurityPanel } from '../features/vault/VaultSecurityPanel'
 
 /**
  * 设置对话框宿主。
@@ -112,33 +118,33 @@ export function SettingsDialogHost(): JSX.Element | null {
 /**
  * 页签内容。
  *
- * 安全 / 同步两页的接线位：面板本体（`VaultSecurityPanel` / `SyncPanel`）归 vault-sync，
- * 正在由 t31 加 `embedded` 模式（为真时不渲染 `.ts-vault__modal` 遮罩、不渲染自己的 `<h2>`
- * 与「取消」按钮）。落地后这里换成：
- *
- * ```tsx
- * {tab === 'security' ? <div className="ts-settings__embed"><VaultSecurityPanel embedded onClose={closeSettingsDialog} /></div> : null}
- * {tab === 'sync' ? <div className="ts-settings__embed"><SyncPanel embedded onClose={closeSettingsDialog} /></div> : null}
- * ```
- *
- * 在那之前渲染占位并明确告诉用户「暂时从哪里打开」，而不是给一个点开是空白的页签
- * （`.ts-settings__embed` 的抹平外壳样式已在 theme.css 里备好，接线时无需再改样式）。
+ * 安全 / 同步面板归 vault-sync：`embedded` 为真时它们不渲染 `.ts-vault__modal` 遮罩、
+ * 不渲染自己的 `<h2>` 与「取消」按钮，只出内容（`SyncPanel.tsx` / `VaultSecurityPanel.tsx`
+ * 里各自有 `if (embedded) return <section className="ts-vault__card ts-vault__card--embedded">`）。
+ * 这里只负责摆放；外层 `.ts-settings__embed` 再兜一层「把旧外壳抹平」的样式，
+ * 面板哪天换壳，视觉也不会跳。
+ * 侧栏原来那两个独立弹窗入口已改成 `openSettingsDialog('security' | 'sync')`，
+ * 于是「同类设置三种入口」收敛成一处（UI 审计 #13）。
  */
 function SettingsTabContent({ tab }: { tab: SettingsTab }): JSX.Element {
   const draft = useThemeStore((state) => state.draft)
   if (draft) return <ThemeEditor />
   if (tab === 'ai') return <AiSettings />
-  if (tab === 'security' || tab === 'sync') return <PendingSettingsTab tab={tab} />
+  if (tab === 'security') {
+    return (
+      <div className="ts-settings__embed" data-testid="settings-embed-security">
+        <VaultSecurityPanel embedded onClose={closeSettingsDialog} />
+      </div>
+    )
+  }
+  if (tab === 'sync') {
+    return (
+      <div className="ts-settings__embed" data-testid="settings-embed-sync">
+        <SyncPanel embedded onClose={closeSettingsDialog} />
+      </div>
+    )
+  }
   return <AppearanceSettings />
-}
-
-function PendingSettingsTab({ tab }: { tab: 'security' | 'sync' }): JSX.Element {
-  const { t } = useTranslation(['settings'])
-  return (
-    <div className="ts-settings__placeholder" data-testid="settings-tab-placeholder" data-tab={tab}>
-      <p>{t(`settings:tab.pending.${tab}`)}</p>
-    </div>
-  )
 }
 
 /** 状态条/菜单里的设置入口按钮（集成到 StatusBar 用；带稳定 testid 方便 QA） */
