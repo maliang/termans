@@ -21,31 +21,15 @@
 }
 
 /* 头部动作按钮：图标 + 文字。
-   审计 #17 的原状是两个 20px 的裸图标（＋ / ⟳），既不可读也不可指——文字是最便宜的自我说明。 */
+   审计 #17 的原状是两个 20px 的裸图标（＋ / ⟳），既不可读也不可指——文字是最便宜的自我说明。
+   描边/高度/字色继承 base.css 的 .ts-btn / .ts-btn--ghost（docs/UI-KIT.md §3），这里只负责「别被标题挤掉」。 */
 .ts-ai-headbtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 9px;
-  border: 1px solid var(--ts-border);
-  border-radius: var(--ts-radius-sm);
-  background: var(--ts-bg-app);
+  flex: 0 0 auto;
   color: var(--ts-text-secondary);
-  font-family: var(--ts-font-ui);
-  font-size: var(--ts-font-size-sm);
-  white-space: nowrap;
-  cursor: pointer;
 }
 
-.ts-ai-headbtn:hover {
+.ts-ai-headbtn:hover:not(:disabled) {
   color: var(--ts-text-primary);
-  border-color: var(--ts-border-strong);
-}
-
-.ts-ai-headbtn:disabled {
-  opacity: 0.55;
-  cursor: default;
 }
 
 /* 供应商行：选择器独占一行，宽度跟着面板走（不再挤在标题后面） */
@@ -66,8 +50,8 @@
 
 .ts-ai-select__control {
   width: 100%;
-  height: 28px;
-  padding: 0 26px 0 8px;
+  height: var(--ts-control-h-sm);
+  padding: 0 26px 0 var(--ts-space-2);
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-sm);
   background: var(--ts-bg-app);
@@ -98,21 +82,11 @@
   flex: 0 0 auto;
 }
 
-.ts-ai-headbtn:focus-visible,
-.ts-ai-select__control:focus-visible,
-.ts-ai-newchat:focus-visible,
-.ts-ai-empty__action:focus-visible,
-.ts-ai-details__summary:focus-visible,
-.ts-ai-card__run:focus-visible,
-.ts-ai-confirm:focus-visible,
+/* 焦点环全局只有 base.css 一处定义（:focus-visible，宽度/偏移都走 token），这里不再逐一覆盖——
+   唯独两个「自己就是滚动容器」的元素要给负偏移，否则焦点环被自己的 overflow 裁掉半圈。 */
 .ts-ai-modal__preview:focus-visible,
-.ts-ai-msg__code:focus-visible,
-.ts-ai-form input:focus-visible,
-.ts-ai-form select:focus-visible,
-.ts-ai-form textarea:focus-visible,
-.ts-ai-panel__composer textarea:focus-visible {
-  outline: 2px solid var(--ts-focus-ring);
-  outline-offset: -1px;
+.ts-ai-msg__code:focus-visible {
+  outline-offset: calc(-1 * var(--ts-focus-ring-offset));
 }
 
 /* ---------- 消息 ---------- */
@@ -650,29 +624,11 @@
 
 /* ---------- 命令卡 / 二次确认 ---------- */
 
-/* 执行按钮：secondary 外观（描边），与「复制」区分层级但都不是整屏最亮的那个 */
+/* 执行按钮：外观继承 base.css 的 .ts-btn（secondary 描边），只在卡片里收窄一档。
+   它是「可能写进终端」的动作，所以不做成主按钮——默认动作是复制。 */
 .ts-ai-card__run {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 26px;
-  padding: 0 9px;
-  border: 1px solid var(--ts-border-strong);
-  border-radius: var(--ts-radius-sm);
-  background: var(--ts-bg-app);
-  color: var(--ts-text-primary);
-  font-family: var(--ts-font-ui);
-  font-size: var(--ts-font-size-sm);
-  cursor: pointer;
-}
-
-.ts-ai-card__run:hover:not(:disabled) {
-  background: var(--ts-bg-elevated);
-}
-
-.ts-ai-card__run:disabled {
-  opacity: 0.5;
-  cursor: default;
+  height: var(--ts-control-h-sm);
+  padding: 0 var(--ts-space-2);
 }
 
 /* 审阅区：把危险原因和按钮框在一起，眼睛从原因扫到按钮是一条直线 */
@@ -692,46 +648,17 @@
   font-size: var(--ts-font-size-sm);
 }
 
+/* 确认按钮：外观继承 .ts-btn；高危时叠加 .ts-btn--danger（红描边红字，base.css）。
+   刻意不刷红底——红底大按钮会被当成「默认动作」，而这里恰恰要用户停一下。 */
 .ts-ai-confirm {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 12px;
-  border: 1px solid var(--ts-border-strong);
-  border-radius: var(--ts-radius-sm);
-  background: var(--ts-bg-app);
-  color: var(--ts-text-primary);
-  font-family: var(--ts-font-ui);
-  font-size: var(--ts-font-size-sm);
-  cursor: pointer;
-}
-
-.ts-ai-confirm:hover {
-  background: var(--ts-bg-elevated);
-}
-
-/* 高危：只把描边与文字染成危险色，不刷红底——红底大按钮会被当成「默认动作」 */
-.ts-ai-confirm--danger {
-  border-color: var(--ts-danger);
-  color: var(--ts-danger);
-}
-
-.ts-ai-confirm--danger:hover {
-  background: color-mix(in srgb, var(--ts-danger) 14%, transparent);
+  height: var(--ts-control-h);
+  padding: 0 var(--ts-space-4);
 }
 
 /* ---------- 小工具 ---------- */
 
-.ts-btn--danger {
-  background: var(--ts-danger);
-  border-color: var(--ts-danger);
-  color: var(--ts-text-inverse);
-}
-
-.ts-btn--danger:hover {
-  background: color-mix(in srgb, var(--ts-danger) 85%, black);
-}
+/* 注意：不要在这里再定义 .ts-btn--danger —— base.css 是按钮的唯一真源（docs/UI-KIT.md §3），
+   组件 CSS 在 base 之后加载，重复定义会静默覆盖全局按钮外观。 */
 
 .ts-spin {
   animation: ts-ai-spin 0.9s linear infinite;

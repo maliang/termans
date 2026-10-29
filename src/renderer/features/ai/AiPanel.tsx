@@ -290,14 +290,14 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
                 审计 #17 说的是「两个纯图标挤在一行、无标签无 tooltip」——不是嫌图标本身。 */}
             <button
               type="button"
-              className="ts-ai-headbtn"
+              className="ts-btn ts-btn--ghost ts-ai-headbtn"
               onClick={() => void useAiStore.getState().reloadProviders()}
               title={t('ai:action.refresh')}
               aria-label={t('ai:action.refresh')}
               data-testid="ai-refresh-providers"
             >
               <RotateCw size={13} aria-hidden="true" />
-              <span className="ts-ai-headbtn__label">{t('ai:action.refresh')}</span>
+              <span>{t('ai:action.refresh')}</span>
             </button>
             <button
               type="button"
@@ -341,7 +341,7 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
             title={t('ai:action.newChat')}
           >
             <Plus size={14} aria-hidden="true" />
-            <span className="ts-ai-headbtn__label">{t('ai:action.newChat')}</span>
+            <span>{t('ai:action.newChat')}</span>
           </button>
         </div>
       )}
@@ -793,8 +793,9 @@ function ConfirmExecuteDialog({
             </button>
             <button
               type="button"
-              // 二次确认永远是 secondary：危险命令再叠一层 danger 描边，而不是刷成红底「主按钮」
-              className={`ts-btn ts-ai-confirm ${assessment.highRisk ? 'ts-ai-confirm--danger' : ''}`}
+              // 二次确认永远是 secondary：危险命令叠 base.css 的 .ts-btn--danger（红描边红字），
+              // 而不是刷成红底「主按钮」——红底大按钮会被当成默认动作。
+              className={`ts-btn ts-ai-confirm ${assessment.highRisk ? 'ts-btn--danger' : ''}`}
               onClick={onConfirm}
               data-testid="ai-execute-confirm"
             >
