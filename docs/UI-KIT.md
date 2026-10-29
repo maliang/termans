@@ -321,20 +321,26 @@ if (window.confirm(t('hosts:action.confirmDelete', { label: host.label }))) void
 
 「一个页面 + 两个旧弹窗」是最容易长出两套视觉的做法。约定：**面板组件拥有内容，宿主拥有外壳**。
 
+现状（t37 之后）：**安全 / 同步面板在界面上只以 `embedded` 形态出现在设置页签里**，
+独立弹窗形态已没有 UI 入口——侧栏那两个按钮在 `44e6bce` 改成了
+`openSettingsDialog('security' | 'sync')`；`HostSidebar.tsx:49-50` 里 `showSync` / `showSecurity`
+两个状态与 `:371-372` 的独立弹窗渲染仍留在代码里（另一个清理卡处理），但恒为 `false`。
+
 ```tsx
 // 面板侧（features/vault/SyncPanel.tsx、VaultSecurityPanel.tsx 已实现）
 export interface SyncPanelProps {
-  embedded?: boolean            // true = 只出内容：不渲染 .ts-vault__modal 遮罩、不渲染自己的 <h2>、不渲染「取消」
+  embedded?: boolean            // true = 只出内容：不渲染弹窗外壳、不渲染自己的 <h2>、不渲染「取消」
   onClose?: () => void          // embedded 时可省
 }
 return embedded
   ? <section className="ts-vault__card ts-vault__card--embedded" data-testid="sync-panel">{body}</section>
-  : <div className="ts-vault__modal" role="dialog" aria-modal="true">…</div>
+  : <div className="ts-dialog"><section className="ts-dialog__panel ts-dialog__panel--md" role="dialog">…</section></div>
+//       ↑ 独立弹窗形态也走 kit 的 `.ts-dialog` 外壳（t37 把四处 `.ts-vault__modal` 全迁过来了）
 
 // 宿主侧（theme/SettingsDialogHost.tsx）
 if (tab === 'sync') {
   return (
-    <div className="ts-settings__embed" data-testid="settings-embed-sync">
+    <div data-testid="settings-embed-sync">
       <SyncPanel embedded onClose={closeSettingsDialog} />
     </div>
   )
@@ -344,7 +350,11 @@ if (tab === 'sync') {
 两条纪律：
 
 1. **面板不要再自己加内边距/标题**——外壳的 header、padding、滚动条都归宿主，否则内嵌后会出现双层标题与双份留白。
-2. `.ts-settings__embed` 是**兜底层**：万一面板某天又渲染出自己的旧壳（`.ts-vault__modal` / `.ts-vault__card`），这层会把它抹平（`position:static`、去遮罩、去边框与阴影）。新面板不需要它也能看，但加上不会错。
+2. **不要为「抹平旧外壳」写兜底 CSS**。t32 时这里曾有一层 `.ts-settings__embed .ts-vault__modal{…}`
+   把旧遮罩抹平，注释写着「embedded 模式做好后这层只保留间距即可」——
+   等 embedded 真加好、`.ts-vault__modal` 又从 `vault.css` 删掉之后，这条规则**匹配不到任何元素**，
+   注释还描述着一个已经不存在的架构（t40 清掉）。去外壳的职责现在只有一个地方：
+   `vault.css` 的 `.ts-vault__card--embedded`。**注释里出现的类名，必须当下就 `grep` 得到使用者**。
 
 ## 5. 表单
 

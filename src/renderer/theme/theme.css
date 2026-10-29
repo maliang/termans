@@ -543,48 +543,16 @@
 }
 
 /* -------------------------------------------------------------------------- */
-/* 设置页里内嵌的独立面板（安全 / 同步）                                       */
+/* 内嵌面板（设置页的安全 / 同步页签）                                         */
 /*                                                                            */
-/* 这两个面板归 vault-sync 所有，本体仍是「弹窗形态」（自带 .ts-vault__modal 遮罩  */
-/* 与 .ts-vault__card 外壳）。在设置页签里内嵌时用这一层把外壳抹平，组件一行都不用改； */
-/* 等 vault-sync 加好 embedded 模式后，这层只保留间距即可。                      */
+/* 这里刻意没有任何规则：面板自己就有 `embedded` 形态——`embedded` 为真时      */
+/* `SyncPanel` / `VaultSecurityPanel` 渲染 `<section class="ts-vault__card     */
+/* ts-vault__card--embedded">`，外壳（去遮罩/去边框/去内边距）由 vault.css 的   */
+/* `.ts-vault__card--embedded` 负责，本文件不再兜一层。                        */
+/*                                                                            */
+/* 也就是说：本文件的 CSS 不能依赖「面板会渲染 `.ts-vault__modal`」这个前提——  */
+/* 那个类在 t37 把四处弹窗迁到 kit 的 `.ts-dialog` 时已经从 vault.css 删除，   */
+/* 曾经在这里的那条「抹平旧遮罩」的选择器匹配不到任何元素（t40 删除），      */
+/* 注释却还在说「等 embedded 模式做好后这层就只剩间距」，与代码现状相反，故删除。*/
+/* 判据：注释里出现的类名，必须当下就 `grep` 得到使用者。                      */
 /* -------------------------------------------------------------------------- */
-
-.ts-settings__embed .ts-vault__modal {
-  position: static;
-  inset: auto;
-  display: block;
-  z-index: auto;
-  padding: 0;
-  background: none;
-  backdrop-filter: none;
-}
-
-.ts-settings__embed .ts-vault__card {
-  width: 100%;
-  max-width: none;
-  max-height: none;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  overflow: visible;
-}
-
-/* 设置页签的占位（vault-sync 落地 embedded 前先用它，别让页签点开是空白） */
-.ts-settings__placeholder {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: var(--ts-space-2);
-  align-items: center;
-  justify-content: center;
-  min-height: 160px;
-  padding: var(--ts-space-4);
-  text-align: center;
-  border: 1px dashed var(--ts-border-strong);
-  border-radius: var(--ts-radius-md);
-  color: var(--ts-text-secondary);
-  font-size: var(--ts-font-size-sm);
-}

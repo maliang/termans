@@ -118,11 +118,12 @@ export function SettingsDialogHost(): JSX.Element | null {
 /**
  * 页签内容。
  *
- * 安全 / 同步面板归 vault-sync：`embedded` 为真时它们不渲染 `.ts-vault__modal` 遮罩、
+ * 安全 / 同步面板归 vault-sync：`embedded` 为真时它们不渲染弹窗外壳、
  * 不渲染自己的 `<h2>` 与「取消」按钮，只出内容（`SyncPanel.tsx` / `VaultSecurityPanel.tsx`
  * 里各自有 `if (embedded) return <section className="ts-vault__card ts-vault__card--embedded">`）。
- * 这里只负责摆放；外层 `.ts-settings__embed` 再兜一层「把旧外壳抹平」的样式，
- * 面板哪天换壳，视觉也不会跳。
+ * 这里只负责摆放，**不再**外包一层「把旧外壳抹平」的样式：面板自己就有 `embedded` 形态，
+ * 那层兜底样式连同它「等 embedded 做好」的过时注释一起删掉了（t40）
+ * （理由与时序见 `theme.css` 文件末尾的说明）。
  * 侧栏原来那两个独立弹窗入口已改成 `openSettingsDialog('security' | 'sync')`，
  * 于是「同类设置三种入口」收敛成一处（UI 审计 #13）。
  */
@@ -132,14 +133,14 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }): JSX.Element {
   if (tab === 'ai') return <AiSettings />
   if (tab === 'security') {
     return (
-      <div className="ts-settings__embed" data-testid="settings-embed-security">
+      <div data-testid="settings-embed-security">
         <VaultSecurityPanel embedded onClose={closeSettingsDialog} />
       </div>
     )
   }
   if (tab === 'sync') {
     return (
-      <div className="ts-settings__embed" data-testid="settings-embed-sync">
+      <div data-testid="settings-embed-sync">
         <SyncPanel embedded onClose={closeSettingsDialog} />
       </div>
     )
