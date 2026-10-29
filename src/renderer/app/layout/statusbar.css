@@ -115,3 +115,34 @@
   line-height: 14px;
   text-align: center;
 }
+
+/* --------------------------------------------------------------------------
+   与风格底座对齐（token 见 styles/tokens.css 的 html 块）
+   底座把方形图标按钮统一成 28px（--ts-control-h-sm），状态栏现在抬到 28px，
+   但仍把条内按钮收到 22px：条内要紧凑，且 28px 满高会让按钮贴住上下边。
+   -------------------------------------------------------------------------- */
+
+.ts-statusbar {
+  height: var(--ts-control-h-sm);
+  gap: var(--ts-space-3);
+  padding: 0 var(--ts-space-3);
+}
+
+.ts-statusbar .ts-statusbar__button,
+.ts-statusbar .ts-icon-btn {
+  width: 22px;
+  height: 22px;
+  font-size: var(--ts-font-size-xs);
+  border-radius: var(--ts-radius-sm);
+}
+
+/* AI 开关：右侧小标签，按下态用 accent 上色（底座只给了透明/描边） */
+.ts-statusbar__button--toggle {
+  font-weight: var(--ts-font-weight-strong);
+  letter-spacing: 0.04em;
+}
+
+.ts-statusbar__button--toggle[aria-pressed='true'] {
+  border-color: var(--ts-accent);
+  color: var(--ts-accent);
+}

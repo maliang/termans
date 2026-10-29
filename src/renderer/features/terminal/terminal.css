@@ -235,12 +235,43 @@
   color: var(--ts-text-muted);
 }
 
+/* --------------------------- 页签相关的模态弹窗 --------------------------- */
+/*
+ * 关闭确认 / 多行粘贴确认都复用风格底座的 `.ts-dialog`（与设置页同一套弹窗），
+ * 这里只补三处 kit 没有的东西：叠在页签下拉之上（picker 是 40）、正文段落、
+ * 以及 footer 里按钮文案偏长时的换行。别再自造第二套模态样式。
+ */
+
+.ts-tab-modal {
+  z-index: 60;
+}
+
+/*
+ * 确认类弹窗只有一两句话，套用设置页的 `--ts-dialog-min-h` 会撑出一大块空白
+ * （截图里 3 行内容下方空了 300px）。这里只取消最小高度，其余沿用底座。
+ */
+.ts-tab-modal .ts-dialog__panel {
+  min-height: 0;
+}
+
+.ts-dialog__text {
+  margin: 0;
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-sm);
+  line-height: var(--ts-line-height);
+}
+
+.ts-dialog__footer--wrap {
+  flex-wrap: wrap;
+  padding: var(--ts-space-2) var(--ts-space-4);
+}
+
 /* ------------------------------ 粘贴预览 ------------------------------ */
 
-.ts-confirm__preview {
+.ts-dialog__preview {
   max-height: 140px;
-  margin: 0 0 16px;
-  padding: 8px 10px;
+  margin: var(--ts-space-3) 0 0;
+  padding: var(--ts-space-2) 10px;
   overflow: auto;
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-sm);
@@ -248,7 +279,7 @@
   color: var(--ts-text-secondary);
   font-family: var(--ts-font-mono);
   font-size: var(--ts-font-size-sm);
-  line-height: 1.45;
+  line-height: var(--ts-line-height);
   white-space: pre-wrap;
   word-break: break-all;
 }

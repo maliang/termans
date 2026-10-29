@@ -116,10 +116,11 @@ export function StatusBar(): JSX.Element {
           </span>
           <button
             type="button"
-            className="ts-statusbar__action ts-statusbar__action--toggle"
+            className="ts-statusbar__button ts-statusbar__button--toggle"
             data-testid="status-toggle-ai"
             aria-pressed={aiPanelVisible}
             title={t('ai:panel.title')}
+            aria-label={t('ai:panel.title')}
             onClick={toggleAiPanel}
           >
             AI
