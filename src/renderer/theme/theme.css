@@ -242,7 +242,7 @@
 .ts-settings__textarea:focus-visible {
   border-color: var(--ts-accent);
   outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
-  outline-offset: 0;
+  outline-offset: var(--ts-focus-ring-offset);
 }
 
 /* 按钮语汇不在这里重复定义：唯一真源是 src/renderer/styles/base.css 的 .ts-btn

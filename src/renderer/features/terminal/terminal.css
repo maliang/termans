@@ -56,8 +56,8 @@
 }
 
 .ts-term-toolbar .ts-icon-btn:focus-visible {
-  outline: 2px solid var(--ts-focus-ring);
-  outline-offset: 1px;
+  outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
+  outline-offset: var(--ts-focus-ring-offset);
 }
 
 /* ------------------------------ 面板堆叠 ------------------------------ */
@@ -224,7 +224,7 @@
 
 .ts-term-search__input:focus {
   border-color: var(--ts-accent);
-  box-shadow: 0 0 0 2px var(--ts-focus-ring);
+  box-shadow: 0 0 0 var(--ts-focus-ring-width) var(--ts-focus-ring-color);
 }
 
 .ts-term-search__count {

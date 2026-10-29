@@ -131,6 +131,13 @@ textarea {
   color: var(--ts-text-muted);
 }
 
+/* 输入框本身 `outline: none`（它没有边框，画环会贴着文字），焦点环移到外层 wrapper 上。
+   注意必须用 `:focus-within`：少了它键盘用户在这两个搜索框上就完全没有焦点提示（UI 审计 #19）。 */
+.ts-sidebar__search:focus-within {
+  outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
+  outline-offset: var(--ts-focus-ring-offset);
+}
+
 .ts-sidebar__search input {
   flex: 1;
   min-width: 0;
@@ -358,6 +365,12 @@ textarea {
   background: var(--ts-bg-app);
   color: var(--ts-text-primary);
   outline: none;
+}
+
+/* `outline: none` 必须配替代：这里原来是「全站唯一一个完全没有焦点提示的可聚焦控件」（#19）。 */
+.ts-ai-panel__composer textarea:focus-visible {
+  outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
+  outline-offset: var(--ts-focus-ring-offset);
 }
 
 /* ==========================================================================

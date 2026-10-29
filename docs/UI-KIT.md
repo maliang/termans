@@ -31,7 +31,7 @@
 | | `--ts-border` / `--ts-border-strong` | 两级描边（细分隔线 / 控件边框） |
 | | `--ts-text-primary` / `--ts-text-secondary` / `--ts-text-muted` / `--ts-text-inverse` | 四级文字（正文 ≥4.5:1；muted 只用于元信息） |
 | | `--ts-accent` / `--ts-accent-strong` / `--ts-accent-contrast` | 动作色三件套：主色 / hover 深色 / 压在主色上的文字色 |
-| | `--ts-focus-ring` | 焦点色（历史 token，新代码用底座的 `--ts-focus-ring-color`） |
+| | `--ts-focus-ring` | **legacy**：仅为兼容用户已导出的主题 JSON 保留定义，组件零使用（详见 §3） |
 | | `--ts-selection` | 文本选中底色 |
 | | `--ts-status-ok` / `--ts-status-warn` / `--ts-status-error` | 三态语义色 |
 | **ANSI 16** | `--ts-ansi-black` … `--ts-ansi-bright-white` | xterm 的 16 色，顺序 = xterm 索引（`--ts-ansi-black/red/green/yellow/blue/magenta/cyan/white` 后接 8 个 `bright-*`） |
@@ -216,9 +216,38 @@ if (window.confirm(t('hosts:action.confirmDelete', { label: host.label }))) void
 .ts-field input:focus-visible {
   border-color: var(--ts-accent);
   outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
-  outline-offset: 0;
+  outline-offset: var(--ts-focus-ring-offset);
 }
 ```
+
+#### `--ts-focus-ring` 是 legacy：保留定义，组件零使用
+
+契约层还有一个 `--ts-focus-ring`（`src/shared/theme.ts:39`，暗色 `rgba(248,171,36,.55)`、浅色 `rgba(200,106,8,.45)`）。
+**不要删它**，也不要再用它：
+
+- 它是 52 个主题 token 之一，会进用户导出的主题 JSON。删掉字段 = 用户既有主题文件导入时缺 token，
+  `themeTokenSetSchema` 直接判失败（M-08 那类回归）。所以定义必须留着。
+- 但它和底座的 `--ts-focus-ring-color`（实心 accent）**视觉不同**：旧的是半透明光晕，新的是实线。
+  两者混用会出现「按 Tab 走一遍，有的控件是光晕、有的是实线」——这正是「不像一个产品」的典型残留。
+- 裁定（captain，t34）：**保留定义、组件零使用**。新代码一律三元组；`--ts-focus-ring` 只在
+  `tokens.css` 里继续声明，供旧主题 JSON 反序列化。
+
+2026-10-29 `grep -rn "outline:" src/renderer --include=*.css` 的现状（已收干净）：
+
+| 位置 | 形态 | 说明 |
+|---|---|---|
+| `src/renderer/styles/base.css:53` `/ :529` | 三元组 | 全局 `:focus-visible` + `.ts-field input:focus-visible` |
+| `src/renderer/styles/base.css:137` | 三元组 | `.ts-sidebar__search:focus-within`（输入框无边框，环画在 wrapper 上） |
+| `src/renderer/styles/base.css:372` | 三元组 | `.ts-ai-panel__composer textarea:focus-visible`（此前只有 `outline:none`，键盘用户零反馈） |
+| `src/renderer/theme/theme.css:244` | 三元组 | `.ts-settings__input/select/textarea:focus-visible` |
+| `src/renderer/app/layout/statusbar.css:82` | 三元组 | 状态栏按钮（原硬编码 `2px` + legacy 色） |
+| `src/renderer/features/terminal/terminal.css:59` | 三元组 | 终端工具栏图标按钮（同上） |
+| `src/renderer/features/terminal/terminal.css:227` | `box-shadow: 0 0 0 var(--ts-focus-ring-width) var(--ts-focus-ring-color)` | 终端搜索框（滚动容器内，环画在框内才不被裁） |
+| `src/renderer/features/vault/vault.css:632` | 三元组 | 主机编辑器关闭按钮（同上） |
+| `src/renderer/features/vault/vault.css:737` | `outline: var(--ts-focus-ring-width) solid var(--ts-accent)` | 取色块**选中态**（不是焦点环，故意用实心 accent） |
+| `terminal.css:222` / `base.css:146` / `vault.css:71` | `outline: none` | 三个无边框输入框：前者配 `box-shadow` 环，后两者环画在 wrapper（`base.css` 已修，`vault.css` 待 vault-sync） |
+
+自查句（写 PR / 评审时直接引用）：**组件 CSS 里出现硬编码的 outline 宽度或颜色（如 `outline: 2px solid var(--ts-focus-ring)`），视为不合格。**
 
 ---
 
@@ -346,7 +375,7 @@ if (tab === 'sync') {
 | `gap: 6px` | `gap: var(--ts-space-1)`（4）或 `--ts-space-2`（8） | 没有 6 这一档 |
 | `height: 26px`（图标按钮） | `var(--ts-control-h-sm)`（28） | 两档：28 / 32 |
 | `font-size: 11px` | `var(--ts-font-size-xs)` | |
-| `outline: 2px solid var(--ts-focus-ring)` | `outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color)` | 环色改实心 accent |
+| `outline: 2px solid var(--ts-focus-ring)` | `outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color)` | 环色改实心 accent（`--ts-focus-ring` 转 legacy，见 §3） |
 | `box-shadow: 0 0 0 3px var(--ts-focus-ring)` | `outline` + `outline-offset` | ring 只在 focus-visible 上 |
 | `border-radius: 8px` | `var(--ts-radius-sm)`(6) 或 `--ts-radius-md`(10) | |
 | 组件里写 `#` 色值 | 语义 token（见 §1.2） | |

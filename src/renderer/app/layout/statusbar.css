@@ -79,8 +79,8 @@
 }
 
 .ts-statusbar__action:focus-visible {
-  outline: 2px solid var(--ts-focus-ring);
-  outline-offset: 1px;
+  outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
+  outline-offset: var(--ts-focus-ring-offset);
 }
 
 .ts-statusbar__action:disabled {
