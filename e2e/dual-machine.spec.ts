@@ -18,7 +18,8 @@ import {
   pullSync,
   pushSync,
   unlockVault,
-  waitForConnected
+  waitForConnected,
+  waitForVaultUnlocked
 } from './fixtures/ui'
 
 /**
@@ -50,7 +51,17 @@ const HOSTS = [
 const SECRETS = ['db-secret-42', 'web-secret-43', 'termans-test', '10.20.30.40', '192.0.2.77', 'PRIVATE KEY', PASSPHRASE]
 
 function git(args: string[]): string {
-  return execFileSync('git', args, { encoding: 'utf8' }).toString()
+  // stderr 丢掉：gitOrEmpty 会先撞上「还没有任何提交」这种合法中间态，让它把 fatal 打到报告里会像出错
+  return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).toString()
+}
+
+/** 跑 git，失败返回空串（用于「还没提交」这种合法中间态，别让 execFileSync 直接抛） */
+function gitOrEmpty(args: string[]): string {
+  try {
+    return git(args).trim()
+  } catch {
+    return ''
+  }
 }
 
 /** 把 bare 仓库当前 HEAD 里所有文件的字节都读出来（仓库里只有若干小文件） */
@@ -141,20 +152,26 @@ test('S-11 双机迁移：A 推送 → B 同口令拉取 → 3 台主机都在�
       await createVault(b.window, PASSPHRASE)
       await openSyncPanel(b.window)
       await connectSyncRemote(b.window, { url: gateway.url })
+      // 连远端时的对齐会把 vault 回锁（`.ts-app` 的 data-locked 先翻、解锁屏后到），
+      // 面板按钮此时仍在 DOM 但不可见 —— 先 settle 再点拉取，否则 click 30s 超时。
+      await waitForVaultUnlocked(b.window, PASSPHRASE)
+      await openSyncPanel(b.window)
       await pullSync(b.window)
 
       // 先断言「对齐没有毁掉工作区」：首次对齐会 rm 掉本机刚建的空库文件再 clone，
       // 若只留下 .git（远端没 checkout 回来），vault.enc 就会消失 —— 那属于数据丢失，
       // 必须在解锁之前拦下来，否则后面的断言只会报「连不上」而掩盖真实原因。
+      // 对齐是异步收尾的（面板/状态先落定、checkout 随后），所以这几条用 poll 等，不要抢在它前面断言。
+      await expect
+        .poll(() => gitOrEmpty(['-C', join(dirB, 'vault'), 'log', '--oneline', '-1']), { timeout: 30_000 })
+        .toContain('termans:')
       expect(existsSync(join(dirB, 'vault', 'vault.enc')), '首次对齐后 vault.enc 必须存在（否则是对齐把工作区清空了）').toBe(true)
       expect(existsSync(join(dirB, 'vault', 'manifest.json')), '首次对齐后 manifest.json 必须存在').toBe(true)
       expect(git(['-C', join(dirB, 'vault'), 'status', '--porcelain']), '对齐后工作区必须是干净的').toBe('')
-      expect(git(['-C', join(dirB, 'vault'), 'log', '--oneline', '-1'])).toContain('termans:')
 
       // 对齐后 A 的密文归 A 的 VMK：B 用同主口令重新解锁，主机库才是远端那 3 台
       // （F-1 修完后回锁会 emit，解锁屏真的会出现）
-      await expect(b.window.getByTestId('unlock-screen')).toBeVisible({ timeout: 20_000 })
-      await unlockVault(b.window, PASSPHRASE)
+      await waitForVaultUnlocked(b.window, PASSPHRASE)
       await expect(b.window.getByTestId('host-sidebar')).toBeVisible({ timeout: 20_000 })
 
       // 同步面板的模态遮罩会吃掉 dblclick（实测 `<div class="ts-modal">…</div> intercepts pointer events`），
@@ -200,12 +217,21 @@ test('S-11 双机迁移：拿错主口令的新机必须看不到任何主机（
     try {
       await createVault(c.window, `${PASSPHRASE}-wrong`)
       await openSyncPanel(c.window)
+      // 连远端的对齐本身就会 fetch + checkout（同 B 机），所以这里不需要再点一次拉取：
+      // C 机口令是错的，回锁之后根本解锁不了，面板也就点不动。
       await connectSyncRemote(c.window, { url: gateway.url })
-      await pullSync(c.window)
 
-      // 远端密文属于 A 的 VMK：错口令的机器即使把仓库拉下来也解不开 → 必须回锁
+      // 远端密文属于 A 的 VMK：错口令的机器即使把仓库拉下来也解不开 → 必须回锁。
+      // 对齐（fetch + checkout）是异步完成的，解锁屏会比它先出现，所以先等仓库里真的有 A 的提交，
+      // 再看「回锁」—— 顺序反了会在 clone 还没落地时就断言，读到 'no commits yet' 的假红。
+      await expect
+        .poll(() => gitOrEmpty(['-C', join(dirC, 'vault'), 'log', '--oneline', '-1']), {
+          timeout: 30_000,
+          message: 'C 机的仓库应当已被对齐到 A 推上去的那次提交'
+        })
+        .toContain('termans:')
       expect(existsSync(join(dirC, 'vault', 'vault.enc'))).toBe(true)
-      await expect(c.window.getByTestId('unlock-screen')).toBeVisible({ timeout: 20_000 })
+      await expect(c.window.getByTestId('unlock-screen')).toBeVisible({ timeout: 30_000 })
 
       // 用错口令再解锁：必须明确报错，而不是「解开了但空库」
       await unlockVault(c.window, `${PASSPHRASE}-wrong`)

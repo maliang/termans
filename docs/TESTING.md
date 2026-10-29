@@ -204,6 +204,7 @@ await withDualMachine(async ({ dirA, dirB, bareRepo, bareRepoUrl }) => {
 | known_hosts 首连写入 / 指纹变更硬失败 | `FIXTURE_HOST_KEY` + `FIXTURE_HOST_KEY_FINGERPRINT`，配合 `hostKey` 覆盖 | 应用里读 `known_hosts.json`；指纹不符时连接必须失败（`Host denied`） |
 | 终端 echo / 退出码 / 多页签 | `startSshFixture()` + `launchApp()` | shell 输出 `hi\r\n`；`execs`/`shellLines` |
 | S-07 双机 A→B 迁移 | `withDualMachine()` + 两次 `launchApp()` | bareRepo 里的密文与 B 读到的数据一致；A/B 的 `userData` 互不相干 |
+| S-10 乐观锁冲突逐字段选边 | `withDualMachine()` + `serveBareRepo()` + 两台 `launchApp()` | `sync-conflicts` 里 `.ts-vault__conflict` 一条、bare `HEAD:manifest.json` 的 `revision` 未前进；选边后本地/远端各自落地 |
 | 主题 / 布局截图回归 | `launchApp()` + `capture()` | 落盘 PNG（`artifacts/` 已 gitignore；要入库的放 `docs/assets/`） |
 
 ### 5.1 e2e 侧那套夹具与 tests/fixtures 的区别（t26 补）
@@ -244,3 +245,27 @@ xterm 在 GPU 可用时挂 WebGL，文字在 canvas 里，`.xterm-rows` 数量�
 回退 DOM 渲染器后才有文本。**凡是会读终端内容的用例都必须带这个参数**，否则报
 「没有 .xterm-rows」。同理：截图落 `artifacts/`（已 gitignore），`docs/assets/shell.png` 由发布流程单独更新，
 测试直接写它会把别人未提交的版本覆盖掉。
+
+### 5.4 S-10 乐观锁冲突（t8 补，`e2e/conflict.spec.ts`）
+
+三条用例：同一现场分别选**保留本地 / 保留远端 / 两边都留**，每一条都真点面板按钮（不直调 `sync:resolve`），
+并核对三件事：冲突快照落盘、远端没被静默推进、选边结果能传到另一台机器。
+
+造现场的四条硬经验（不按这个来，用例会「看起来绿」）：
+
+1. **必须两边改同一个字段**。`mergePayloads()` 是逐字段三方合并，两边改不同字段会自动并入、不产生冲突
+   （见 `src/main/git/conflicts.ts` `mergePayloads`）。所以 base=2201、A→2222、B→2300，冲突路径是
+   `hosts.<id>.port`；若 A 改 port、B 改 username，只会干净合并，测不到任何东西。
+2. **冲突未解决时工作副本会回到远端内容**（`mergeFlow` 里 `resetTo(remote)` + `manager.reload()`），
+   本地值只活在冲突记录与快照里。所以「不静默覆盖」要断言的是「本地值在冲突面板/快照里可读 + 远端 revision 未前进」，
+   而不是「`hosts:list` 里还是 2222」——后者是错误期望，会稳定假红。
+3. **主机改动走 `hosts:update`**：当前外壳没有编辑已有主机的 UI 入口（双击=连接，见 `HostLibraryPane.tsx`
+   的 `onDoubleClickCapture`），这是产品缺口不是用例要验的东西；但**选边必须点 UI**，两件事别混。
+4. **解决后清理是异步的**：`state.enc` 在推送成功之后才删（实测有几百毫秒窗口），断言要 `expect.poll`；
+   时间戳快照目录是留证，不清。
+
+回锁竞态（同一文件里踩到、`e2e/fixtures/ui.ts` 已提供 `waitForVaultUnlocked()`）：连远端做首轮对齐时
+产品会把 vault 回锁，`.ts-app` 的 `data-locked` **先**翻成 `"true"`、解锁屏**后**绘制，中间那一瞬
+「解锁屏还没出现、外壳看着还在、同步面板按钮已经 hidden」——此时直接 `click()` 会 30s 超时。
+`waitForVaultUnlocked(page, passphrase)` 要求「已解锁」连续两次抽样成立才返回，并在遇到解锁屏时自动解锁。
+`createVault()` 同样改成了重试循环：口令判弱要求「同口令再点一次创建」，而弱口令提示与外壳渲染谁先到是竞态的。

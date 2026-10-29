@@ -32,17 +32,24 @@ export async function createVault(page: Page, passphrase = VAULT_PASSPHRASE): Pr
   await page.getByTestId('passphrase-repeat').fill(passphrase)
   await page.getByTestId('create-vault').click()
 
-  // 口令被判弱：协议要求「同口令再提交一次」才接受（冻结契约里没有 confirm 字段）。
-  // 两个分支二选一，等到任意一个发生再判断，避免用固定 sleep 猜时序。
+  // 口令被判弱时协议要求「同口令再提交一次」才接受（冻结契约里没有 confirm 字段）。
+  // 写成重试循环而不是「判断一次」：弱口令提示与外壳渲染谁先到是竞态的（全量跑时实测到
+  // 「等到 15s 既没提示也没消失」的瞬间），用固定一次点击会偶发卡在解锁屏上。
   const weak = page.getByTestId('weak-passphrase-warning')
-  await Promise.race([
-    weak.waitFor({ timeout: 15_000 }).catch(() => null),
-    page.getByTestId('unlock-screen').waitFor({ state: 'detached', timeout: 15_000 }).catch(() => null)
-  ])
-  if (await weak.isVisible().catch(() => false)) {
-    await page.getByTestId('create-vault').click()
+  const screen = page.getByTestId('unlock-screen')
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if ((await screen.count()) === 0) break
+    await Promise.race([
+      weak.waitFor({ timeout: 10_000 }).catch(() => null),
+      screen.waitFor({ state: 'detached', timeout: 10_000 }).catch(() => null)
+    ])
+    if ((await screen.count()) === 0) break
+    if (await weak.isVisible().catch(() => false)) {
+      // 提示已在：「同口令再提交一次」= 再点一次创建
+      await page.getByTestId('create-vault').click()
+    }
   }
-  await expect(page.getByTestId('unlock-screen')).toHaveCount(0, { timeout: 20_000 })
+  await expect(screen, '建库后解锁屏必须消失（口令判弱时要点两次创建）').toHaveCount(0, { timeout: 20_000 })
   // 解锁屏消失 = 外壳可用；再等一次主机库真的渲染出来
   await expect(page.getByTestId('host-sidebar')).toBeVisible()
 }
@@ -195,6 +202,62 @@ export async function hostIdByLabel(page: Page, label: string): Promise<string> 
   return host.id
 }
 
+/** 读回主机库里某一台的全部字段（`hosts:list` 的原始对象，含 id/port/updatedAt） */
+export async function hostByLabel(page: Page, label: string): Promise<Record<string, unknown>> {
+  const library = (await invokeInPage(page, 'hosts:list')) as { hosts: Array<Record<string, unknown>> }
+  const host = library.hosts.find((candidate) => candidate.label === label) ?? null
+  if (host === null) throw new Error(`[e2e] 主机库里没有 label=${label}`)
+  return host
+}
+
+/**
+ * 用 `hosts:update` 改主机的若干字段（乐观锁冲突用例需要两台机器各改同一台主机的同一个字段）。
+ *
+ * 为什么走 IPC 而不是点界面：当前 shell 里**没有任何 UI 路径可以编辑已有主机**
+ * （`HostTree` 的双击 = 编辑，被 `src/renderer/app/layout/HostLibraryPane.tsx` 的
+ * `onDoubleClickCapture` 改写成「连接」），这是产品缺口，已作为 finding 上报。
+ * 本函数只负责「把两台机器的库改到会冲突的状态」，**冲突解决那一步仍然必须点 UI 按钮**。
+ *
+ * `hosts:update` 的 patch 是完整 HostInput，所以先读回 HostRecord 再覆盖指定字段；
+ * id/sortIndex/createdAt/updatedAt 不属于 HostInput，传进去会被 zod 丢掉，这里显式剥掉以免误导读者。
+ */
+export async function updateHostFields(
+  page: Page,
+  hostId: string,
+  patch: Record<string, unknown>
+): Promise<void> {
+  const library = (await invokeInPage(page, 'hosts:list')) as { hosts: Array<Record<string, unknown>> }
+  const host = library.hosts.find((candidate) => candidate.id === hostId) ?? null
+  if (host === null) throw new Error(`[e2e] 主机库里没有 id=${hostId}`)
+  const { id: _id, sortIndex: _sortIndex, createdAt: _createdAt, updatedAt: _updatedAt, ...input } = host
+  await invokeInPage(page, 'hosts:update', { hostId, patch: { ...input, ...patch } })
+}
+
+/**
+ * 点「推送」并**期望撞上乐观锁冲突**：冲突列表 `sync-conflicts` 必须出现。
+ *
+ * 与 `pushSync()` 的区别：那个等的是「按钮恢复可用」（对应成功），这条等的是冲突面板，
+ * 因为冲突时 `sync:push` 会以 E_CONFLICT 失败，UI 走的是错误路径而不是成功路径。
+ */
+export async function pushSyncExpectingConflict(page: Page): Promise<void> {
+  await page.getByTestId('sync-push').click()
+  await expect(page.getByTestId('sync-conflicts')).toBeVisible({ timeout: 30_000 })
+}
+
+/** 在冲突列表里点某个策略按钮（按 i18n 文案的正则取，中英都命中） */
+export async function resolveConflictByButton(
+  page: Page,
+  strategy: 'local' | 'remote' | 'duplicate'
+): Promise<void> {
+  const labels = {
+    local: /保留本地|Keep local/i,
+    remote: /保留远端|Keep remote/i,
+    duplicate: /两边都留|Keep both/i
+  } as const
+  const conflicts = page.getByTestId('sync-conflicts')
+  await conflicts.getByRole('button', { name: labels[strategy] }).first().click()
+}
+
 /**
  * 把私钥导入 vault（等价于 UI 的「导入私钥」按钮，走同一条 credentials:set 通道）。
  *
@@ -320,10 +383,12 @@ export async function executeAiCommandCard(page: Page, index = 0): Promise<void>
 
 // ---------------------------------------------------------------- Git 同步
 
-/** 打开同步面板 */
+/** 打开同步面板（幂等：面板已经开着就直接返回 —— 开着时点 footer 按钮会被模态遮罩吃掉） */
 export async function openSyncPanel(page: Page): Promise<void> {
+  const panel = page.getByTestId('sync-panel')
+  if (await panel.isVisible().catch(() => false)) return
   await page.getByTestId('open-sync-panel').click()
-  await expect(page.getByTestId('sync-panel')).toBeVisible()
+  await expect(panel).toBeVisible()
 }
 
 export interface SyncTarget {
@@ -347,16 +412,101 @@ export async function connectSyncRemote(page: Page, target: SyncTarget): Promise
   await expect(page.getByTestId('sync-push')).toBeVisible({ timeout: 20_000 })
 }
 
-/** 推送到远端（等状态条从「同步中」回到稳定态由调用方断言仓库内容） */
-export async function pushSync(page: Page): Promise<void> {
-  await page.getByTestId('sync-push').click()
-  await expect(page.getByTestId('sync-push')).toBeEnabled({ timeout: 30_000 })
+/** 同步状态快照（`sync:status` 的原样对象，只取断言用得上的字段） */
+interface SyncSnapshot {
+  state?: string
+  localCommit?: string | null
+  remoteCommit?: string | null
+  conflictCount?: number
+  /** 每次成功同步（push/pull，含无改动的空推）都会刷新它 —— 比「按钮恢复可用」可靠得多 */
+  lastSyncedAt?: string | null
+  error?: unknown
 }
 
-/** 从远端拉取 */
+async function syncSnapshot(page: Page): Promise<SyncSnapshot> {
+  return (await invokeInPage(page, 'sync:status')) as SyncSnapshot
+}
+
+/**
+ * 「这次同步结束了吗」的判据。
+ *
+ * 为什么不能只看按钮恢复可用：点下去之后有一小段时间按钮仍是 enabled，
+ * `expect(button).toBeEnabled()` 会立刻返回 —— 实测因此读到过「推送刚点完、远端 revision 还没变」
+ * 的中间态（用例偶发红在 `revisionAfterRemotePush` 上）。真正的稳定态是二选一：
+ * 提交换了（成功）或进了冲突/错误态。
+ */
+function settledState(now: SyncSnapshot, before: SyncSnapshot): string {
+  if (now.state === 'syncing') return 'syncing'
+  if ((now.conflictCount ?? 0) > 0) return 'conflict'
+  if (now.error !== null && now.error !== undefined && now.error !== before.error) return 'error'
+  if (now.lastSyncedAt !== null && now.lastSyncedAt !== undefined && now.lastSyncedAt !== before.lastSyncedAt) {
+    return 'settled'
+  }
+  if (now.localCommit !== null && now.localCommit !== undefined && now.localCommit !== before.localCommit) {
+    return 'settled'
+  }
+  return 'idle'
+}
+
+async function waitForSyncOutcome(page: Page, action: 'push' | 'pull'): Promise<void> {
+  const before = await syncSnapshot(page)
+  await page.getByTestId(action === 'push' ? 'sync-push' : 'sync-pull').click()
+  await expect
+    .poll(async () => settledState(await syncSnapshot(page), before), {
+      timeout: 30_000,
+      message: `${action} 没有在 30s 内落到稳定结果（settled/conflict/error）`
+    })
+    .toMatch(/settled|conflict|error/)
+  await expect(page.getByTestId(action === 'push' ? 'sync-push' : 'sync-pull')).toBeEnabled({ timeout: 30_000 })
+}
+
+/** 推送到远端（等到推送真的结束：提交换了、或进了冲突/错误态） */
+export async function pushSync(page: Page): Promise<void> {
+  await waitForSyncOutcome(page, 'push')
+}
+
+/** 从远端拉取（判据同上） */
 export async function pullSync(page: Page): Promise<void> {
-  await page.getByTestId('sync-pull').click()
-  await expect(page.getByTestId('sync-pull')).toBeEnabled({ timeout: 30_000 })
+  await waitForSyncOutcome(page, 'pull')
+}
+
+/**
+ * 等 vault 真正停在「已解锁」状态，过程中遇到回锁就自动解锁。
+ *
+ * 为什么需要它：首次连接远端会做 `alignFreshFromRemote`（对齐期间禁止写），对齐结束时
+ * 产品会把 vault **重新锁上**（外壳 `visibility:hidden`）。这会带来两个连环坑：
+ * ① 同步面板的 push/pull 按钮仍在 DOM 里但不可见，直接 click 会 30s 超时；
+ * ② 回锁时 `.ts-app` 的 `data-locked` **先**翻成 `"true"`，解锁屏要再等一会儿才绘制出来，
+ *    所以「看一眼没有解锁屏、外壳还在」就以为解锁了，会踩在中间态上。
+ * 这里要求「已解锁」连续两次抽样（间隔 300ms）成立才算 settle。
+ */
+export async function waitForVaultUnlocked(page: Page, passphrase: string): Promise<void> {
+  const deadline = Date.now() + 45_000
+  let stable = 0
+  while (Date.now() < deadline) {
+    if (await page.getByTestId('unlock-screen').isVisible().catch(() => false)) {
+      await unlockVault(page, passphrase)
+      stable = 0
+      continue
+    }
+    const locked = await page.evaluate(
+      () => document.querySelector('.ts-app')?.getAttribute('data-locked') === 'true'
+    )
+    if (locked) {
+      stable = 0
+      await page.waitForTimeout(200)
+      continue
+    }
+    if (await page.getByTestId('host-sidebar').isVisible().catch(() => false)) {
+      stable += 1
+      if (stable >= 2) return
+      await page.waitForTimeout(300)
+      continue
+    }
+    stable = 0
+    await page.waitForTimeout(200)
+  }
+  throw new Error('vault 在「解锁/回锁」之间抖动超过 45s，没能 settle')
 }
 
 /** 关掉同步面板（✕ 可能是面板内的取消按钮） */
