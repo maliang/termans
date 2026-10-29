@@ -47,6 +47,9 @@ test('切主题：终端背景计算值随主题改变，data-theme-id 同步更
   await openSettings(page)
   // 选一张与当前不同的内置主题（不写死「下一个是谁」，避免主题顺序调整就把用例弄红）
   const options = page.locator('[data-testid^="theme-option-"]')
+  // 设置弹窗可见 ≠ 主题网格已渲染完：机器慢一点时这里会读到 0 个 option，
+  // 于是 `count > 1` 断言红在「主题列表是空的」这种假象上（全量连跑时真踩过一次）。
+  await expect(options.first()).toBeVisible({ timeout: 15_000 })
   const count = await options.count()
   expect(count).toBeGreaterThan(1)
   let picked = ''

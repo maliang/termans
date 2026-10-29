@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import net from 'node:net'
 import { Server, utils } from 'ssh2'
 import type { Connection, ParsedKey, ServerChannel } from 'ssh2'
 
@@ -15,7 +16,11 @@ import type { Connection, ParsedKey, ServerChannel } from 'ssh2'
  * - 密码认证（固定测试账号）与 publickey 认证（固定测试密钥）；
  * - 固定 host key（写死在同一份文件里，known_hosts 用例才能对着**跨运行稳定**的指纹断言）；
  * - shell：回显（`echo hi\r` → `hi\r\n`），`exit` 关通道；
- * - exec：`echo/cat/whoami/pwd/uname` 的最小实现，供「命令执行」类用例使用。
+ * - exec：`echo/cat/whoami/pwd/uname` 的最小实现，供「命令执行」类用例使用；
+ * - direct-tcpip 转发（`forwardTo`）：S-12 跳板机用例需要一台「真实 SSH 服务器当跳板」，
+ *   所以这里接受 direct-tcpip 通道并把字节流接到 `forwardTo` 指定的真实目标上。
+ *   目标机的主机条目故意写成**直连必失败**的地址（127.0.0.1:1），于是「跳板逻辑没生效」时用例必然红，
+ *   而不是「不走跳板恰好也能连上」。
  *
  * 端口一律 `listen(0)` 让系统分配：本机 2222 可能被占，写死端口会让用例变成「看运气」。
  */
@@ -52,6 +57,10 @@ export interface E2eSshServer {
   shellLines: string[]
   /** exec 请求记录 */
   execs: { command: string; exitCode: number }[]
+  /** direct-tcpip 请求记录（S-12：断言跳板机确实为这条连接开过隧道） */
+  tcpips: { destIP: string; destPort: number }[]
+  /** shell 开场 banner（跳板机用例把目标机设成别的文案，用来证明「终端内容确实来自目标机」） */
+  banner: string
   stop(): Promise<void>
 }
 
@@ -155,7 +164,7 @@ function verifyAuthentication(
  * 症状是「终端连上了、敲键盘没反应」——这个坑在探针里真实踩过一次（shellLines 恒为空）。
  */
 function attachShell(stream: ServerChannel, server: E2eSshServer): void {
-  stream.write('termans-e2e ready\r\n')
+  stream.write(`${server.banner}\r\n`)
   let pending = ''
   stream.on('data', (chunk: Buffer) => {
     pending += chunk.toString('utf8')
@@ -198,12 +207,23 @@ function attachExec(stream: ServerChannel, command: string, server: E2eSshServer
   stream.exit(code)
 }
 
-export async function startE2eSshServer(
-  options: { echoInput?: boolean } = {}
-): Promise<E2eSshServer> {
+export interface E2eSshServerOptions {
+  echoInput?: boolean
+  /** shell 开场 banner，默认 `termans-e2e ready` */
+  banner?: string
+  /**
+   * 当作跳板机时使用：收到 direct-tcpip 就接到这个地址（忽略客户端请求的 dest）。
+   * 不设则拒绝所有 direct-tcpip（普通用例不需要转发）。
+   */
+  forwardTo?: { host: string; port: number }
+}
+
+export async function startE2eSshServer(options: E2eSshServerOptions = {}): Promise<E2eSshServer> {
+  const banner = options.banner ?? 'termans-e2e ready'
   const attempts: E2eSshServer['authAttempts'] = []
   const shellLines: string[] = []
   const execs: E2eSshServer['execs'] = []
+  const tcpips: E2eSshServer['tcpips'] = []
   const clientKey = makeClientKeyPair()
 
   const clientParsed = utils.parseKey(clientKey.publicKey)
@@ -222,12 +242,37 @@ export async function startE2eSshServer(
     authAttempts: attempts,
     shellLines,
     execs,
+    tcpips,
+    banner,
     stop: async () => undefined
   }
 
   const ssh = new Server({ hostKeys: [HOST_KEY_SEED] }, (client: Connection) => {
     client.on('authentication', (ctx) => verifyAuthentication(attempts, authorized, ctx as never))
     client.on('ready', () => {
+      // direct-tcpip：跳板机把目标机的字节流接过来（S-12）
+      client.on(
+        'tcpip',
+        (acceptTcpip: () => ServerChannel, rejectTcpip: () => void, info: { destIP: string; destPort: number }) => {
+          tcpips.push({ destIP: info.destIP, destPort: info.destPort })
+          if (options.forwardTo === undefined) {
+            rejectTcpip()
+            return
+          }
+          const channel = acceptTcpip()
+          const upstream = net.connect(options.forwardTo.port, options.forwardTo.host)
+          upstream.on('connect', () => {
+            channel.pipe(upstream)
+            upstream.pipe(channel)
+          })
+          upstream.on('error', () => {
+            channel.exit(1)
+            channel.end()
+          })
+          channel.on('close', () => upstream.destroy())
+        }
+      )
+
       client.on('session', (accept) => {
         const session = accept()
         let tty = false

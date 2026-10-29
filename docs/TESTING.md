@@ -205,3 +205,42 @@ await withDualMachine(async ({ dirA, dirB, bareRepo, bareRepoUrl }) => {
 | 终端 echo / 退出码 / 多页签 | `startSshFixture()` + `launchApp()` | shell 输出 `hi\r\n`；`execs`/`shellLines` |
 | S-07 双机 A→B 迁移 | `withDualMachine()` + 两次 `launchApp()` | bareRepo 里的密文与 B 读到的数据一致；A/B 的 `userData` 互不相干 |
 | 主题 / 布局截图回归 | `launchApp()` + `capture()` | 落盘 PNG（`artifacts/` 已 gitignore；要入库的放 `docs/assets/`） |
+
+### 5.1 e2e 侧那套夹具与 tests/fixtures 的区别（t26 补）
+
+`e2e/fixtures/ssh-server.ts` **不是** `tests/fixtures/ssh-server.ts` 的包装，两者刻意不共享代码：
+
+| | `tests/fixtures/ssh-server.ts`（engine 维护） | `e2e/fixtures/ssh-server.ts`（qa 维护） |
+| --- | --- | --- |
+| 监听方式 | 自建 `net.Server` + `server.injectSocket()`（为拿到原始 socket） | 标准 `ssh2.Server.listen(0,'127.0.0.1')` |
+| 用途 | 主进程单测（不经 Electron） | 真 Electron 里跑端到端 |
+| 额外能力 | host key 固定、两段式 publickey 校验 | **shell banner 可定制**（`banner`），**direct-tcpip 转发**（`forwardTo` + `tcpips` 记录） |
+
+`forwardTo` 是 S-12 跳板机用例的地基：跳板机夹具收到 direct-tcpip 就接到真实目标机上，
+于是「目标机主机条目写 `127.0.0.1:1`（直连必拒）」也能连通 —— 跳板逻辑一旦没生效，用例必然红，
+而不是「不走跳板恰好也能连上」这类假绿。
+
+### 5.2 S-11 / S-12 用例要点（t26）
+
+- **S-11 双机迁移**（`e2e/dual-machine.spec.ts`，3 条）：A 推 → B 拉 → 3 台主机 + 真登夹具；错口令机器看不到主机。
+  两个易踩点：
+  1. `pullSync()` 结束后同步面板的模态还在 DOM 里，`dblclick` 会被 `.ts-modal` 吃掉 —— 连线前先 `closeSyncPanel()`；
+  2. 要断言「这个 IPC 必须失败」（如 `E_VAULT_LOCKED`）时用 `invokeInPageRaw()`，`invokeInPage()` 在 `ok:false` 时会抛，
+     会把「断言通过」变成「测试红」。
+  另外该文件**不要**加 `describe.configure({ mode: 'serial' })`：串行模式下前一条红会让后面显示 "did not run"，
+  判定表就没法逐条给结论（配置里已 `workers: 1`，用例之间本来无共享状态）。
+- **S-12 跳板机**（`e2e/jump-host.spec.ts`，2 条）：经跳板机连上目标机、终端 banner 来自目标机、`jump.tcpips` 有 dest 记录；
+  反面是跳板机指纹被改成错值 → 硬失败、目标机 `authAttempts` 与 `tcpips` 都不增长。
+  夹具侧靠 `startE2eSshServer({ forwardTo, banner })`：跳板机夹具收到 `direct-tcpip` 就接到真实目标机，
+  目标机 banner 换成 `termans-e2e target ready` 用来证明「终端内容确实来自目标机」。
+  **别用「点掉两个 host-key 确认框再数次数」的方式断言**：两台夹具共用同一把固定 host key、指纹一模一样，
+  机器繁忙时两个框重叠重渲染，`toHaveCount(0)` 会稳定假失败（实测 3 连跑红过 1 次）。
+  正确做法是 `known-hosts:trust` 预置指纹，把「指纹接受/拒绝」交给本文件反面用例与 `vault-security.spec.ts` ⑧，
+  这里只断言隧道被用上。
+
+### 5.3 终端文本与 `--disable-gpu`（对所有读终端的用例都成立）
+
+xterm 在 GPU 可用时挂 WebGL，文字在 canvas 里，`.xterm-rows` 数量为 0；`launchApp({ args: ['--disable-gpu'] })`
+回退 DOM 渲染器后才有文本。**凡是会读终端内容的用例都必须带这个参数**，否则报
+「没有 .xterm-rows」。同理：截图落 `artifacts/`（已 gitignore），`docs/assets/shell.png` 由发布流程单独更新，
+测试直接写它会把别人未提交的版本覆盖掉。

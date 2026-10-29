@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { createVault } from './fixtures/ui'
 
 /**
  * 启动冒烟：唯一一个由 architect 维护的 e2e 用例，qa 只在其下扩写。
@@ -63,20 +64,46 @@ test.afterEach(async () => {
   rmSync(userDataDir, { recursive: true, force: true })
 })
 
-test('窗口标题为 Termans，外壳四区渲染完成', async () => {
+/**
+ * F-4 修正（t26）：这条用例原先断言「启动即见主机侧栏」，而产品的正确行为是
+ * **未建库/未解锁时不渲染主机名与 IP**（锁定态外壳 `visibility:hidden`，见 App.tsx 的 LOCKED_SHELL_CSS）。
+ * 所以启动后该断言的是「解锁屏可见 + 主机列表没有被渲染出来」，而不是「sidebar 可见」；
+ * 「解锁后能看到四区」是另一条用例（下面那条真走建库流程），不绕过解锁直接找 DOM。
+ */
+test('窗口标题为 Termans，未建库时是解锁屏而不是空外壳', async () => {
   await expect(page).toHaveTitle('Termans')
 
   const nativeTitle = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getTitle())
   expect(nativeTitle).toBe('Termans')
 
-  // 左侧主机库 / 顶部页签条 / 主终端区 / 状态条（AI 面板默认收起）
+  await expect(page.getByTestId('unlock-screen')).toBeVisible()
+
+  // 锁定态：外壳还在 DOM 里但被隐藏（不是卸载），主机列表一条都不许渲染
+  await expect(page.getByTestId('host-sidebar')).toBeHidden()
+  await expect(page.getByTestId('vault-host-item')).toHaveCount(0)
+  const lockedAttr = await page.evaluate(() => {
+    const g = globalThis as unknown as { document: { querySelector: (s: string) => { getAttribute(n: string): string | null } | null } }
+    return g.document.querySelector('.ts-app')?.getAttribute('data-locked') ?? null
+  })
+  expect(lockedAttr).toBe('true')
+})
+
+test('建库解锁后外壳四区渲染完成（真走解锁流程）', async () => {
+  await createVault(page)
+
+  // 左侧主机库 / 顶部页签条 / 主终端区 / 状态条（AI 面板默认收起）。
+  // 注意 testid 是 `terminal-workspace`（旧名 `terminal-area` 已不存在）；解锁后还没开页签，
+  // 工作区里应当是「还没有打开的终端」的空状态。
   await expect(page.getByTestId('host-sidebar')).toBeVisible()
   await expect(page.getByTestId('tab-strip')).toBeVisible()
-  await expect(page.getByTestId('terminal-area')).toBeVisible()
+  await expect(page.getByTestId('terminal-workspace')).toBeVisible()
+  await expect(page.getByTestId('term-empty')).toBeVisible()
   await expect(page.getByTestId('status-bar')).toBeVisible()
-  await expect(page.getByTestId('lock-screen')).toHaveCount(0)
+  await expect(page.getByTestId('unlock-screen')).toHaveCount(0)
 
-  await page.screenshot({ path: 'docs/assets/shell.png' })
+  // 截图落在 artifacts/（已 gitignore）：docs/assets/shell.png 是文档资产，由发布流程单独更新，
+  // 测试直接写它会覆盖别人未提交的版本（本项目真踩过：跑一次 e2e 就把 docs/assets/shell.png 变成 M）。
+  await page.screenshot({ path: 'artifacts/screenshots/shell-unlocked.png' })
 })
 
 test('preload 桥可用，并拦截未登记通道', async () => {

@@ -21,6 +21,8 @@ export interface HostSpec {
   password?: string
   /** publickey 认证时填：'' = 只管选认证方式（私钥另行导入 vault），有值则填 IdentityFile */
   privateKeyPath?: string
+  /** 跳板机：填另一台主机的 label（这台主机必须先存在）。S-12 用它验证 jumpHostId 真的生效 */
+  jumpHostLabel?: string
 }
 
 /** 第一次运行：创建加密包（含弱口令二次提交的重试逻辑），等到解锁屏消失 */
@@ -67,6 +69,12 @@ export async function addHost(page: Page, host: HostSpec): Promise<void> {
     if (host.privateKeyPath !== '') await page.getByLabel(/IdentityFile/).fill(host.privateKeyPath)
   } else if (host.password !== undefined) {
     await page.getByTestId('host-password').fill(host.password)
+  }
+
+  if (host.jumpHostLabel !== undefined) {
+    // 跳板机下拉的 option 文本就是主机 label（HostEditor.tsx 里按 candidate.label 渲染），
+    // 没有 testid，靠 id 定位（select 的 id 是 ts-host-jump）。
+    await page.locator('#ts-host-jump').selectOption({ label: host.jumpHostLabel })
   }
 
   await page.getByTestId('host-save').click()
@@ -154,6 +162,26 @@ export async function invokeInPage(page: Page, channel: string, payload?: unknow
   )) as { ok: boolean; data?: unknown; error?: { code: string; message: string } }
   if (!envelope.ok) throw new Error(`[e2e] IPC ${channel} 失败：${envelope.error?.code} ${envelope.error?.message}`)
   return envelope.data
+}
+
+/**
+ * 同 `invokeInPage`，但**不拆信封、失败也不抛**：需要断言「这个调用必须失败」（如 E_VAULT_LOCKED、
+ * E_HOST_KEY_UNVERIFIED）时用它。踩过一次：期望失败的断言被 helper 抛成「测试红」，
+ * 看起来像产品坏了，实际是断言通过了但没有出口。
+ */
+export async function invokeInPageRaw(
+  page: Page,
+  channel: string,
+  payload?: unknown
+): Promise<{ ok: boolean; data?: unknown; error?: { code: string; message: string } }> {
+  return (await page.evaluate(
+    async (args: { channel: string; payload?: unknown }) => {
+      const bridge = window.termans
+      if (bridge === undefined) throw new Error('[e2e] window.termans 不存在：preload 没加载成功')
+      return bridge.invoke(args.channel, args.payload)
+    },
+    { channel, payload }
+  )) as { ok: boolean; data?: unknown; error?: { code: string; message: string } }
 }
 
 /**
