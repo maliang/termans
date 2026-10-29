@@ -1,5 +1,5 @@
 import * as nodeFs from 'node:fs'
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import gitClient from 'isomorphic-git'
 import { join } from 'node:path'
 import {
@@ -17,7 +17,7 @@ import { parsePayload, type VaultPayload } from '../vault/model'
 import type { VaultManager } from '../vault/manager'
 import { ENVELOPE_FILE, MANIFEST_FILE, THEMES_DIR, readRepo } from '../vault/repo'
 import { writePrivateFile, type SecretBox } from '../vault/secret-box'
-import { GitEngine, type RemoteAuth } from './engine'
+import { GitEngine, isRefLockError, type RemoteAuth, type RepoStatus } from './engine'
 import {
   applyStrategy,
   clearConflictState,
@@ -104,7 +104,7 @@ export class SyncCoordinator {
   }
 
   /** 读一次真实 git 状态（`sync:status` 用；不要在 status() 里做 IO） */
-  async refresh(): Promise<SyncStatus> {
+  private async doRefresh(): Promise<SyncStatus> {
     const repo = this.repo()
     if (repo === null) {
       this.state = 'off'
@@ -136,6 +136,46 @@ export class SyncCoordinator {
       localSummary: conflict.localSummary,
       remoteSummary: conflict.remoteSummary
     }))
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 公共入口（全部排进 engine 的同一把互斥队列）                          */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * 所有会写仓库目录的操作都必须排进同一把队列（F-2 / F-3）。
+   *
+   * 现实场景：用户点「连接」（bootstrap 内部会自动 push）之后立刻点「推送」，
+   * 两个 IPC 请求是并发进来的；而 align 会 `rmSync` 整个工作树、commit 又往同一目录写文件，
+   * 不串行就会「文件被删掉但两边都返回 ok」。这里不靠超时/重试猜时间，靠结构性排队。
+   */
+  async bootstrap(request: SyncBootstrapRequest): Promise<SyncStatus> {
+    return await this.engine.withLock(() => this.doBootstrap(request))
+  }
+
+  async pull(): Promise<SyncStatus> {
+    return await this.engine.withLock(() => this.doPull())
+  }
+
+  async push(): Promise<SyncStatus> {
+    return await this.engine.withLock(() => this.doPush())
+  }
+
+  async resolve(request: SyncResolveRequest): Promise<SyncStatus> {
+    return await this.engine.withLock(() => this.doResolve(request))
+  }
+
+  async commitLocal(message = 'termans: update vault'): Promise<string | null> {
+    return await this.engine.withLock(() => this.doCommitLocal(message))
+  }
+
+  async refresh(): Promise<SyncStatus> {
+    return await this.engine.withLock(() => this.doRefresh())
+  }
+
+  /** 工作区诊断（测试 / 排查用）：是否干净、当前 head、改动文件列表 */
+  async worktreeStatus(): Promise<RepoStatus> {
+    return await this.engine.status()
   }
 
   /* ------------------------------------------------------------------ */
@@ -182,7 +222,7 @@ export class SyncCoordinator {
    * - 本地空 → clone 远端（B 机拿到的是密文，仍需要主口令解锁）；
    * - 两边都有 → 走 pull 的乐观锁流程。
    */
-  async bootstrap(request: SyncBootstrapRequest): Promise<SyncStatus> {
+  private async doBootstrap(request: SyncBootstrapRequest): Promise<SyncStatus> {
     if (request.auth === 'ssh-agent') {
       throw vaultFail('E_INVALID_ARGUMENT', 'ssh-agent transport is not supported yet; use a token or a plain http remote', {
         reason: 'git',
@@ -207,7 +247,7 @@ export class SyncCoordinator {
           throw vaultFail('E_INVALID_ARGUMENT', 'vault must be created before the first push', { reason: 'uninitialized' })
         }
         const oid = await this.engine.commitAll('termans: publish vault', repo.branch)
-        await this.engine.push(repo.remoteUrl, repo.branch, auth)
+        await this.pushWithRetry(repo.remoteUrl, repo.branch, auth)
         this.localCommit = oid ?? (await this.engine.head())
         await this.finishSync('idle')
         return this.status()
@@ -218,7 +258,7 @@ export class SyncCoordinator {
         return await this.alignFreshFromRemote(repo, remoteHead, auth)
       }
 
-      return await this.pull()
+      return await this.doPull()
     } catch (error) {
       this.fail(error)
       throw this.errorOr(error)
@@ -230,7 +270,7 @@ export class SyncCoordinator {
   /* ------------------------------------------------------------------ */
 
   /** 只提交本地改动（网络离线也能提交；推送由 push() 负责） */
-  async commitLocal(message = 'termans: update vault'): Promise<string | null> {
+  private async doCommitLocal(message = 'termans: update vault'): Promise<string | null> {
     const repo = this.repo()
     if (repo === null) return null
     await this.engine.ensureRepo(repo.branch)
@@ -243,7 +283,7 @@ export class SyncCoordinator {
     return oid
   }
 
-  async pull(): Promise<SyncStatus> {
+  private async doPull(): Promise<SyncStatus> {
     const repo = this.requireRepo()
     this.state = 'syncing'
     this.error = null
@@ -257,7 +297,7 @@ export class SyncCoordinator {
 
       if (remoteHead === null) {
         // 远端还什么都没有：本地有内容就推上去，没有就保持 idle
-        if (localHead !== null) await this.engine.push(repo.remoteUrl, repo.branch, auth)
+        if (localHead !== null) await this.pushWithRetry(repo.remoteUrl, repo.branch, auth)
         await this.finishSync('idle')
         return this.status()
       }
@@ -297,7 +337,7 @@ export class SyncCoordinator {
     }
   }
 
-  async push(): Promise<SyncStatus> {
+  private async doPush(): Promise<SyncStatus> {
     const repo = this.requireRepo()
     if (this.pending !== null && this.pending.conflicts.length > 0) {
       throw vaultFail('E_CONFLICT', 'unresolved sync conflicts must be resolved before pushing', {
@@ -337,7 +377,7 @@ export class SyncCoordinator {
         }
       }
 
-      await this.engine.push(repo.remoteUrl, repo.branch, auth)
+      await this.pushWithRetry(repo.remoteUrl, repo.branch, auth)
       await this.finishSync('idle')
       return this.status()
     } catch (error) {
@@ -350,7 +390,7 @@ export class SyncCoordinator {
   /* 冲突解决                                                            */
   /* ------------------------------------------------------------------ */
 
-  async resolve(request: SyncResolveRequest): Promise<SyncStatus> {
+  private async doResolve(request: SyncResolveRequest): Promise<SyncStatus> {
     if (this.pending === null) {
       this.pending = loadConflictState(this.options.localDir, this.box)
     }
@@ -383,7 +423,7 @@ export class SyncCoordinator {
     await this.engine.commitAll('termans: resolve sync conflicts', repo.branch)
     const auth = await this.auth(repo)
     try {
-      await this.engine.push(repo.remoteUrl, repo.branch, auth)
+      await this.pushWithRetry(repo.remoteUrl, repo.branch, auth)
     } catch (error) {
       this.fail(error)
       throw vaultFail('E_GIT', 'failed to push the merged vault; the remote may have moved again', {
@@ -400,6 +440,58 @@ export class SyncCoordinator {
   /* ------------------------------------------------------------------ */
   /* 内部                                                                */
   /* ------------------------------------------------------------------ */
+
+  /** 并发推送撞上远端 ref 锁时的有限次退避（≤3 次尝试，200ms 起指数退避） */
+  private static readonly PUSH_ATTEMPTS = 3
+
+  private async pushWithRetry(url: string, branch: string, auth: RemoteAuth): Promise<void> {
+    let attempt = 0
+    let lastError: unknown = null
+    while (attempt < SyncCoordinator.PUSH_ATTEMPTS) {
+      attempt += 1
+      try {
+        await this.engine.push(url, branch, auth)
+        return
+      } catch (error) {
+        lastError = error
+        // 只有「ref 锁冲突」这类瞬时错误值得重试；认证失败 / 非快进重试只会浪费时间
+        if (!isRefLockError(error) || attempt >= SyncCoordinator.PUSH_ATTEMPTS) break
+        await delay(200 * 2 ** (attempt - 1))
+      }
+    }
+    const detail = lastError instanceof Error ? lastError.message : String(lastError)
+    throw vaultFail('E_GIT', `push failed after ${attempt} attempt(s): ${detail}`, {
+      reason: 'git',
+      attempts: attempt,
+      retryable: isRefLockError(lastError),
+      detail
+    })
+  }
+
+  /**
+   * 同步成功之前的硬不变式：工作树里 `manifest.json` 与 `vault.enc` 必须在位且非空。
+   *
+   * 为什么必须有：并发踩踏曾经把 `<userData>/vault` 清到只剩 `.git`，而 pull/push 照样返回 ok ——
+   * 用户看到的是「同步成功」，实际本地库已经没了。宁可报 E_IO 让人立刻发现，也不许把 ok 变绿。
+   */
+  private assertWorktreeComplete(stage: string): void {
+    const problems: string[] = []
+    for (const file of [MANIFEST_FILE, ENVELOPE_FILE]) {
+      const path = join(this.options.repoDir, file)
+      if (!existsSync(path)) {
+        problems.push(`${file}: missing`)
+        continue
+      }
+      const size = statSync(path).size
+      if (size === 0) problems.push(`${file}: empty`)
+    }
+    if (problems.length === 0) return
+    throw vaultFail(
+      'E_IO',
+      `vault worktree is incomplete after ${stage}: ${problems.join(', ')}; refusing to report a successful sync`,
+      { reason: 'corrupt', stage, repoDir: this.options.repoDir, problems }
+    )
+  }
 
   private revision(): number {
     return this.manager.manifestForSync()?.revision ?? 0
@@ -546,7 +638,7 @@ export class SyncCoordinator {
     await this.manager.reload()
     this.manager.applyMergedPayload(merged)
     await this.engine.commitAll(`termans: merge remote revision ${remote.manifest.revision}`, repo.branch)
-    await this.engine.push(repo.remoteUrl, repo.branch, auth)
+    await this.pushWithRetry(repo.remoteUrl, repo.branch, auth)
     void autoApplied
     await this.finishSync('idle')
     return this.status()
@@ -603,6 +695,8 @@ export class SyncCoordinator {
     const repo = this.repo()
     this.localCommit = await this.engine.head()
     this.remoteCommit = repo === null ? null : await this.engine.resolveRefQuiet(`refs/remotes/origin/${repo.branch}`)
+    // 返回成功前先确认工作树还是那份完整密文（只有真跑过 git 的路径才校验：两边都没提交时是「还没建库」）
+    if (this.localCommit !== null || this.remoteCommit !== null) this.assertWorktreeComplete('sync')
     this.pendingLocalChanges = 0
     this.state = state
     this.error = null
@@ -639,4 +733,10 @@ export class SyncCoordinator {
 function writeRepoFile(path: string, content: string): void {
   // 0600 + 原子写（与 vault 目录里的文件同一套规矩）
   writePrivateFile(path, content)
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
 }

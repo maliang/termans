@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import git from 'isomorphic-git'
 import httpClient from 'isomorphic-git/http/node'
 import { vaultFail } from '../vault/errors'
+import { Mutex } from './mutex'
 
 /**
  * Git 管道层（isomorphic-git，纯 JS，不依赖系统 git）。
@@ -48,12 +49,28 @@ export class GitEngine {
   private readonly timeoutMs: number
   private readonly http: typeof httpClient
   private readonly fsModule = fs
+  private readonly mutex = new Mutex()
 
   constructor(options: GitEngineOptions) {
     this.dir = options.dir
     this.author = options.author ?? DEFAULT_AUTHOR
     this.timeoutMs = options.timeoutMs ?? 30_000
     this.http = options.http ?? httpClient
+  }
+
+  /**
+   * 所有对仓库目录的 git 操作都必须经此排队。
+   *
+   * 队列放在 engine 上（而不是各个调用方各拿一把锁），因为「同一目录」才是唯一需要互斥的资源：
+   * clone / align 会 `rmSync` 整个工作树，与任何并发的 commit / checkout / push 撞上就会丢文件。
+   */
+  async withLock<T>(task: () => Promise<T> | T): Promise<T> {
+    return this.mutex.run(task)
+  }
+
+  /** 排队中的任务数（诊断/测试用） */
+  get lockQueueSize(): number {
+    return this.mutex.size
   }
 
   isRepo(): boolean {
@@ -279,6 +296,18 @@ function makeOnAuth(auth: RemoteAuth): (() => { username: string; password?: str
   if (auth.token === null || auth.token.trim() === '') return undefined
   const token = auth.token.trim()
   return () => ({ username: auth.username ?? 'termans', password: token })
+}
+
+/**
+ * 远端 ref 锁冲突：并发推送时 bare 仓库对同一 ref 短暂加锁，isomorphic-git 会报
+ * `One or more branches were not updated: refs/heads/main: reference already exists`
+ * ——但提交其实已经落到远端。这类错误是**可重试**的，交给 sync.ts 做有限次退避重试。
+ */
+export function isRefLockError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  const detail = (error as { details?: { detail?: unknown } } | null)?.details?.detail
+  const combined = `${message} ${typeof detail === 'string' ? detail : ''}`
+  return /reference already exists|were not updated|cannot lock ref|failed to lock|ref .{0,80}is locked|lock ref/i.test(combined)
 }
 
 /** 网络/认证/冲突错误统一成 E_GIT（details 保留原始 message 供排查，但绝不带 token） */
