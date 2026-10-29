@@ -6,7 +6,7 @@ import { IpcCallError } from '@shared'
 import { SCRYPT_TEST } from '../crypto'
 import { VaultManager } from '../vault/manager'
 import { createFileSecretBox, type SecretBox } from '../vault/secret-box'
-import { FIXTURE_HOSTNAMES, FIXTURE_PASSWORD } from '../vault/test-fixtures'
+import { FIXTURE_HOSTNAMES, FIXTURE_PASSWORD, hostInput } from '../vault/test-fixtures'
 import { SyncCoordinator } from './sync'
 import { gitCli, startTestGitServer, type TestGitServer } from './test-git-server'
 
@@ -263,6 +263,62 @@ describe('A→B 迁移全流程（临时 bare 仓库 + 真实 smart-HTTP）', ()
     const tree = gitCli(['-C', server.bareDir, 'ls-tree', '-r', '--name-only', 'main']).trim().split('\n').filter(Boolean)
     expect(tree).toEqual(['manifest.json', 'vault.enc'])
   }, 120_000)
+
+  it('新机本地已建库但从未提交：首次 pull 应对齐远端，而不是 checkout 冲突（S-07 回归）', async () => {
+    // A：正常建库 + 3 台含密码主机 + 推到远端
+    const a = machine('a-align')
+    a.manager.create(PASSPHRASE)
+    FIXTURE_HOSTNAMES.forEach((hostname, index) => {
+      a.manager.createHost(hostInput({ label: `sync-${index}`, hostname, credentialRef: `ref-align-${index}` }))
+      a.manager.setSecret(`ref-align-${index}`, { password: `${FIXTURE_PASSWORD}-${index}` })
+    })
+    expect((await a.sync.bootstrap({ remoteUrl: server.url, branch: 'main', auth: 'none' })).state).toBe('idle')
+
+    // B：先建空库（App 必须能解锁才让用户点同步），再连远端 —— 这是真实用户路径
+    const b = machine('b-align')
+    b.manager.create(PASSPHRASE)
+    expect(b.sync.status().localCommit).toBeNull()
+    expect(b.manager.listLibrary().hosts).toHaveLength(0)
+
+    expect((await b.sync.bootstrap({ remoteUrl: server.url, branch: 'main', auth: 'none' })).state).toBe('idle')
+    const pulled = await b.sync.pull()
+    expect(pulled.state).toBe('idle')
+    expect(pulled.localCommit).toMatch(/^[0-9a-f]{40}$/)
+    expect(pulled.localCommit).toBe(pulled.remoteCommit)
+    expect(existsSync(join(b.repoDir, 'manifest.json'))).toBe(true)
+    expect(existsSync(join(b.repoDir, 'vault.enc'))).toBe(true)
+
+    // 对齐后本地就是远端那份密文：B 必须用同一主口令解锁（原先内存里的空库不再有效）
+    expect(b.manager.status().state).toBe('locked')
+    expectIpc(() => b.manager.listLibrary(), 'E_VAULT_LOCKED', 'locked')
+    expect(b.manager.unlock(PASSPHRASE, false).state).toBe('unlocked')
+
+    const library = b.manager.listLibrary()
+    expect(library.hosts).toHaveLength(3)
+    expect(library.hosts.map((host) => host.hostname).sort()).toEqual([...FIXTURE_HOSTNAMES].sort())
+    for (const [index, host] of library.hosts.entries()) {
+      expect(b.manager.resolveHostAuth(host.id).password).toBe(`${FIXTURE_PASSWORD}-${index}`)
+    }
+  }, 60_000)
+
+  it('本地库已有主机时不许被「首次对齐」覆盖：报 E_CONFLICT 且本地数据与远端 refs 都不变', async () => {
+    const a = machine('a-guard')
+    a.manager.create(PASSPHRASE)
+    a.manager.createHost(hostInput({ label: 'remote-only', hostname: FIXTURE_HOSTNAMES[0] }))
+    await a.sync.bootstrap({ remoteUrl: server.url, branch: 'main', auth: 'none' })
+    const remoteBefore = gitCli(['-C', server.bareDir, 'rev-parse', 'main']).trim()
+
+    const b = machine('b-guard')
+    b.manager.create(PASSPHRASE)
+    b.manager.createHost(hostInput({ label: 'local-only', hostname: FIXTURE_HOSTNAMES[1] }))
+
+    const error = await expectIpcAsync(b.sync.bootstrap({ remoteUrl: server.url, branch: 'main', auth: 'none' }), 'E_CONFLICT', 'conflict')
+    expect((error.details as { localItems?: number }).localItems).toBe(1)
+
+    // 本地主机还在（没被静默覆盖），远端也没被改写
+    expect(b.manager.listLibrary().hosts.map((host) => host.label)).toEqual(['local-only'])
+    expect(gitCli(['-C', server.bareDir, 'rev-parse', 'main']).trim()).toBe(remoteBefore)
+  }, 60_000)
 
   it('冲突选择 keep local 时本地值胜出；未配置仓库时 pull/push 报错而不是静默成功', async () => {
     const local = machine('solo')

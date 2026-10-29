@@ -122,6 +122,15 @@ export class GitEngine {
     return remotes.find((remote) => remote.remote === 'origin')?.url ?? null
   }
 
+  /**
+   * clone 到 `dir`。
+   *
+   * `noCheckout: true` 是刻意的：isomorphic-git 的 clone 收尾会自己做一次**非 force** 的 checkout，
+   * 于是「目录里已经有 manifest.json / vault.enc（用户刚建的空库）」时会抛
+   * `CheckoutConflictError: Your local changes to the following files would be overwritten by checkout`
+   * ——这正是 S-07「双机迁移」在新机上 100% 失败的原因（见 sync.ts 的首次对齐）。
+   * 改成「只拉对象与 ref，工作区由我们 force checkout 决定」，语义更可控。
+   */
   async clone(url: string, branch: string, auth: RemoteAuth): Promise<void> {
     mkdirSync(this.dir, { recursive: true })
     try {
@@ -133,10 +142,12 @@ export class GitEngine {
           url,
           ref: branch,
           singleBranch: true,
+          noCheckout: true,
           onAuth: makeOnAuth(auth)
         }),
         'clone'
       )
+      await this.checkout(branch)
     } catch (error) {
       throw toGitError(error, 'clone failed')
     }

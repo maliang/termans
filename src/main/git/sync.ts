@@ -15,7 +15,7 @@ import { openVault, sha256Hex, vaultManifestSchema, type VaultManifest } from '.
 import { vaultFail, lockedError } from '../vault/errors'
 import { parsePayload, type VaultPayload } from '../vault/model'
 import type { VaultManager } from '../vault/manager'
-import { ENVELOPE_FILE, MANIFEST_FILE, readRepo } from '../vault/repo'
+import { ENVELOPE_FILE, MANIFEST_FILE, THEMES_DIR, readRepo } from '../vault/repo'
 import { writePrivateFile, type SecretBox } from '../vault/secret-box'
 import { GitEngine, type RemoteAuth } from './engine'
 import {
@@ -214,13 +214,8 @@ export class SyncCoordinator {
       }
 
       if (localHead === null) {
-        // 本地还没有任何提交：清掉空仓库后真正 clone 一次（B 机迁移路径）
-        rmSync(join(this.options.repoDir, '.git'), { recursive: true, force: true })
-        await this.engine.clone(repo.remoteUrl, repo.branch, auth)
-        this.manager.reload()
-        this.localCommit = await this.engine.head()
-        await this.finishSync('idle')
-        return this.status()
+        // 本地还没有任何提交：B 机迁移路径（详见 alignFreshFromRemote 的安全前提）
+        return await this.alignFreshFromRemote(repo, remoteHead, auth)
       }
 
       return await this.pull()
@@ -270,6 +265,11 @@ export class SyncCoordinator {
         await this.finishSync('idle')
         return this.status()
       }
+      if (localHead === null) {
+        // 本机还没有任何提交（典型：新建了空库就点同步）。此时没有「本地历史」可以合并，
+        // 唯一合法动作是把工作区对齐到远端 —— 但必须先确认本地没有值得保留的数据。
+        return await this.alignFreshFromRemote(repo, remoteHead, auth)
+      }
 
       const st = await this.engine.status()
       this.pendingLocalChanges = st.changedFiles.length
@@ -310,9 +310,14 @@ export class SyncCoordinator {
     this.emit()
     try {
       const auth = await this.auth(repo)
+      const headBeforeCommit = await this.engine.head()
+      const remoteHead = await this.engine.fetch(repo.remoteUrl, repo.branch, auth)
+      if (headBeforeCommit === null && remoteHead !== null) {
+        // 本地空库 + 远端有内容：推只会造出一个无关历史的提交（随后必然冲突）。先对齐再谈推送。
+        return await this.alignFreshFromRemote(repo, remoteHead, auth)
+      }
       const committed = await this.engine.commitAll(this.options.commitMessage?.(this.revision()) ?? 'termans: update vault', repo.branch)
       const localHead = (await this.engine.head()) ?? committed
-      const remoteHead = await this.engine.fetch(repo.remoteUrl, repo.branch, auth)
       this.localCommit = localHead
       this.remoteCommit = remoteHead
 
@@ -398,6 +403,66 @@ export class SyncCoordinator {
 
   private revision(): number {
     return this.manager.manifestForSync()?.revision ?? 0
+  }
+
+  /**
+   * 「本机空库 + 远端有内容」的首次对齐（S-07 双机迁移的唯一合法入口）。
+   *
+   * 为什么需要它：App 要求先建库解锁才能进主界面，而新机又要从远端拉库 —— 这两件事本来是互斥的。
+   * 建库会写出 `manifest.json` / `vault.enc`（未提交），随后的 clone 内部 checkout 会以
+   * `CheckoutConflictError: Your local changes … would be overwritten by checkout` 整条失败。
+   *
+   * 安全前提（绝不静默覆盖用户数据）：
+   * 1. 只有在 `localHead === null`（本机从未提交过）时才允许走这里；
+   * 2. 未初始化（还没建库）→ 放行；
+   * 3. 已解锁 → 逐项数本地条数（主机/分组/known_hosts/片段/主题/ssh_config 文本），有任意一条就拒；
+   * 4. 锁定 → 拒绝并要求先解锁（否则无法确认「本地没东西可丢」）。
+   *
+   * 对齐后本地陈列的就是远端那份密文，因此会**锁上**并要求用同一主口令解锁 —— 这是刻意的：
+   * 内存里那把 VMK 属于刚建的空库，解不开远端的 payload。
+   */
+  private async alignFreshFromRemote(repo: SyncRepo, remoteHead: string, auth: RemoteAuth): Promise<SyncStatus> {
+    this.assertNothingLocalToLose()
+
+    // 丢掉刚建的空库留下的未提交文件（远端树里也就这三样），否则 force checkout 会覆盖/报错
+    rmSync(join(this.options.repoDir, MANIFEST_FILE), { force: true })
+    rmSync(join(this.options.repoDir, ENVELOPE_FILE), { force: true })
+    rmSync(join(this.options.repoDir, THEMES_DIR), { recursive: true, force: true })
+    rmSync(join(this.options.repoDir, '.git'), { recursive: true, force: true })
+
+    await this.engine.clone(repo.remoteUrl, repo.branch, auth)
+    this.manager.reload()
+    this.localCommit = await this.engine.head()
+    this.remoteCommit = remoteHead
+    this.pendingLocalChanges = 0
+    await this.finishSync('idle')
+    return this.status()
+  }
+
+  /** 首次对齐前的「本地无可丢失数据」断言；有数据一律 E_CONFLICT，绝不覆盖 */
+  private assertNothingLocalToLose(): void {
+    const state = this.manager.status().state
+    if (state === 'uninitialized') return
+    if (!this.manager.isUnlocked()) {
+      throw vaultFail('E_VAULT_LOCKED', 'unlock the vault first: the local library must be checked before aligning with the remote', {
+        reason: 'locked'
+      })
+    }
+    const payload = this.manager.payloadForSync()
+    const localItems =
+      payload.hosts.length +
+      payload.groups.length +
+      payload.knownHosts.length +
+      payload.snippets.length +
+      payload.themes.length +
+      (payload.sshConfig.text.trim() === '' ? 0 : 1)
+    if (localItems > 0) {
+      throw vaultFail(
+        'E_CONFLICT',
+        `this machine already holds ${localItems} local item(s); push them to the remote first, or import them elsewhere before pulling`,
+        { reason: 'conflict', localItems }
+      )
+    }
   }
 
   private async canFastForward(localHead: string | null, remoteHead: string): Promise<boolean> {

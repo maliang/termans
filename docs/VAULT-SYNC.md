@@ -244,6 +244,33 @@ push:  有未解决冲突? → E_CONFLICT（拒绝推送）
 冲突解决（`sync:resolve`）只有三种策略，**没有静默覆盖**：`local` / `remote` / `duplicate`（本地实体复制成新 uuid，字段取远端）。
 全部解决后自动 commit + push，push 失败会保留 conflict state 并报 `E_GIT`（明确告诉用户「远端又动了」）。
 
+### 5.2.1 新机首次对齐（本地空库 + 远端有内容）
+
+App 的安全模型要求「先建库并解锁，才能进主界面」，而新机器又要从远端拉库——这两件事原本是互斥的，
+在真实链路里表现为 **S-07 双机迁移 100% 失败**（qa 在 e2e 里复现，见 §9 第 8 条）：
+
+```
+sync:status → {"state":"error","localCommit":null,"remoteCommit":null,
+  "error":"Your local changes to the following files would be overwritten by checkout: manifest.json, vault.enc"}
+```
+
+现在的语义（`SyncCoordinator.alignFreshFromRemote`，pull / push / bootstrap 三条路径共用）：
+
+| 现场 | 动作 |
+| --- | --- |
+| 本机 `localHead === null`（从未提交过）+ 远端有内容 | 走「首次对齐」：删掉刚建的空库那三个未提交文件 → 重新 clone 远端 → `reload()` |
+| 本机已经提交过（`localHead !== null`） | **不走这段**，仍然走 §5.2 的乐观锁 / 冲突快照 |
+| 未初始化（还没建库） | 允许对齐（没有东西可丢） |
+| 已解锁但本地有数据（主机/分组/known_hosts/片段/主题/ssh_config 文本任一非空） | **拒绝**：`E_CONFLICT` + `details.localItems`，提示先把本地推到远端 |
+| 锁定 | **拒绝**：`E_VAULT_LOCKED`（不解锁就无法确认「本地没东西可丢」） |
+
+对齐后本地陈列的就是远端那份密文，因此会**重新锁上**——内存里那把 VMK 属于刚建的空库，解不开远端的
+payload。用户用同一个主口令再解锁即可（这正是 §7 的 A→B 语义），渲染层会自动回到解锁屏。
+
+另外 `GitEngine.clone()` 改成 `noCheckout: true` + 显式 `checkout(force)`：isomorphic-git 的 clone 收尾
+自己做一次**非 force** checkout，只要目录里已有同名文件就抛 `CheckoutConflictError`——这是本条故障的
+直接触发点，光加「先删文件」不够稳（未来仓库里多一类文件就复发）。
+
 ### 5.3 状态机
 
 `off | idle | syncing | ahead | behind | diverged | error`。
@@ -334,6 +361,7 @@ UI（`PrivateKeyGuide`）给三个入口：导入私钥文件 / 粘贴私钥 / �
 | 5 | `mergePayloads` 把「纯新增」当成「删一个改一个」 | A、B 各加一台主机就弹两条无意义冲突 | `base===null 且只有一边有` → 直接并入 merged |
 | 6 | `updatedAt` 参与冲突判定 | 每台被改过的主机都要求用户选 `updatedAt` | 元数据自动取较新的一份 |
 | 7 | 冲突导致 push 失败时 `state='error'` | 用户以为同步坏了，而不是「等你选边」 | `state = pending.conflicts.length > 0 ? 'diverged' : 'error'` |
+| 8 | 新机「先建库再连远端」后首次 pull 必失败（S-07） | `clone` 内部非 force checkout 撞上刚建的空库文件 → `CheckoutConflictError`，B 机永远拿不到主机 | `clone(noCheckout:true)` + `alignFreshFromRemote()`：仅 `localHead===null` 且本地无数据时删文件重 clone，否则 `E_CONFLICT`/`E_VAULT_LOCKED` |
 
 另外三个测试写法陷阱（避免假绿/假红）：断言缩进不能用 `not.toContain('  User root\n')`（子串会命中 4 空格的版本）；
 `manifest.json` 是 2 空格 pretty JSON（断言要写 `"format": "termans-vault"` 带空格）；ESM 测试里不能用 `require()`。
