@@ -295,11 +295,14 @@ xterm 在 GPU 可用时挂 WebGL，文字在 canvas 里，`.xterm-rows` 数量�
 ### 6.1 三条 verify 命令的判定口径
 
 只看 `passed` 数会误判——同一天里出现过 `Tests 622 passed` 与 `exit code 1` 同时成立（子进程 EPIPE 的
-unhandled error 不会让用例失败，只会让进程退出码变红，见 t29）。所以一条命令算"绿"要三个条件同时成立：
+unhandled error 不会让用例失败，只会让进程退出码变红，见 t29）。所以一条命令算"绿"要**四个**条件同时成立：
 
 1. 退出码 0；
-2. 用例数符合预期（当前：`pnpm test` = 51 files / 622+ passed；`pnpm test:e2e` = 26 passed）；
-3. 输出里 `grep -c "Unhandled Errors"` 等于 0。
+2. 用例数符合预期——**判据里的数字会随并行成员加用例而变化**，所以报告里要写"当时是多少"而不是背一个固定值
+   （实测轨迹：t8 早期 `51 files / 622 passed`，t30/t31 落地后 `52 files / 626 passed`；`pnpm test:e2e` 一直是 26 passed）；
+3. 输出里 `grep -c "Unhandled Errors"` 等于 0；
+4. **跑前、跑后各记一次 `git rev-parse --short HEAD`，两次必须相同。** 并行成员一直在提交，HEAD 变了说明你验的是
+   另一个 commit——那样的绿必须重跑，不能当成"本次交付绿的"。
 
 ### 6.2 已知时序：双机用例的 clone 等待为什么是 60s
 
@@ -308,6 +311,28 @@ unhandled error 不会让用例失败，只会让进程退出码变红，见 t29
 偶发超过 30s，单独跑该文件则 3 passed (18~20s)。等待本身是 `expect.poll` 轮询 `git log --oneline -1`
 里出现 `termans:`（目标状态），不是固定 sleep；60s 只是给"机器忙"留的余量。如果后续再红，
 先看是不是轮询条件本身错了（例如此刻仓库还没 init），而不是继续加时间。
+
+措辞上要守住两条，别让后人读成"超时可以随便放大"：①这是**轮询到目标状态**（`git log -1` 里出现 `termans:`），
+不是固定 sleep，所以放宽上限不增加常规耗时（命中即返回）；②放宽的正当理由是"机器忙时同样的目标状态达成更慢"，
+若某次红是**判据**错了（例如此刻仓库还没 init、`termans:` 永远不会出现），加时间只会让它从"30s 红"变成"60s 红"。
+
+### 6.3 截图是证据：先确认它对应哪个 commit
+
+- **症状**：图是新生成的时间戳，内容却是改之前的画面，被当成"改后证据"贴进报告（ai 差点这么交上去）。
+- **判据**：截图脚本驱动的是 `out/` 里的构建产物，不是源码。**别拿 commit 时间比**——提交时间必然晚于
+  文件修改时间，docs-only 或"改完立刻提交"都会让对比误报。真正的判据是「有没有比产物更新的源码」：
+
+  ```bash
+  find src src/shared -type f -newer out/main/index.js   # 输出非空 = 源码比产物新，必须先 build
+  stat -f %m out/main/index.js                           # macOS；Linux 用 stat -c %Y
+  ```
+
+  实测反例（同一台机器 2026-10-29）：`HostSidebar.tsx` 改于 `12:51:53`、`out/main/index.js` 是 `12:51:55`、
+  对应提交 `44e6bce` 的时间是 `12:52:12`。若拿"产物 vs commit 时间"比，会判成"产物比 HEAD 旧、需要重 build"；
+  而 `find src -type f -newer out/main/index.js` 返回 **0 个文件**——改动在 build 之前就落盘了，产物其实是最新的。
+  **看源码 mtime，不看 commit 时间。**
+- **正确顺序**：`git rev-parse --short HEAD` 记下 → `pnpm build` → 截图 → 再 `git rev-parse --short HEAD` 复核没变 →
+  把两个 hash 写进报告。任何"改完立刻截"的脚本，第一条命令都必须是 build。
 
 ---
 
