@@ -52,6 +52,19 @@ export function errorMessageKey(code: string): string {
   return parts[0].toLowerCase() + parts.slice(1).map((part) => part[0].toUpperCase() + part.slice(1).toLowerCase()).join('')
 }
 
+/**
+ * 从展示文案里取回稳定错误码（`[E_VAULT_LOCKED] 加密包已锁定…` → `E_VAULT_LOCKED`）。
+ *
+ * 为什么需要它：store 里存的是「可展示文案」（`IpcCallError.message` 自带 `[CODE]` 前缀），
+ * 而面板要按**码**决定「是空态还是报错」——加密包锁定时这不是故障，不该出现红色错误条。
+ * 取不到码时返回 null，调用方回退到「按文案显示」的老路径。
+ */
+export function errorCodeOf(message: string | null): string | null {
+  if (!message) return null
+  const matched = /^\s*\[([A-Z][A-Z0-9_]*)\]/.exec(message)
+  return matched ? matched[1] : null
+}
+
 export const TEMPLATE_STORAGE_KEY = 'termans.ai.templates.v1'
 
 export const DEFAULT_TEMPLATES: PromptTemplates = {

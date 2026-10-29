@@ -14,19 +14,99 @@
   color: var(--ts-text-primary);
 }
 
-.ts-ai-panel__provider {
-  max-width: 42%;
-  height: 24px;
-  padding: 0 6px;
+.ts-ai-panel__label {
+  flex: 0 0 auto;
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-sm);
+}
+
+/* 头部动作按钮：图标 + 文字。
+   审计 #17 的原状是两个 20px 的裸图标（＋ / ⟳），既不可读也不可指——文字是最便宜的自我说明。 */
+.ts-ai-headbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-secondary);
+  font-family: var(--ts-font-ui);
+  font-size: var(--ts-font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ts-ai-headbtn:hover {
+  color: var(--ts-text-primary);
+  border-color: var(--ts-border-strong);
+}
+
+.ts-ai-headbtn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* 供应商行：选择器独占一行，宽度跟着面板走（不再挤在标题后面） */
+.ts-ai-panel__providerbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ts-border);
+}
+
+.ts-ai-select {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.ts-ai-select__control {
+  width: 100%;
+  height: 28px;
+  padding: 0 26px 0 8px;
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-sm);
   background: var(--ts-bg-app);
   color: var(--ts-text-primary);
   font-family: var(--ts-font-ui);
   font-size: var(--ts-font-size-sm);
+  text-overflow: ellipsis;
+  /* 引擎自带的箭头在各平台长得不一样，统一换成下面的 chevron 图标 */
+  appearance: none;
+  cursor: pointer;
 }
 
-.ts-ai-panel__provider:focus-visible,
+/* 未选供应商时用次级色：看得出「这里还没定」，而不是伪装成一个有效选项 */
+.ts-ai-select__control.is-placeholder {
+  color: var(--ts-text-muted);
+}
+
+.ts-ai-select__chevron {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  transform: translateY(-50%);
+  color: var(--ts-text-muted);
+  pointer-events: none;
+}
+
+.ts-ai-newchat {
+  flex: 0 0 auto;
+}
+
+.ts-ai-headbtn:focus-visible,
+.ts-ai-select__control:focus-visible,
+.ts-ai-newchat:focus-visible,
+.ts-ai-empty__action:focus-visible,
+.ts-ai-details__summary:focus-visible,
+.ts-ai-card__run:focus-visible,
+.ts-ai-confirm:focus-visible,
+.ts-ai-modal__preview:focus-visible,
+.ts-ai-msg__code:focus-visible,
 .ts-ai-form input:focus-visible,
 .ts-ai-form select:focus-visible,
 .ts-ai-form textarea:focus-visible,
@@ -499,6 +579,148 @@
   margin-top: 4px;
 }
 
+/* ---------- 空态 ---------- */
+
+/* 三种空态共用骨架：图标、一句能读完的话、一个主按钮、其余细节折叠。
+   区别靠图标的颜色与语义，而不是靠更多文字——锁定是「要你做一件事」，未启用是「AI 现在不说话」。 */
+/* 布局骨架沿用 base.css 的 .ts-empty（居中 flex），这里只调间距与文案宽度：
+   窄栏里 34ch 的正文会被挤成锯齿状断行，放宽到 30em 并把行高提到 1.55。 */
+.ts-ai-empty {
+  gap: 8px;
+  padding: 28px 12px;
+}
+
+.ts-ai-empty .ts-empty__title {
+  color: var(--ts-text-primary);
+}
+
+.ts-ai-empty .ts-empty__body {
+  max-width: 30em;
+  line-height: 1.55;
+  color: var(--ts-text-secondary);
+}
+
+.ts-ai-empty__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-secondary);
+}
+
+/* 锁定态：锁是「状态」不是「故障」，图标带一点警示色 + 同色描边 */
+.ts-ai-empty__icon--locked {
+  color: var(--ts-status-warn);
+  border: 1px solid color-mix(in srgb, var(--ts-status-warn) 45%, transparent);
+}
+
+/* 未启用：纯灰，连图标也不抢注意力 */
+.ts-ai-empty__icon--off {
+  color: var(--ts-text-muted);
+  border: 1px solid var(--ts-border);
+}
+
+/* 有供应商但没开始对话：比上面两种更「轻」 */
+.ts-ai-details {
+  max-width: 32em;
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-ai-details__summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--ts-link, var(--ts-text-secondary));
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.ts-ai-details__summary::-webkit-details-marker {
+  display: none;
+}
+
+.ts-ai-details__body {
+  margin: 6px 0 0;
+  line-height: 1.6;
+  text-align: left;
+}
+
+/* ---------- 命令卡 / 二次确认 ---------- */
+
+/* 执行按钮：secondary 外观（描边），与「复制」区分层级但都不是整屏最亮的那个 */
+.ts-ai-card__run {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--ts-border-strong);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-ui);
+  font-size: var(--ts-font-size-sm);
+  cursor: pointer;
+}
+
+.ts-ai-card__run:hover:not(:disabled) {
+  background: var(--ts-bg-elevated);
+}
+
+.ts-ai-card__run:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 审阅区：把危险原因和按钮框在一起，眼睛从原因扫到按钮是一条直线 */
+.ts-ai-modal__review {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ts-border);
+}
+
+.ts-ai-modal__hint--tight {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-ai-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--ts-border-strong);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-ui);
+  font-size: var(--ts-font-size-sm);
+  cursor: pointer;
+}
+
+.ts-ai-confirm:hover {
+  background: var(--ts-bg-elevated);
+}
+
+/* 高危：只把描边与文字染成危险色，不刷红底——红底大按钮会被当成「默认动作」 */
+.ts-ai-confirm--danger {
+  border-color: var(--ts-danger);
+  color: var(--ts-danger);
+}
+
+.ts-ai-confirm--danger:hover {
+  background: color-mix(in srgb, var(--ts-danger) 14%, transparent);
+}
+
 /* ---------- 小工具 ---------- */
 
 .ts-btn--danger {
@@ -539,4 +761,19 @@
 
 .ts-ai-panel {
   position: relative;
+  /* 窄窗时输入区不能被压成一条缝；320px 是「一个按钮 + 一段提示」还不换行的下限 */
+  min-width: 320px;
+}
+
+/* 长命令/长日志：代码块内部横向滚动，绝不把面板撑宽（撑宽会让整块布局跟着抖）；
+   正文段落反过来——宁可断行，也不要给一段中文配一条滚动条 */
+.ts-ai-msg__code,
+.ts-ai-card__cmd {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.ts-ai-msg__body {
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }

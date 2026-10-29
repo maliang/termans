@@ -7,16 +7,20 @@
  *    危险命令在确认框里用危险色列出命中原因（rm -rf / dd / mkfs / shutdown / fork bomb …）。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
   ChevronLeft,
   Copy,
   Eraser,
   Eye,
+  Lock,
   Plus,
   PowerOff,
+  RotateCw,
   Send,
   Settings2,
   Sparkles,
@@ -32,7 +36,7 @@ import { ProviderForm } from './ProviderForm'
 import { CommandGuard, extractCommandBlocks } from './command-guard'
 import type { CommandAssessment, CommandBlock } from './command-guard'
 import { buildPreview, estimatePreviewSize } from './prompt-preview'
-import { DEFAULT_TEMPLATES, errorMessageKey, fillTemplate, useAiStore } from './store'
+import { DEFAULT_TEMPLATES, errorCodeOf, errorMessageKey, fillTemplate, useAiStore } from './store'
 import type { PromptTemplates, TerminalSnapshot } from './store'
 import './ai.css'
 
@@ -138,6 +142,15 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
     () => providers.find((provider) => provider.id === activeProviderId) ?? null,
     [providers, activeProviderId]
   )
+
+  /**
+   * 加密包是否锁着。
+   *
+   * 双判据：外壳 store 的 vault 状态（正常路径）或供应商列表报回 `E_VAULT_LOCKED`（拉列表时才发现）。
+   * 只认前者会漏掉「面板先加载、随后上锁」的时序；只认后者会在第一次拉取失败后一直卡在错误态。
+   */
+  const vaultState = useShellStore((state) => state.vault)
+  const locked = vaultState === 'locked' || errorCodeOf(error) === 'E_VAULT_LOCKED'
 
   const takeSnapshot = useCallback((): TerminalSnapshot | null => {
     if (!contextEnabled) return null
@@ -257,8 +270,9 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
             className="ts-icon-btn"
             onClick={() => useAiStore.getState().setView('chat')}
             aria-label={t('ai:action.back')}
+            title={t('ai:action.back')}
           >
-            <ChevronLeft size={15} />
+            <ChevronLeft size={15} aria-hidden="true" />
           </button>
         ) : (
           <Sparkles size={15} aria-hidden="true" />
@@ -272,41 +286,65 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
         </span>
         {view === 'chat' && (
           <>
-            <select
-              className="ts-ai-panel__provider"
-              value={activeProviderId ?? ''}
-              onChange={(event) => useAiStore.getState().setActiveProvider(event.target.value || null)}
-              aria-label={t('ai:provider.field.active')}
-              disabled={!aiEnabled || providers.length === 0}
-            >
-              {providers.length === 0 && <option value="">{t('ai:provider.list.empty')}</option>}
-              {providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.name} · {provider.model}
-                </option>
-              ))}
-            </select>
+            {/* 带文字的动作用「图标 + 文字」，纯图标必须同时有 title 与 aria-label：
+                审计 #17 说的是「两个纯图标挤在一行、无标签无 tooltip」——不是嫌图标本身。 */}
             <button
               type="button"
-              className="ts-icon-btn"
-              onClick={() => useAiStore.getState().newConversation()}
-              aria-label={t('ai:action.newChat')}
-              title={t('ai:action.newChat')}
+              className="ts-ai-headbtn"
+              onClick={() => void useAiStore.getState().reloadProviders()}
+              title={t('ai:action.refresh')}
+              aria-label={t('ai:action.refresh')}
+              data-testid="ai-refresh-providers"
             >
-              <Plus size={15} />
+              <RotateCw size={13} aria-hidden="true" />
+              <span className="ts-ai-headbtn__label">{t('ai:action.refresh')}</span>
             </button>
             <button
               type="button"
               className="ts-icon-btn"
               onClick={() => useAiStore.getState().setView('providers')}
               aria-label={t('ai:provider.title')}
-              title={t('ai:provider.title')}
+              title={t('ai:provider.action.manage')}
             >
-              <Settings2 size={15} />
+              <Settings2 size={15} aria-hidden="true" />
             </button>
           </>
         )}
       </div>
+
+      {view === 'chat' && (
+        <div className="ts-ai-panel__providerbar">
+          <span className="ts-ai-select">
+            <select
+              className={`ts-ai-select__control${activeProvider ? '' : ' is-placeholder'}`}
+              value={activeProviderId ?? ''}
+              onChange={(event) => useAiStore.getState().setActiveProvider(event.target.value || null)}
+              aria-label={t('ai:provider.field.active')}
+              title={t('ai:provider.field.active')}
+              disabled={!aiEnabled || providers.length === 0}
+            >
+              {/* 未选时给「祈使句」而不是否定句（「还没有供应商」）：这里是选择器，不是状态播报 */}
+              {!activeProvider && <option value="">{t('ai:provider.field.placeholder')}</option>}
+              {providers.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.name} · {provider.model}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={13} className="ts-ai-select__chevron" aria-hidden="true" />
+          </span>
+          <button
+            type="button"
+            className="ts-btn ts-btn--ghost ts-ai-newchat"
+            onClick={() => useAiStore.getState().newConversation()}
+            aria-label={t('ai:action.newChat')}
+            title={t('ai:action.newChat')}
+          >
+            <Plus size={14} aria-hidden="true" />
+            <span className="ts-ai-headbtn__label">{t('ai:action.newChat')}</span>
+          </button>
+        </div>
+      )}
 
       <div className="ts-ai-panel__body" ref={bodyRef}>
         {view === 'providers' && (
@@ -327,24 +365,53 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
             {/* 总开关关闭：只表达「未启用」+ 一个直达设置页的入口。
                 主进程本来会以 E_AI_PROVIDER 硬拒，用户看到的却是一条红色错误，容易被当成故障。 */}
             {!aiEnabled && (
-              <div className="ts-empty ts-empty--compact" data-testid="ai-disabled">
-                <PowerOff size={20} aria-hidden="true" />
+              <div className="ts-empty ts-empty--compact ts-ai-empty ts-ai-empty--off" data-testid="ai-disabled">
+                <span className="ts-ai-empty__icon ts-ai-empty__icon--off" aria-hidden="true">
+                  <PowerOff size={18} />
+                </span>
                 <p className="ts-empty__title">{t('ai:disabled.title')}</p>
                 <p className="ts-empty__body">{t('ai:disabled.body')}</p>
                 <button
                   type="button"
-                  className="ts-btn ts-btn--primary"
+                  // 描边按钮而非橙色主按钮：这一态是「功能关着」，不是「差最后一步」。
+                  // 与下面 ai-no-provider 的橙色 CTA 形成层级差，两种空态闭着眼也能区分。
+                  className="ts-btn"
                   data-testid="ai-disabled-open-settings"
                   onClick={() => openSettingsDialog('ai')}
                 >
                   {t('ai:disabled.action')}
                 </button>
+                <EmptyDetails summary={t('ai:details.more')}>{t('ai:disabled.details')}</EmptyDetails>
               </div>
             )}
 
-            {aiEnabled && providersLoaded && providers.length === 0 && (
-              <div className="ts-empty ts-empty--compact">
-                <Sparkles size={20} aria-hidden="true" />
+            {/* 加密包锁定：**不是故障**，也不该用错误红条说话 —— 给一个带锁的空态，
+                并区分于上面的「总开关关着」（那里是用户自己的选择，这里是暂时读不到 key）。 */}
+            {aiEnabled && locked && (
+              <div className="ts-empty ts-empty--compact ts-ai-empty ts-ai-empty--locked" data-testid="ai-locked">
+                <span className="ts-ai-empty__icon ts-ai-empty__icon--locked" aria-hidden="true">
+                  <Lock size={18} />
+                </span>
+                <p className="ts-empty__title">{t('ai:locked.title')}</p>
+                <p className="ts-empty__body">{t('ai:locked.body')}</p>
+                <button
+                  type="button"
+                  className="ts-btn"
+                  data-testid="ai-locked-retry"
+                  onClick={() => void useAiStore.getState().reloadProviders()}
+                >
+                  <RotateCw size={13} aria-hidden="true" />
+                  {t('ai:locked.action')}
+                </button>
+                <EmptyDetails summary={t('ai:details.more')}>{t('ai:locked.details')}</EmptyDetails>
+              </div>
+            )}
+
+            {aiEnabled && !locked && providersLoaded && providers.length === 0 && (
+              <div className="ts-empty ts-empty--compact ts-ai-empty" data-testid="ai-no-provider">
+                <span className="ts-ai-empty__icon" aria-hidden="true">
+                  <Sparkles size={18} />
+                </span>
                 <p className="ts-empty__title">{t('ai:empty.title')}</p>
                 <p className="ts-empty__body">{t('ai:empty.body')}</p>
                 <button
@@ -354,12 +421,15 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
                 >
                   {t('ai:provider.action.add')}
                 </button>
+                <EmptyDetails summary={t('ai:details.more')}>{t('ai:empty.details')}</EmptyDetails>
               </div>
             )}
 
             {aiEnabled && messages.length === 0 && providers.length > 0 && (
-              <div className="ts-empty ts-empty--compact">
-                <TerminalSquare size={20} aria-hidden="true" />
+              <div className="ts-empty ts-empty--compact ts-ai-empty">
+                <span className="ts-ai-empty__icon" aria-hidden="true">
+                  <TerminalSquare size={18} />
+                </span>
                 <p className="ts-empty__title">{t('ai:chat.empty.title')}</p>
                 <p className="ts-empty__body">{t('ai:chat.empty.body')}</p>
               </div>
@@ -387,9 +457,10 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
               </article>
             ))}
 
-            {aiEnabled && error && (
+            {aiEnabled && error && !locked && (
               <p className="ts-ai-error" data-testid="ai-error">
-                <AlertTriangle size={13} /> <span>{t(`ai:error.${errorMessageKey(error)}`, { defaultValue: error })}</span>
+                <AlertTriangle size={13} aria-hidden="true" />{' '}
+                <span>{t(`ai:error.${errorMessageKey(errorCodeOf(error) ?? error)}`, { defaultValue: error })}</span>
               </p>
             )}
 
@@ -522,6 +593,21 @@ export function AiPanel({ getContext, getSelection, runCommand, hasSession = fal
   )
 }
 
+/**
+ * 空态里的「更多说明」。
+ *
+ * 审计 #18 的问题不是文案写错，而是**三行长句一起摊在窄栏里**：先给一句能读完的话，
+ * 想深究的人再展开。用原生 `<details>`（不是自造折叠）：键盘、读屏、Cmd+F 全都免费。
+ */
+function EmptyDetails({ summary, children }: { summary: string; children: ReactNode }): JSX.Element {
+  return (
+    <details className="ts-ai-details">
+      <summary className="ts-ai-details__summary">{summary}</summary>
+      <p className="ts-ai-details__body">{children}</p>
+    </details>
+  )
+}
+
 function MessageBody({ content }: { content: string }): JSX.Element {
   // 极简渲染：代码块用 <pre>，其余按段落。不引 markdown 依赖（package.json 由 architect 独占）
   const parts = content.split(/```/)
@@ -531,7 +617,8 @@ function MessageBody({ content }: { content: string }): JSX.Element {
         if (index % 2 === 1) {
           const body = part.replace(/^[A-Za-z0-9_+-]*\n/, '')
           return (
-            <pre key={index} className="ts-ai-msg__code">
+            // tabIndex：长命令/日志超宽时键盘也能横向滚（只靠鼠标的滚动条等于把键盘用户挡在外面）
+            <pre key={index} className="ts-ai-msg__code" tabIndex={0}>
               <code>{body.replace(/\s+$/, '')}</code>
             </pre>
           )
@@ -587,17 +674,19 @@ function CommandCard({
       </pre>
       <div className="ts-ai-card__actions">
         <button type="button" className="ts-btn ts-btn--ghost" onClick={() => void onCopy(block.command)}>
-          <Copy size={13} />
+          <Copy size={13} aria-hidden="true" />
           {t('ai:action.copy')}
         </button>
+        {/* 执行是 **secondary**：命令卡的默认动作是「复制」，执行要过二次确认。
+            让执行长得和「发送」一样醒目，等于训练用户闭眼点主按钮——安全动作不该是最亮的那个。 */}
         <button
           type="button"
-          className="ts-btn ts-btn--primary"
+          className="ts-btn ts-ai-card__run"
           onClick={() => onExecute(block.command)}
           disabled={!canExecute}
           title={canExecute ? t('ai:action.execute') : t('ai:notice.noTerminal')}
         >
-          <TerminalSquare size={13} />
+          <TerminalSquare size={13} aria-hidden="true" />
           {t('ai:action.execute')}
         </button>
         <span className="ts-ai-card__hint">{t('ai:action.executeHint')}</span>
@@ -673,15 +762,15 @@ function ConfirmExecuteDialog({
     <div className="ts-ai-modal" role="dialog" aria-modal="true" data-testid="ai-execute-dialog">
       <div className={`ts-ai-modal__panel ${assessment.highRisk ? 'is-danger' : ''}`}>
         <h3 className="ts-ai-modal__title">
-          <AlertTriangle size={15} /> {t('ai:command.confirmTitle')}
+          <AlertTriangle size={15} aria-hidden="true" /> {t('ai:command.confirmTitle')}
         </h3>
-        <pre className="ts-ai-modal__preview">
+        <pre className="ts-ai-modal__preview" tabIndex={0}>
           <code>{pending.command}</code>
         </pre>
         {assessment.dangerous ? (
           <div className="ts-ai-modal__reasons" data-testid="ai-danger-reasons">
             <p className="ts-ai-modal__danger">
-              <AlertTriangle size={13} /> {t('ai:command.dangerTitle')}
+              <AlertTriangle size={13} aria-hidden="true" /> {t('ai:command.dangerTitle')}
             </p>
             <ul>
               {assessment.reasons.map((reason) => (
@@ -692,19 +781,26 @@ function ConfirmExecuteDialog({
         ) : (
           <p className="ts-ai-modal__hint">{t('ai:command.confirmBody')}</p>
         )}
-        <p className="ts-ai-modal__hint">{t('ai:command.defaultCopy')}</p>
-        <div className="ts-ai-modal__actions">
-          <button type="button" className="ts-btn ts-btn--ghost" onClick={onCancel} data-testid="ai-execute-cancel">
-            {t('common:action.cancel')}
-          </button>
-          <button
-            type="button"
-            className={`ts-btn ${assessment.highRisk ? 'ts-btn--danger' : 'ts-btn--primary'}`}
-            onClick={onConfirm}
-            data-testid="ai-execute-confirm"
-          >
-            <Check size={14} /> {t('ai:command.confirmExecute')}
-          </button>
+        {/* 审阅区：把「要你判断的东西」和「按钮」收在同一个框里、中间一条分隔线，
+            眼睛从原因扫到按钮是一条直线；按钮贴右、取消在左，避免「确认」被误点成默认动作。 */}
+        <div className="ts-ai-modal__review">
+          <p className="ts-ai-modal__hint ts-ai-modal__hint--tight">
+            <Eye size={12} aria-hidden="true" /> {t('ai:command.defaultCopy')}
+          </p>
+          <div className="ts-ai-modal__actions">
+            <button type="button" className="ts-btn ts-btn--ghost" onClick={onCancel} data-testid="ai-execute-cancel">
+              {t('common:action.cancel')}
+            </button>
+            <button
+              type="button"
+              // 二次确认永远是 secondary：危险命令再叠一层 danger 描边，而不是刷成红底「主按钮」
+              className={`ts-btn ts-ai-confirm ${assessment.highRisk ? 'ts-ai-confirm--danger' : ''}`}
+              onClick={onConfirm}
+              data-testid="ai-execute-confirm"
+            >
+              <Check size={14} aria-hidden="true" /> {t('ai:command.confirmExecute')}
+            </button>
+          </div>
         </div>
       </div>
     </div>
