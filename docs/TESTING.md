@@ -360,19 +360,25 @@ unhandled error 不会让用例失败，只会让进程退出码变红，见 t29
 | `npx playwright test e2e/…` | **否** | 改完 fixture/断言后快速迭代（前提：刚 build 过） |
 | `npx playwright test --list` | 否，且不跑 `globalSetup` | 只数用例 |
 
-反例（2026-10-29，captain 实测，值得贴墙）：
+反例（2026-10-29，captain 实测，值得贴墙——但**先说结论：这条红不是产物过期造成的，captain 的初判错了**）：
 
 ```
 13:04  npx playwright test e2e/dual-machine.spec.ts  → 3 failed
-       out/main/index.js mtime = 12:55:16（早于 HEAD 5cdb33e @13:02）
-13:07  同一文件、同样的代码，out 已被重建为 13:06:53     → exit=0 全绿
+       out/main/index.js mtime = 12:55:16（晚于 44e6bce @12:52:12，产物其实已含内嵌改动）
+13:07  同一文件、out 已被重建为 13:06:53            → exit=0 全绿
 ```
 
-**红线是「上一版界面的红」**：旧产物里同步面板还是独立弹窗（自带「取消」按钮），新产物里它已内嵌进设置弹窗
-（按契约不渲染取消按钮，关闭走 `settings-close`）。于是 `closeSyncPanel()` 在旧产物上 30s 超时，
-看起来像"产品删了按钮"，实际上是**没人重新 build**。这条被误判成产品缺陷，惊动了三个人。
+真正的因果链是：`44e6bce` 把侧栏同步/安全入口切到 `openSettingsDialog(...)` 后，`sync-panel` 由设置弹窗内嵌渲染、
+按契约不渲染「取消」按钮；而 `e2e/fixtures/ui.ts` 的 `closeSyncPanel()` 当时只写了「找取消按钮点它」一条分支，
+于是 30s 超时。`9354272` 给它补了「没有取消按钮就点 `settings-close`」的第二分支后即绿。
+**13:07 那次之所以全绿，是因为补丁当时已在工作树里（未提交），不是因为产物被重建**——产物时间戳只是同一次
+build 顺手更新的，不构成解释。
 
-所以现在的防线是两层：①配置层 `globalSetup: './e2e/global-setup.ts'` 在任何用例开跑前断言
+所以：**产物过期是另一类真实存在的假红（见 6.3），但它解释不了这次的 3 条红。** 判据要落到「helper 依赖的
+DOM 契约是否还存在」，而不是「谁的产物旧」。这条曾被我误判成"没人 build"，写进文档后又被 terminal-ui 用
+`git log` + 同一产物的两次复跑顶回来——**归因错比对错更危险，因为它会让人停止追查**。
+
+现在的防线是两层：①配置层 `globalSetup: './e2e/global-setup.ts'` 在任何用例开跑前断言
 「没有比产物更新的源码」，否则 0.7 秒内带着文件名清单失败（实测：`touch src/renderer/app/App.tsx` 后
 `npx playwright test` 立即报 `产物过期：先 pnpm build…` 并列出 `src/renderer/app/App.tsx`）；
 ②`pnpm test:e2e` 自带 build。**两者是冗余关系，不是替代关系**——闸门只能挡住「忘了 build」，

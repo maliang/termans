@@ -5,11 +5,15 @@ import { join } from 'node:path'
 /**
  * e2e 的「产物新鲜度」闸门——**先红得明白，别让 30 秒超时误导人**。
  *
- * 背景（2026-10-29 实际踩到两次）：`playwright.config.ts` 驱动的是 `out/` 里的构建产物，
- * 而 `npx playwright test` **不会** build（只有 `pnpm test:e2e` 内置 build）。谁直接跑
- * `npx playwright test`，验的就是上一版界面：captain 与 terminal-ui 都用 12:55 的产物跑过
- * 13:02 的 HEAD，得到「dual-machine 3 条红」并据此怀疑产品把「取消」按钮删了——实际是
- * 旧产物里同步面板还是独立弹窗、新产物里它已内嵌进设置弹窗，红的是上一版 UI 的行为。
+ * 背景：`playwright.config.ts` 驱动的是 `out/` 里的构建产物，而 `npx playwright test`
+ * **不会** build（只有 `pnpm test:e2e` 内置 build）。谁直接跑 `npx playwright test`，
+ * 验的就是上一次 build 时的界面——这类红是真红，但红的原因不是被测代码，会把人引去改别人的代码。
+ *
+ * ⚠️ 归因纪律（2026-10-29 的教训）：`dual-machine` 那 3 条红**最后查明与产物过期无关**，
+ * 真因是 `e2e/fixtures/ui.ts` 的 `closeSyncPanel()` 只写了「点取消按钮」一条分支，而同步面板
+ * 已被 `44e6bce` 改成设置弹窗内嵌（按契约不渲染取消按钮）。captain 曾用「产物过期」解释它，
+ * 被 terminal-ui 用 `git log` + 同一产物两次复跑顶回来。**这道闸门只解决「忘了 build」，
+ * 不要拿它解释任何一次具体的红。**
  *
  * 判据用「有没有比产物更新的源码」，不是 commit 时间（提交时间必然晚于文件 mtime，
  * 拿它比会稳定误报，反例写在 docs/TESTING.md §6.3）。
