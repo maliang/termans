@@ -289,3 +289,53 @@ export async function executeAiCommandCard(page: Page, index = 0): Promise<void>
   await card.getByRole('button', { name: /执行|execute/i }).click()
   await expect(page.getByTestId('ai-execute-dialog')).toBeVisible()
 }
+
+// ---------------------------------------------------------------- Git 同步
+
+/** 打开同步面板 */
+export async function openSyncPanel(page: Page): Promise<void> {
+  await page.getByTestId('open-sync-panel').click()
+  await expect(page.getByTestId('sync-panel')).toBeVisible()
+}
+
+export interface SyncTarget {
+  /** HTTP smart-git 地址（`e2e/fixtures/git-http.ts` 的 `serveBareRepo().url`） */
+  url: string
+  branch?: string
+  /** 本地 bare 仓库走 http 网关，没有凭据 → 'none'；默认就是它 */
+  auth?: 'none' | 'token'
+}
+
+/** 首次连接远端（此时面板显示的是「远端地址 + 分支 + 认证」表单） */
+export async function connectSyncRemote(page: Page, target: SyncTarget): Promise<void> {
+  const panel = page.getByTestId('sync-panel')
+  await page.getByTestId('sync-remote-url').fill(target.url)
+  if (target.branch !== undefined) {
+    await panel.getByLabel(/分支|branch/i).fill(target.branch)
+  }
+  await panel.getByLabel(/认证|authorization|auth/i).selectOption(target.auth ?? 'none')
+  await page.getByTestId('sync-connect').click()
+  // 连上之后表单消失、换成 push/pull 那组按钮
+  await expect(page.getByTestId('sync-push')).toBeVisible({ timeout: 20_000 })
+}
+
+/** 推送到远端（等状态条从「同步中」回到稳定态由调用方断言仓库内容） */
+export async function pushSync(page: Page): Promise<void> {
+  await page.getByTestId('sync-push').click()
+  await expect(page.getByTestId('sync-push')).toBeEnabled({ timeout: 30_000 })
+}
+
+/** 从远端拉取 */
+export async function pullSync(page: Page): Promise<void> {
+  await page.getByTestId('sync-pull').click()
+  await expect(page.getByTestId('sync-pull')).toBeEnabled({ timeout: 30_000 })
+}
+
+/** 关掉同步面板（✕ 可能是面板内的取消按钮） */
+export async function closeSyncPanel(page: Page): Promise<void> {
+  const panel = page.getByTestId('sync-panel')
+  if (await panel.isVisible().catch(() => false)) {
+    await panel.getByRole('button', { name: /取消|cancel/i }).click()
+  }
+  await expect(panel).toBeHidden()
+}
