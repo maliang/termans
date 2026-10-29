@@ -24,9 +24,10 @@
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
-  height: 30px;
-  padding: 0 8px;
+  gap: var(--ts-space-2);
+  /* t36 / UI 审计 #22：三处垂直高度统一走底座 token —— 页签条 38(titlebar) / 工具条 28 / 状态条 28 */
+  height: var(--ts-control-h-sm);
+  padding: 0 var(--ts-space-2);
   border-bottom: 1px solid var(--ts-border);
   background: var(--ts-bg-surface);
   font-size: var(--ts-font-size-sm);
@@ -73,7 +74,7 @@
   inset: 0;
   /* 附加 A：8–12px 内边距。xterm 的 ResizeObserver 盯的是内层 canvas，
      padding 一变就会重新 fit 并把新行列数发给远端 PTY，不会出现「渲染宽度 ≠ PTY 宽度」。 */
-  padding: 10px 12px;
+  padding: var(--ts-space-2) var(--ts-space-3);
   background: var(--ts-bg-app);
   transition: background-color 140ms ease;
 }
@@ -114,8 +115,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 24px;
+  gap: var(--ts-space-2);
+  padding: var(--ts-space-5);
   color: var(--ts-text-muted);
   text-align: center;
   /* 空态里有真按钮，必须能点（原来 pointer-events:none 只是为了避免挡住终端） */
@@ -145,8 +146,8 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  margin-top: 6px;
+  gap: var(--ts-space-2);
+  margin-top: var(--ts-space-1);
 }
 
 .ts-term-empty__kbd {
@@ -197,12 +198,13 @@
 
 .ts-term-search {
   position: absolute;
-  top: 38px;
-  right: 16px;
+  /* 落在工具条正下方：工具条高度走 token（28px），再留一个 8px 台阶 */
+  top: calc(var(--ts-control-h-sm) + var(--ts-space-2));
+  right: var(--ts-space-4);
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ts-space-1);
   padding: 4px 6px;
   border: 1px solid var(--ts-border-strong);
   border-radius: var(--ts-radius-md);

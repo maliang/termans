@@ -19,6 +19,12 @@ export interface CloseTabDialogProps {
 
 export function CloseTabDialog({ tab, onConfirm, onCancel }: CloseTabDialogProps): JSX.Element {
   const { t } = useTranslation()
+  /*
+   * 页签标题正好等于主机名时（单主机一个页签是最常见的情形），
+   * 通用正文会渲染成「「web-prod-01」在 web-prod-01 上仍有活动会话」——自己重复自己。
+   * t36 起用另一条 key（只有一个 {{title}} 占位）说同一件事。
+   */
+  const sameHost = tab.hostLabel !== null && tab.hostLabel === tab.title
   return (
     <div className="ts-dialog ts-tab-modal" role="presentation" onMouseDown={onCancel}>
       <div
@@ -37,16 +43,24 @@ export function CloseTabDialog({ tab, onConfirm, onCancel }: CloseTabDialogProps
 
         <div className="ts-dialog__body">
           {/*
-            * 参数名必须和 locale 里的占位符一一对上（en/zh 都是 {{title}} + {{host}}）。
-            * 传错名字不会抛错，界面上会直接显示 “{{title}}” 原文——截图里抓到过一次。
+            * 参数名必须和 locale 里的占位符一一对上。传错名字不会抛错，界面上会直接显示
+            * “{{title}}” 原文——截图里抓到过一次。所以两条 key 都写成**字面量调用**
+            * （契约测试只扫字面量），各自的占位符也各自传：
+            *   body           {{title}} + {{host}}
+            *   bodySameHost   只有 {{title}}
             */}
           <p className="ts-dialog__text">
-            {t('terminal:tab.confirmClose.body', {
-              title: tab.title,
-              host: tab.hostLabel ?? tab.title,
-              defaultValue:
-                '“{{title}}” on {{host}} still has an active session. Closing the tab ends it.'
-            })}
+            {sameHost
+              ? t('terminal:tab.confirmClose.bodySameHost', {
+                  title: tab.title,
+                  defaultValue: '“{{title}}” still has an active session. Closing the tab ends it.'
+                })
+              : t('terminal:tab.confirmClose.body', {
+                  title: tab.title,
+                  host: tab.hostLabel ?? tab.title,
+                  defaultValue:
+                    '“{{title}}” on {{host}} still has an active session. Closing the tab ends it.'
+                })}
           </p>
         </div>
 

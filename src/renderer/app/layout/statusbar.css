@@ -8,7 +8,8 @@
 .ts-statusbar__segment {
   display: flex;
   align-items: center;
-  gap: 10px;
+  /* t36 / UI 审计 #22：段内间距走底座 token（原 10px 是随手写的字面量） */
+  gap: var(--ts-space-2);
   min-width: 0;
 }
 
@@ -29,7 +30,7 @@
 .ts-statusbar__item {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ts-space-1);
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -61,7 +62,7 @@
 .ts-statusbar__action {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ts-space-1);
   height: 18px;
   padding: 0 5px;
   border: 0;

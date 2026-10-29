@@ -60,6 +60,27 @@ export function StatusBar(): JSX.Element {
   const tone = conflictCount > 0 ? 'error' : syncTone(syncState)
   const vaultUnlocked = vault === 'unlocked'
 
+  /*
+   * 加密包解锁态的文案（t36）。`vault` 其实有四个值：`unknown | uninitialized | locked | unlocked`
+   * （见 shared/models/vault.ts 与 app/store.ts）。早先这里直接
+   * `t('common:state.vault', { state: vault })` 把 store 的原始英文插进中文句子，
+   * 界面上就是「加密包：unlocked」（t34 截图 after-final-13-close-tab.png 可见）。
+   * `unknown` 只在 `vault:state-changed` 到达前的一瞬出现，显示加载中比显示「已锁定」诚实。
+   */
+  const vaultLabel = (() => {
+    switch (vault) {
+      case 'unlocked':
+        return t('common:state.vaultUnlocked')
+      case 'locked':
+        return t('common:state.vaultLocked')
+      case 'uninitialized':
+        // 第三态：全新安装（库还没建）时的明确文案，别让这一格空着或显示英文原值
+        return t('common:state.vaultUninitialized')
+      default:
+        return t('common:state.loading')
+    }
+  })()
+
   // 同步状态的文案在 `vaultsync` 里（7 个状态齐全）；`sync:status.*` 只有 off/idle，
   // 用它会在 ahead/behind/diverged 时把原始 key 露到界面上。
   const syncLabel = t(`vaultsync:sync.state.${syncState ?? 'off'}`, { defaultValue: syncState ?? 'off' })
@@ -77,14 +98,14 @@ export function StatusBar(): JSX.Element {
           <span
             className={`ts-statusbar__item ts-statusbar__item--${vaultUnlocked ? 'ok' : 'warn'}`}
             data-testid="status-vault"
-            title={t('common:state.vault', { state: vault })}
+            title={vaultLabel}
           >
             {vaultUnlocked ? (
               <LockOpen size={11} aria-hidden="true" />
             ) : (
               <Lock size={11} aria-hidden="true" />
             )}
-            {t('common:state.vault', { state: vault })}
+            {vaultLabel}
           </span>
 
           <button
@@ -94,7 +115,7 @@ export function StatusBar(): JSX.Element {
             data-state={syncState ?? 'off'}
             data-conflicts={conflictCount}
             title={
-              vaultUnlocked ? syncLabel : t('common:state.vault', { state: vault })
+              vaultUnlocked ? syncLabel : vaultLabel
             }
             disabled={!vaultUnlocked}
             onClick={() => setSyncOpen(true)}
