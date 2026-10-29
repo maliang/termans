@@ -331,8 +331,9 @@ unhandled error 不会让用例失败，只会让进程退出码变红，见 t29
   对应提交 `44e6bce` 的时间是 `12:52:12`。若拿"产物 vs commit 时间"比，会判成"产物比 HEAD 旧、需要重 build"；
   而 `find src -type f -newer out/main/index.js` 返回 **0 个文件**——改动在 build 之前就落盘了，产物其实是最新的。
   **看源码 mtime，不看 commit 时间。**
-- **正确顺序**：`git rev-parse --short HEAD` 记下 → `pnpm build` → 截图 → 再 `git rev-parse --short HEAD` 复核没变 →
-  把两个 hash 写进报告。任何"改完立刻截"的脚本，第一条命令都必须是 build。
+- **正确顺序**：`git rev-parse --short HEAD` 记下 → `pnpm build` → 截图（或跑 e2e） → 再 `git rev-parse --short HEAD`
+  复核没变 → 把两个 hash 与 `stat -f '%Sm' out/main/index.js` 一起写进报告。任何"改完立刻截/立刻跑"的脚本，
+  第一条命令都必须是 build（`npx playwright test` 不 build，见 §6.3.1）。
 
 ---
 
@@ -350,3 +351,29 @@ unhandled error 不会让用例失败，只会让进程退出码变红，见 t29
 - 症状：开了 AI 总开关后立刻截 AI 面板，截出来的是别的界面，或 `ai-panel` 不可见。
 - 原因：`settings:changed` 会同步外壳状态 `aiPanelVisible`，把面板收起来（开关变 true ≠ 面板打开）。
 - 正确写法：`enableAi()` → `openAiPanel(page)` → 等 `ai-panel` 可见 → 再截图/断言。
+
+**6.3.1 三条入口的差别：`npx playwright test` 不建产物**
+
+| 入口 | 是否 build | 适合 |
+| --- | --- | --- |
+| `pnpm test:e2e` = `pnpm run build && playwright test` | **是** | 验收、收口、CI（等价写法） |
+| `npx playwright test e2e/…` | **否** | 改完 fixture/断言后快速迭代（前提：刚 build 过） |
+| `npx playwright test --list` | 否，且不跑 `globalSetup` | 只数用例 |
+
+反例（2026-10-29，captain 实测，值得贴墙）：
+
+```
+13:04  npx playwright test e2e/dual-machine.spec.ts  → 3 failed
+       out/main/index.js mtime = 12:55:16（早于 HEAD 5cdb33e @13:02）
+13:07  同一文件、同样的代码，out 已被重建为 13:06:53     → exit=0 全绿
+```
+
+**红线是「上一版界面的红」**：旧产物里同步面板还是独立弹窗（自带「取消」按钮），新产物里它已内嵌进设置弹窗
+（按契约不渲染取消按钮，关闭走 `settings-close`）。于是 `closeSyncPanel()` 在旧产物上 30s 超时，
+看起来像"产品删了按钮"，实际上是**没人重新 build**。这条被误判成产品缺陷，惊动了三个人。
+
+所以现在的防线是两层：①配置层 `globalSetup: './e2e/global-setup.ts'` 在任何用例开跑前断言
+「没有比产物更新的源码」，否则 0.7 秒内带着文件名清单失败（实测：`touch src/renderer/app/App.tsx` 后
+`npx playwright test` 立即报 `产物过期：先 pnpm build…` 并列出 `src/renderer/app/App.tsx`）；
+②`pnpm test:e2e` 自带 build。**两者是冗余关系，不是替代关系**——闸门只能挡住「忘了 build」，
+挡不住「build 失败但旧产物还在」（那种情况 build 命令本身会 exit≠0，别把它的输出吞掉）。
