@@ -69,9 +69,12 @@ textarea {
   background: var(--ts-bg-app);
 }
 
-/* macOS 内嵌标题栏：红绿灯浮在左上角，侧栏顶部让位 */
+/* macOS 内嵌标题栏：红绿灯浮在左上角（hiddenInset 下按钮占 y≈13–27、x≈20–76），
+   侧栏顶部必须让位。26px 时标题顶边落在 y=28，离按钮下沿只有 1px —— 主人反馈
+   「主机库三个字还是和上边的关闭按钮靠的太近」，故改成 40px（标题顶边 y=42，
+   按钮下沿到标题 15px，与 macOS 原生标题栏 28px 区 + 12px 内容间距的观感一致）。 */
 .ts-app[data-platform='darwin'] .ts-sidebar {
-  padding-top: 26px;
+  padding-top: 40px;
 }
 
 /* ==========================================================================
@@ -124,8 +127,10 @@ textarea {
   display: flex;
   align-items: center;
   gap: var(--ts-space-2);
-  /* 左右内边距与 `.ts-sidebar` 的 `padding: … 10px` 对齐，齿轮才会和主机行左缘同一条线 */
-  padding: var(--ts-space-2) 10px;
+  /* 左右内边距与 `.ts-sidebar` 的 `padding: … 10px` 对齐，齿轮才会和主机行左缘同一条线；
+     上 8px 保持与列表的呼吸，下 4px 收到最小（主人反馈「下面的内边距可以再少一点」），
+     两条内边距故意不对称：上面要留出与列表的分隔感，下面贴住状态栏即可。 */
+  padding: var(--ts-space-2) 10px var(--ts-space-1);
   border-top: 1px solid var(--ts-border);
   background: var(--ts-bg-surface);
 }
