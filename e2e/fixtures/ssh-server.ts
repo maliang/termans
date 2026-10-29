@@ -158,13 +158,38 @@ function verifyAuthentication(
 }
 
 /**
+ * 可选「脚本化 shell」：只在调用方显式传 `shellScript` 时启用，**默认路径的字节流与以前完全一致**。
+ *
+ * 存在的理由：默认夹具是逐行回显（`echo hi` → `hi`），做功能断言足够，但截 README 首页图时
+ * 画面只有两三行、看起来像「客户端卡住了」。真实 SSH 会话第一屏是 MOTD + 提示符 + 命令输出，
+ * 这里让夹具按脚本产生同样的多行字节流——**字节仍然走 ssh2 通道、由 xterm 渲染**，
+ * 不是往 DOM 里塞文本。
+ */
+export interface E2eShellScript {
+  /** 会话建立后、banner 之后紧跟着写出的欢迎语（多行，例如 MOTD） */
+  welcome?: string[]
+  /** 提示符样式，例如 `termans@web-prod-01:~$ `（末尾带空格，不加换行） */
+  prompt?: string
+  /** 输入命令 → 输出行（不含提示符）；未命中的命令仍逐行回显，保持可预期 */
+  responses?: Record<string, string[]>
+}
+
+/**
  * 极简 shell：回显 + exit；其余命令回 `command not found`（够验证「输入上行 + 回显下行」）。
  *
  * 换行必须同时认 `\r` 与 `\n`：xterm 的 Enter 发的是 **CR（0x0d）**，只按 `\n` 切分会一条都收不到，
  * 症状是「终端连上了、敲键盘没反应」——这个坑在探针里真实踩过一次（shellLines 恒为空）。
  */
-function attachShell(stream: ServerChannel, server: E2eSshServer): void {
+function attachShell(stream: ServerChannel, server: E2eSshServer, script?: E2eShellScript): void {
+  const newline = '\r\n'
+  const writeLines = (lines: string[]): void => {
+    for (const line of lines) stream.write(`${line}${newline}`)
+  }
   stream.write(`${server.banner}\r\n`)
+  if (script !== undefined) {
+    if (script.welcome !== undefined) writeLines(script.welcome)
+    if (script.prompt !== undefined) stream.write(script.prompt)
+  }
   let pending = ''
   stream.on('data', (chunk: Buffer) => {
     pending += chunk.toString('utf8')
@@ -183,7 +208,15 @@ function attachShell(stream: ServerChannel, server: E2eSshServer): void {
         stream.end()
         return
       }
-      stream.write(`${line}\r\n`)
+      if (script === undefined) {
+        stream.write(`${line}\r\n`)
+        continue
+      }
+      // 脚本化模式：先回显这一行（等价真实 tty 的行回显），再按映射写输出，最后补提示符
+      stream.write(`${line}${newline}`)
+      const reply = script.responses?.[line.trim()]
+      if (reply !== undefined) writeLines(reply)
+      if (script.prompt !== undefined) stream.write(script.prompt)
     }
   })
   stream.on('error', () => undefined)
@@ -211,6 +244,12 @@ export interface E2eSshServerOptions {
   echoInput?: boolean
   /** shell 开场 banner，默认 `termans-e2e ready` */
   banner?: string
+  /**
+   * 可选「脚本化 shell」（MOTD + 提示符 + 命令输出）。**不传时行为与以前逐字节一致**：
+   * 所有既有用例都不传它，所以既有断言不会因为多出几行输出而变红。
+   * 只有需要真实多行画面的场景（README 首页图脚本）才传。
+   */
+  shellScript?: E2eShellScript
   /**
    * 当作跳板机时使用：收到 direct-tcpip 就接到这个地址（忽略客户端请求的 dest）。
    * 不设则拒绝所有 direct-tcpip（普通用例不需要转发）。
@@ -284,7 +323,7 @@ export async function startE2eSshServer(options: E2eSshServerOptions = {}): Prom
         session.on('shell', (acceptShell: () => ServerChannel) => {
           const stream = acceptShell()
           void tty
-          attachShell(stream, server)
+          attachShell(stream, server, options.shellScript)
         })
         session.on('exec', (acceptExec: () => ServerChannel, _reject: unknown, info: { command: string }) => {
           const stream = acceptExec()
