@@ -344,6 +344,13 @@ unhandled error 不会让用例失败，只会让进程退出码变红，见 t29
 
    判据不是"看一眼 git status 干净"——**未跟踪/未修改 ≠ 内容没被替换过**。要用内容哈希，且要跑前跑后各一次。
    结论表里把作废轮次一并列出（哪一轮、为什么作废），**作废的理由本身是证据**。
+6. **断言写得太早不是 flake，是判据错误**（2026-10-29 实例，t35 之前修的 `e2e/smoke.spec.ts`）：
+   `expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark')` 偶发 `Received: undefined`。
+   看起来像抖动，实际是**主题是异步落的**——`settings:get` 回来之后才 `applyThemeToDocument()`
+   （`src/renderer/theme/apply.ts:29` 写 `dataset['theme']`），而断言在页面 load 完就立刻取值。
+   正确写法是 `expect.poll(() => …, { timeout: 10_000 }).toBe('dark')`。
+   判据上要分清两种红：**"同一个状态在不同时刻取值不同" 属于判据错（改断言方式）；"同一时刻取值不稳定"
+   才是 flake（要查竞态）**。把前一种当 flake 重跑，会让一条本该稳定的断言长期占据"偶发"席位。
 
 ### 6.2 已知时序：双机用例的 clone 等待为什么是 60s
 
@@ -430,3 +437,87 @@ DOM 契约是否还存在」，而不是「谁的产物旧」。这条曾被我�
 这样被拦的（闸门报 `产物过期…` 并列出来源文件），**这两轮要记成"作废（并发改动导致产物过期）"，不是"2 条红"**。
 所以：①官方入口用 `pnpm test:e2e`（它先 build）；②手动 `npx playwright test` 前必须紧挨着 build 一次；
 ③看到闸门消息先看它列的文件，那是**别人刚改的**，不是你的错，重 build 再跑。
+
+---
+
+## 8. 静态检查：同一个视觉决策只能有一个真源（t35 加）
+
+今天有四类「同一个视觉决策、两个真源」的坑，全都是**构建绿、单测绿、e2e 绿，只有截图才看得见**：
+`ai.css` 里 `.ts-btn--danger` 反向覆盖了全站危险按钮、焦点环存在两套 token、kit 反向覆盖 AI 弹窗的
+`min-height`、`.ts-vault__modal` 那条匹配不到任何元素的死规则。前三次靠人眼在截图里发现，第四次靠 t37 读码。
+
+**它不该是硬门禁**（feature 在自己的类上写 `padding`/`background` 是合法的，绝大多数命中都是正当的），
+所以做法是「能 grep 的清单 + 人工看一眼」。判据是**feature CSS 里出现了 kit 已经定义过的类名，且写的是 kit 同族属性**：
+
+```bash
+# 在仓库根执行。输出非空就逐行看一眼：这个类名是不是 kit 的？这条声明该不该由 kit 统一负责？
+python3 - <<'PY'
+import re, pathlib
+root = pathlib.Path('src/renderer')
+KIT = {'min-height','max-height','overflow','overflow-x','overflow-y','background','background-color',
+       'padding','padding-inline','padding-block','padding-top','padding-bottom','padding-left','padding-right',
+       'border-radius','box-shadow'}
+def rules(text):
+    for m in re.finditer(r'(?m)^(\.[A-Za-z0-9_-]+)\s*\{([^}]*)\}', text):
+        yield m.group(1), m.group(2), text[:m.start()].count('\n') + 1
+kit_files = [root / 'styles' / 'base.css', root / 'theme' / 'theme.css']   # kit 的唯一定义处
+kit_classes = {sel for p in kit_files for sel, _, _ in rules(p.read_text())}
+hits = 0
+for p in sorted(p for p in root.rglob('*.css') if p not in kit_files):
+    for sel, body, line in rules(p.read_text()):
+        if sel in kit_classes:
+            props = {l.split(':')[0].strip() for l in body.split(';') if ':' in l}
+            if props & KIT:
+                hits += 1
+                print(f'{p}:{line}  {sel}  -> {", ".join(sorted(props & KIT))}')
+print('SUSPECTS', hits)
+PY
+```
+
+实测（2026-10-29，HEAD 含 t30–t38）：`SUSPECTS 1` —— `src/renderer/app/layout/statusbar.css:126` 的
+`.ts-statusbar` 与 `src/renderer/styles/base.css:395` 同名，前者用 `height: var(--ts-control-h-sm)` 覆盖后者的
+`height: 24px`，`padding` 也是各写一份。**这是真·两个真源**（base.css 那份已被完全覆盖，读代码的人却会以为
+24px 是最终值），修法归状态栏 owner，不在 t35（verification，只动文档）范围内，登记在此。
+
+配套两条纪律（比脚本更重要）：
+
+- **改 kit 的类名/属性前先 `grep -rn "该选择器" src/renderer`**：出现两处以上就说明有人在自己的文件里覆盖它，
+  改一处等于只改了一半。
+- **反向覆盖（feature 覆盖 kit）与正向覆盖（kit 覆盖 feature）都要看**：今天四次里两次是 kit 反向压了 feature
+  （`theme.css` 的 `.ts-settings__embed .ts-vault__modal` 压 AI 弹窗 `min-height`），只查一个方向会漏。
+- **CSS 注释也会撒谎**：`theme.css:545-553` 那条 `.ts-vault__modal` 规则匹配不到任何元素（该类已删），
+  而注释描述的是一个已经不存在的架构；t40 专门清它。**过时注释比 bug 更贵，因为读它的人会停止怀疑**
+  （侧栏 265px 那个 bug 的第一轮定位就是被一条过时注释带偏的）。
+
+---
+
+## 9. 覆盖矩阵与缺口登记（t35 交付口径）
+
+这张表回答的不是"测试多不多"，而是**"SPEC 的哪一条没有自动化证据"**。写"缺口"就是缺口，不写成"部分通过"；
+任何人要引用"e2e 全绿"，请连这张表一起引用。
+
+| SPEC | 判据（简） | 状态 | 证据 / 缺在哪 |
+| --- | --- | --- | --- |
+| S-01 | 初始化加密包 | 部分 | `e2e/smoke.spec.ts`、`e2e/fixtures/ui.ts` 的 `createVault()` 覆盖"设口令→建库→解锁"；**恢复码"只显示一次"没有断言** |
+| S-02 | 弱口令拒绝 | 部分 | 只在 `createVault()` 里被动依赖（弱口令要二次确认），没有独立用例断言"拒绝 + 不落文件" |
+| S-03 | 锁定/解锁 | 部分 | `smoke.spec.ts` 断言未建库时的解锁屏与 `data-locked`；**`lock-screen` testid 与 SPEC 原文不一致**（实现是 `unlock-screen`），锁定后的"正确/错误口令"分支未覆盖 |
+| S-04 | 错误口令不丢数据 | **缺口** | 只测过"错口径看不到主机"（`dual-machine.spec.ts` 用例 3），没测"连续 5 次错后仍能解锁" |
+| S-05 | 仓库内容确为密文 | 已覆盖 | `e2e/dual-machine.spec.ts` 用例 1：`git -C <bare> ls-tree -r` 后逐文件取内容，IP/端口/密码/`PRIVATE KEY`/主口令逐个 `not.toContain` |
+| S-06 | 推送/拉取 | 已覆盖 | `dual-machine.spec.ts` + `conflict.spec.ts`（push/pull 与 `git log` 断言） |
+| S-07 | 双机 A→B 迁移 | 部分 | `dual-machine.spec.ts` 覆盖"3 台主机 + 密码可登录 + 错口令看不到主机"；**主题是否随迁移未断言**，私钥缺失由 S-21 覆盖 |
+| S-08 | 恢复码重置主口令 | **缺口** | 无 e2e（`vault:recover` 只有单测） |
+| S-09 | 主口令轮换 | **缺口** | 无 e2e（`vault:rotate` 只有单测） |
+| S-10 | 冲突显式选择 | 已覆盖 | `e2e/conflict.spec.ts` 三条（保留本地/保留远端/两边都留，全点 UI），含"远端 revision 未前进" |
+| S-11 | 同步状态可见（7 态） | **缺口** | 只在冲突现场断言过 `diverged`；`off/idle/syncing/ahead/behind/error` 未逐态断言，断网重试未覆盖 |
+| S-12 | 锁定态禁止同步 | **缺口** | 无 e2e（`invokeInPageRaw` 能断言 `E_VAULT_LOCKED`，但没有用例真点锁定后点同步） |
+| S-13 | 明文不落临时目录 | **缺口** | 无 `find userData -name "*.plain*"` 类断言 |
+| S-16/S-17/S-18/S-19 | ssh_config 导入/写回/幂等/删除字段 | 部分 | 写回"其它行逐字节不变"由 `vault-security.spec.ts` ⑧ 覆盖；导入/幂等/删除字段只有 vitest |
+| S-20 | known_hosts 同步 | 部分 | `vault-security.spec.ts` ⑧ 覆盖"预置指纹免首确 / 错指纹硬失败"；**跨机同步未覆盖** |
+| S-21 | 私钥不跟着同步 | 已覆盖 | `vault-security.spec.ts` ⑥：`credentials:clear` 后再连，报 `uses publickey auth but has no private key configured` |
+
+调用面覆盖（与 SPEC 正交、但发布说明会问）：密码登录、publickey 登录（vault 导入）、跳板机（S-12 旧编号那套
+业务用例）、多页签（新建/切换保 scrollback/关闭二次确认）、AI 预览与命令二次确认、主题切换、语言切换
+—— 均有 e2e，见 `e2e/*.spec.ts` 的用例标题（中文标题即验收语言）。
+
+**这张表的用途**：① 发布说明里不许说"全部验收项已由 e2e 覆盖"；② 缺口要单开卡，不要塞进"已完成"里。
+

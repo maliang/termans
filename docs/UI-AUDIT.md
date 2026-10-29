@@ -77,6 +77,7 @@
 | 25 | 主机行「双击进编辑」**实际很难触发**：第一次 click 会 `onSelect` → 触发重渲染（`ts-vault__host--active` 换类）→ 第二次 click 落在新节点上，`dblclick` 没派发。截图脚本里 `dblclick()` 直接失败，只能改走「+ 新建」 | 用户会以为「双击没反应」 | **待 t31** | 用 `event.detail === 2` 在 `onPointerDown` 里判定，或把选中态从 class 换成不重建节点的 `data-active`；也可以给主机行加显式「编辑」入口 |
 | 26 | 主机编辑器「标签」输入框下方有一个**孤立的小横线**（`after-final-04-host-editor.png` 标签列下方，距输入框约 34px） | 看起来像坏掉的控件 | **待 t31** | 疑似自定义色块那行的 `<input type="color">` 或空 `.ts-field__hint` 占位，需要 owner 定位 |
 | 27 | 状态栏把 store 的原始英文状态直接插进中文句子：「加密包：unlocked」 | 中英混排 | **key 已就位（三个态齐全），接线在 t36** | `src/locales/*/common.json` 已有三态 `state.vaultUninitialized/vaultLocked/vaultUnlocked`（`加密包：未初始化/已锁定/已解锁`，en `vault: not set up/locked/unlocked`），`terminal:tab.confirmClose.bodySameHost` 也已加（`「{{title}}」仍有活动会话…`，页签名 == 主机名时用）；`StatusBar.tsx:38` 里的 `VAULT_UNINITIALIZED_KEY` 常量拼接等待 t36 换回字面量 |
+| 28 | 主机行的行内铅笔按钮落在 hover pill **之外**（`after-vault-10-host-row-edit.png` 可见：pill 只裹住 label + 地址，铅笔在 pill 右侧） | 观感不齐，不影响可用性 | **已知观感项，主动不做（captain 裁定）** | 修它要把 pill 的范围与行内动作重新排布，属改版级改动；本轮冻结前不动的清单里已含它。登记在此**是为了防止以后被当成"漏修"重新开卡**——它不是漏的，是主动不做的 |
 
 ---
 
