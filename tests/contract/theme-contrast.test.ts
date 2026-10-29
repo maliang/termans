@@ -9,8 +9,8 @@ import { CONTRAST_PAIRS, auditContrast, bodyContrastRatio, contrastProblems } fr
  * 这里断言的是**硬底线**（`pair.min`），编辑器里低于 `pair.recommended` 只给黄色警告。
  */
 describe('内置主题对比度', () => {
-  it('审计覆盖 9 组配对，且每组都有 min/recommended', () => {
-    expect(CONTRAST_PAIRS.length).toBe(9)
+  it('审计覆盖 12 组配对，且每组都有 min/recommended', () => {
+    expect(CONTRAST_PAIRS.length).toBe(12)
     for (const pair of CONTRAST_PAIRS) {
       expect(pair.min).toBeGreaterThan(0)
       expect(pair.recommended).toBeGreaterThanOrEqual(pair.min)
@@ -18,7 +18,7 @@ describe('内置主题对比度', () => {
   })
 
   for (const theme of BUILTIN_THEMES) {
-    it(`${theme.id}: 9 组配对都不低于硬底线`, () => {
+    it(`${theme.id}: 12 组配对都不低于硬底线`, () => {
       const results = auditContrast(resolveBuiltinTheme(theme))
       expect(results.length).toBe(CONTRAST_PAIRS.length)
       for (const result of results) {
@@ -43,19 +43,28 @@ describe('内置主题对比度', () => {
     // 曾经的浅色主按钮偏差（白字 #ffffff 落在 #c86a08 上 = 3.80:1）已修：浅色块改用纯黑字
     // `--ts-accent-contrast: #000000`（5.52:1）。豁免表因此被删除，这里对所有内置主题一律要求 ≥ 4.5:1，
     // 谁再把品牌琥珀底上的字改浅就会直接红。
-    it(`${theme.id}: 主按钮文字 ≥ 4.5:1`, () => {
-      const result = auditContrast(resolveBuiltinTheme(theme)).find((item) => item.pair.id === 'button')!
-      expect(
-        result.ratio,
-        `${theme.id} 主按钮文字 ${result.ratio}:1（前景 ${result.foreground} / 背景 ${result.background}）`
-      ).toBeGreaterThanOrEqual(4.5)
+    it(`${theme.id}: 主按钮文字（常态 + hover 态）≥ 4.5:1`, () => {
+      for (const id of ['button', 'button-hover'] as const) {
+        const result = auditContrast(resolveBuiltinTheme(theme)).find((item) => item.pair.id === id)!
+        expect(
+          result.ratio,
+          `${theme.id} ${id} ${result.ratio}:1（前景 ${result.foreground} / 背景 ${result.background}）`
+        ).toBeGreaterThanOrEqual(4.5)
+      }
     })
   }
 
-  it('termans-light 的高亮/次要文案仍有足够区分度（muted ≥ 3:1）', () => {
-    const light = resolveBuiltinTheme(findBuiltinTheme('termans-light')!)
-    const muted = auditContrast(light).find((item) => item.pair.id === 'muted-surface')!
-    expect(muted.ratio).toBeGreaterThanOrEqual(3)
+  it('弱化文案在四种主题、三种背景层上都 ≥ 4.5:1（2026-10-30 用户反馈「提示看不清」后的回归）', () => {
+    for (const theme of BUILTIN_THEMES) {
+      const results = auditContrast(resolveBuiltinTheme(theme))
+      for (const id of ['muted-app', 'muted-surface', 'muted-elevated'] as const) {
+        const result = results.find((item) => item.pair.id === id)!
+        expect(
+          result.ratio,
+          `${theme.id} ${id} = ${result.ratio}:1（前景 ${result.foreground} / 背景 ${result.background}）`
+        ).toBeGreaterThanOrEqual(4.5)
+      }
+    }
   })
 
   it('高对比主题的正文对比度显著高于默认深色（不是换个名字而已）', () => {

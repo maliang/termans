@@ -487,9 +487,12 @@
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
-  border: 1px solid var(--ts-amber);
+  /* 不要用 --ts-amber-soft 当底色：深色主题下它是 #ffe2a8（奶油），
+     而 --ts-text-primary 是近白，白字压奶油只有 1.07:1（2026-10-30 实测不可读）。
+     改成「主题表面 + 琥珀色半透明薄涂」，任何主题下文字与底色都同源。 */
+  border: 1px solid color-mix(in srgb, var(--ts-status-warn) 55%, transparent);
   border-radius: var(--ts-radius-sm);
-  background: var(--ts-amber-soft);
+  background: color-mix(in srgb, var(--ts-status-warn) 14%, var(--ts-bg-surface));
   color: var(--ts-text-primary);
 }
 
@@ -610,9 +613,10 @@
   gap: 6px;
   margin: 0;
   padding: 8px 10px;
-  border: 1px solid var(--ts-amber);
+  /* 同 .ts-vault__guide：薄涂代替琥珀实底，见上面那段注释（白字压奶油 1.07:1） */
+  border: 1px solid color-mix(in srgb, var(--ts-status-warn) 55%, transparent);
   border-radius: var(--ts-radius-sm);
-  background: var(--ts-amber-soft);
+  background: color-mix(in srgb, var(--ts-status-warn) 14%, var(--ts-bg-surface));
   color: var(--ts-text-primary);
   line-height: 1.45;
 }

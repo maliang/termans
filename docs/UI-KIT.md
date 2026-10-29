@@ -29,7 +29,7 @@
 | | `--ts-danger` | 红：错误 |
 | **语义 18** | `--ts-bg-app` / `--ts-bg-surface` / `--ts-bg-elevated` / `--ts-bg-overlay` | 四级背景（应用底 / 面板 / 抬高块 / 遮罩） |
 | | `--ts-border` / `--ts-border-strong` | 两级描边（细分隔线 / 控件边框） |
-| | `--ts-text-primary` / `--ts-text-secondary` / `--ts-text-muted` / `--ts-text-inverse` | 四级文字（正文 ≥4.5:1；muted 只用于元信息） |
+| | `--ts-text-primary` / `--ts-text-secondary` / `--ts-text-muted` / `--ts-text-inverse` | 四级文字，**四级都要求 ≥4.5:1**（muted 承载空态说明/状态栏/表单提示等真句子，不是「可以看不清」的装饰；契约测试 `muted-app`/`muted-surface`/`muted-elevated` 三对钉死） |
 | | `--ts-accent` / `--ts-accent-strong` / `--ts-accent-contrast` | 动作色三件套：主色 / hover 深色 / 压在主色上的文字色 |
 | | `--ts-focus-ring` | **legacy**：仅为兼容用户已导出的主题 JSON 保留定义，组件零使用（详见 §3） |
 | | `--ts-selection` | 文本选中底色 |
@@ -528,6 +528,16 @@ if (tab === 'sync') {
 ```
 
 **箭头为什么不用 SVG data-URI**：`background-image: url("data:image/svg+xml,...")` 里的颜色写死在字符串里，`var()` 进不去，换主题时箭头不跟色（变成深色主题上一条浅色箭头）。两个 45°/135° 的 `linear-gradient` 用 `var(--ts-text-secondary)` 拼出一个「v」，随主题变色、零依赖、零请求。`mask-image` 的写法更糟：它会把元素内容一起遮掉。
+
+### 10.0 提示条上色：**不要用品牌色实底配正文色**
+
+- 2026-10-30 用户反馈「设置主口令界面有黄色背景白色字的提示，看不清」：`.ts-unlock__warn` / `.ts-vault__guide` 曾用 `background: var(--ts-amber-soft)` + `color: var(--ts-text-primary)`。
+  深色主题下 `--ts-amber-soft` 是奶油 `#ffe2a8`、`--ts-text-primary` 是近白 `#e8edf7`，实测 **1.07:1**（浅色主题 `#7a4a08` 上的深字 2.46:1，同样不可读）。
+- 正解：**薄涂**——`background: color-mix(in srgb, var(--ts-status-warn) 14%, var(--ts-bg-surface))` +
+  `border: 1px solid color-mix(in srgb, var(--ts-status-warn) 55%, transparent)`，文字仍用 `--ts-text-primary`。
+  这样底色始终由「当前主题的表面色」派生，任何主题下文字与底色同源，对比度由 `body-surface` 那对统一保证。
+- 禁止写法：`background: var(--ts-amber-soft)` / `var(--ts-status-warn)` / `var(--ts-amber)` 后叠加 `--ts-text-primary` 等正文色
+  （品牌色实底只允许配 `--ts-accent-contrast`，如主按钮）。加新提示条前先照 §1.2 的语义色规则想清楚。
 
 ### 10.1 `<select>` 的原生弹出层：实测结论（别再重复试）
 
