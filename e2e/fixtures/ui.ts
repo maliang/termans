@@ -509,11 +509,24 @@ export async function waitForVaultUnlocked(page: Page, passphrase: string): Prom
   throw new Error('vault 在「解锁/回锁」之间抖动超过 45s，没能 settle')
 }
 
-/** 关掉同步面板（✕ 可能是面板内的取消按钮） */
+/**
+ * 关掉同步面板。
+ *
+ * 面板现在有两种宿主：
+ * - 独立弹窗（`.ts-vault__modal`）——面板自己渲染「取消」按钮；
+ * - 设置弹窗的「同步」页签（`embedded`）——按契约**不渲染**取消按钮，关闭要走设置弹窗的 ✕。
+ */
 export async function closeSyncPanel(page: Page): Promise<void> {
   const panel = page.getByTestId('sync-panel')
   if (await panel.isVisible().catch(() => false)) {
-    await panel.getByRole('button', { name: /取消|cancel/i }).click()
+    const cancel = panel.getByRole('button', { name: /取消|cancel/i })
+    if (await cancel.first().isVisible().catch(() => false)) {
+      await cancel.first().click()
+    } else {
+      const settingsClose = page.getByTestId('settings-close')
+      if (await settingsClose.isVisible().catch(() => false)) await settingsClose.click()
+      else await page.keyboard.press('Escape')
+    }
   }
   await expect(panel).toBeHidden()
 }
