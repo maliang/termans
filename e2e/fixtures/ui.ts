@@ -217,3 +217,75 @@ export async function terminalBackground(page: Page): Promise<string> {
     return getComputedStyle(document.documentElement).getPropertyValue('--ts-bg-app').trim()
   })
 }
+// ---------------------------------------------------------------- AI 面板
+
+/**
+ * 打开 AI 总开关（默认关，见 `src/shared/models/settings.ts` 的 `DEFAULT_SETTINGS.ai.enabled = false`）。
+ * 走真实设置界面而不是直接改 settings.json：开关本身也是一条要验证的路径。
+ */
+export async function enableAi(page: Page): Promise<void> {
+  await openSettings(page)
+  await page.getByTestId('settings-tab-ai').click()
+  const toggle = page.getByTestId('ai-enabled-toggle')
+  if (!(await toggle.isChecked())) {
+    await toggle.check()
+  }
+  await expect(toggle).toBeChecked()
+  await page.getByTestId('settings-close').click()
+  await expect(page.getByTestId('settings-dialog')).toBeHidden()
+}
+
+export interface AiProviderConfig {
+  name: string
+  baseUrl: string
+  model: string
+  apiKey?: string
+}
+
+/** 在 AI 面板里新建/覆盖一个供应商配置（离线 mock 的 baseUrl 就填这里） */
+export async function configureAiProvider(page: Page, config: AiProviderConfig): Promise<void> {
+  await openAiPanel(page)
+  const panel = page.getByTestId('ai-panel')
+  const form = page.getByTestId('ai-provider-form')
+  if (!(await form.isVisible().catch(() => false))) {
+    // 面板头部有个「AI 供应商」图标（只有它带这个 aria-label）；空态时则是一个「添加供应商」按钮
+    const opener = panel.getByRole('button', { name: /^(AI 供应商|AI provider)$/i })
+    if ((await opener.count()) > 0) await opener.first().click()
+    else await panel.getByRole('button', { name: /添加供应商|add provider/i }).click()
+  }
+  await expect(form).toBeVisible()
+  // 必须 exact：`额外请求头` 的提示文案里也含「名称: 值」，用子串匹配会撞成 strict 冲突
+  await form.getByLabel('名称', { exact: true }).fill(config.name)
+  await form.getByLabel('Base URL', { exact: true }).fill(config.baseUrl)
+  await form.getByLabel('模型', { exact: true }).fill(config.model)
+  if (config.apiKey !== undefined) {
+    await form.locator('input[type="password"]').fill(config.apiKey)
+  }
+  await form.getByRole('button', { name: /^保存$|^save$/i }).click()
+  // 保存成功后 message 会被随后的 reloadProviders 冲掉，所以不盯 message，
+  // 改盯「已配置的供应商」列表里真的出现了这条 —— 这是持久化生效的直接证据。
+  await expect(form.getByRole('button', { name: new RegExp(`^${config.name} `) })).toBeVisible({ timeout: 15_000 })
+  await panel.getByRole('button', { name: /返回|back/i }).click()
+  await expect(page.getByTestId('ai-provider-form')).toBeHidden()
+}
+
+/** 勾上「带上终端上下文发送」（发送时会先弹预览） */
+export async function enableAiContext(page: Page): Promise<void> {
+  const toggle = page.getByTestId('ai-panel').locator('.ts-ai-context__toggle input[type="checkbox"]')
+  if (!(await toggle.isChecked())) await toggle.check()
+  await expect(toggle).toBeChecked()
+}
+
+/** 在 AI 输入框里写一条 prompt 并发送（⌘/Ctrl+Enter） */
+export async function sendAiPrompt(page: Page, prompt: string): Promise<void> {
+  const box = page.getByTestId('ai-panel').getByRole('textbox').first()
+  await box.fill(prompt)
+  await box.press('Meta+Enter')
+}
+
+/** 点命令卡上的「执行」（卡片主按钮是复制，执行需要额外点） */
+export async function executeAiCommandCard(page: Page, index = 0): Promise<void> {
+  const card = page.getByTestId('ai-command-card').nth(index)
+  await card.getByRole('button', { name: /执行|execute/i }).click()
+  await expect(page.getByTestId('ai-execute-dialog')).toBeVisible()
+}
