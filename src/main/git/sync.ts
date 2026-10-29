@@ -516,6 +516,14 @@ export class SyncCoordinator {
   private async alignFreshFromRemote(repo: SyncRepo, remoteHead: string, auth: RemoteAuth): Promise<SyncStatus> {
     this.assertNothingLocalToLose()
 
+    // 一进窗口就先把库锁上，让并发的写操作（`hosts:create` 等 IPC）在这段时间里直接拿 E_VAULT_LOCKED。
+    // 为什么必须：下面四行 rm + 随后的 clone 会把整个工作树换成远端那份，而 VaultManager 的写操作是
+    // 直接 `writeRepo()` 落盘的（不走 git 队列）。不锁的话，用户在这几十~几百毫秒里保存的主机就会被
+    // 远端文件覆盖掉——「保存成功后数据不见了」，且两边都返回 ok（F-2 的静默丢失）。
+    // 对齐结束后本来就要回锁（内存里那把 VMK 属于刚建的空库，解不开远端 payload），
+    // 所以这里只是把「回锁」提前到窗口开始：语义一致，UI 上看到的仍是解锁屏。
+    this.manager.lock()
+
     // 丢掉刚建的空库留下的未提交文件（远端树里也就这三样），否则 force checkout 会覆盖/报错
     rmSync(join(this.options.repoDir, MANIFEST_FILE), { force: true })
     rmSync(join(this.options.repoDir, ENVELOPE_FILE), { force: true })

@@ -161,7 +161,66 @@ describe('F-2｜同一 vault 目录的并发 git 操作必须串行化，且不�
     expect((ipc.details as { reason?: string } | undefined)?.reason).toBe('corrupt')
     expect(a.sync.status().state).toBe('error')
   }, 60_000)
+
+  it('首次对齐窗口内并发的写操作必须拿 E_VAULT_LOCKED，不能写进正被 clone 覆盖的工作树（静默丢失）', async () => {
+    const a = machine('align-a')
+    a.manager.create(PASSPHRASE)
+    seedHosts(a, 1)
+    await a.sync.bootstrap({ remoteUrl: server.url, branch: 'main', auth: 'none' })
+
+    let engine: GatedCloneEngine | null = null
+    const b = machineWithEngine('align-b', (repoDir) => {
+      engine = new GatedCloneEngine({ dir: repoDir })
+      return engine
+    })
+    b.manager.create(PASSPHRASE)
+
+    const pulling = b.sync.bootstrap({ remoteUrl: server.url, branch: 'main', auth: 'none' })
+    // 等对齐真的进到 clone 里（窗口最宽的时刻），再试着写一条主机
+    await waitFor(() => engine!.cloneStarted, '对齐没有走到 clone')
+    expect(b.manager.status().state, '对齐窗口内库必须是锁的').toBe('locked')
+    expectIpc(() => b.manager.createHost(hostInput({ label: 'late', hostname: '10.1.2.3' })), 'E_VAULT_LOCKED', 'locked')
+
+    engine!.openGate()
+    const aligned = await pulling
+    expect(aligned.state).toBe('idle')
+    await assertRepoIntact(b, '对齐后')
+    expect(b.manager.status().state).toBe('locked')
+    b.manager.unlock(PASSPHRASE, false)
+    expect(b.manager.listLibrary().hosts, '对齐后只应该有远端那一台，晚到的写入不该落进去').toHaveLength(1)
+    expect(b.manager.listLibrary().hosts[0]?.hostname).toBe(FIXTURE_HOSTNAMES[0])
+  }, 60_000)
 })
+
+/** clone 卡在一道闸门上的 engine：用来把「对齐窗口」拉宽到可断言 */
+class GatedCloneEngine extends GitEngine {
+  cloneStarted = false
+
+  private release: (() => void) | null = null
+
+  private readonly gate = new Promise<void>((resolve) => {
+    this.release = resolve
+  })
+
+  override async clone(url: string, branch: string, auth: RemoteAuth): Promise<void> {
+    this.cloneStarted = true
+    await this.gate
+    return await super.clone(url, branch, auth)
+  }
+
+  openGate(): void {
+    this.release?.()
+  }
+}
+
+async function waitFor(predicate: () => boolean, message: string, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error(message)
+}
 
 describe('F-1｜vault 状态与真实挂载必须收敛成单一真源', () => {
   it('B 机首次对齐触发回锁：status 报 locked、确实推送了 vault:state-changed、hosts:list 抛 E_VAULT_LOCKED', async () => {
