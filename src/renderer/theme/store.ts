@@ -60,6 +60,7 @@ export type ThemeErrorKey =
   | 'settings:themeError.builtinDelete'
   | 'settings:themeError.notFound'
   | 'settings:themeError.saveFailed'
+  | 'settings:themeError.readFailed'
 
 export interface ThemeError {
   key: ThemeErrorKey

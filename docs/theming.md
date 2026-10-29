@@ -39,6 +39,20 @@ React 挂载后由 `applyThemeToDocument()` 把 52 个变量以**内联样式**�
 另有两个**非契约**布局变量，只存在于 `tokens.css`（主题不覆盖、编辑器不展示）：
 `--ts-sidebar-width: 264px`、`--ts-ai-panel-width: 360px`。
 
+### 2.1 底座 token 不在这 52 个里（别搬进来）
+
+间距、控件高度、焦点环、弹窗尺寸、动效时长这类**不随主题变**的常量，放在 `tokens.css` 末尾的
+`html { … }` 块（28 个，清单与用途见 [docs/UI-KIT.md](./UI-KIT.md) §1.1）。为什么不放进 `:root`：
+
+- 这 52 个是**主题可覆盖集合**，会随主题 JSON 导出/导入（SPEC M-08）。把 `--ts-space-*` 混进去，
+  用户早先导出的主题文件就会因为「缺一批新 token」而导入失败；
+- `tests/contract/theme-scope.test.ts` 把这条决定钉住了：`:root` 的 `--ts-*` 集合必须**恰好**等于
+  `THEME_TOKENS ∪ {--ts-sidebar-width, --ts-ai-panel-width}`，`html` 块里的 token 名字只允许命中
+  底座前缀白名单（`--ts-space-` / `--ts-control-` / `--ts-dialog-` / `--ts-focus-ring-` …）。
+
+加常量时的顺序：**先判断它会不会随主题变**。会 → 改 `src/shared/theme.ts` 的 52 个清单（跨成员，
+需要 architect 同意 + 四套内置主题补齐 + 契约测试同步改）；不会 → 加到底座块。
+
 ### 使用规则（组件侧）
 
 1. **组件里禁止写死颜色**。`tests/contract/theme-tokens.test.ts` 会扫描 `tokens.css` 里的裸色值；

@@ -48,9 +48,10 @@ textarea {
   background: transparent;
 }
 
+/* 焦点环：全局只有这一处定义（键盘用户唯一可依赖的反馈，见 docs/UI-KIT.md §3） */
 :focus-visible {
-  outline: 2px solid var(--ts-focus-ring);
-  outline-offset: 1px;
+  outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
+  outline-offset: var(--ts-focus-ring-offset);
 }
 
 /* ==========================================================================
@@ -388,35 +389,43 @@ textarea {
    通用控件
    ========================================================================== */
 
+/* 按钮只有三型：secondary（默认，描边）/ primary（琥珀实心，主行动，一屏最多一个）/ ghost（次级）
+   危险动作用 --ts-btn--danger：红描边红字，且必须二次确认（docs/UI-KIT.md §3）。 */
 .ts-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 27px;
-  padding: 0 10px;
-  border: 1px solid var(--ts-border);
+  gap: var(--ts-space-1);
+  height: var(--ts-control-h-sm);
+  padding: 0 var(--ts-space-3);
+  border: 1px solid var(--ts-border-strong);
   border-radius: var(--ts-radius-sm);
   background: var(--ts-bg-elevated);
   color: var(--ts-text-primary);
   font-size: var(--ts-font-size-sm);
-  cursor: default;
   white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color var(--ts-motion-fast) ease,
+    background var(--ts-motion-fast) ease,
+    color var(--ts-motion-fast) ease;
 }
 .ts-btn:hover:not(:disabled) {
-  border-color: var(--ts-border-strong);
+  border-color: var(--ts-accent);
 }
 .ts-btn:disabled {
   opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .ts-btn--primary {
-  border-color: transparent;
+  border-color: var(--ts-accent);
   background: var(--ts-accent);
   color: var(--ts-accent-contrast);
-  font-weight: 600;
+  font-weight: var(--ts-font-weight-strong);
 }
 .ts-btn--primary:hover:not(:disabled) {
+  border-color: var(--ts-accent-strong);
   background: var(--ts-accent-strong);
 }
 
@@ -427,6 +436,17 @@ textarea {
 }
 .ts-btn--ghost:hover:not(:disabled) {
   background: var(--ts-bg-elevated);
+  color: var(--ts-text-primary);
+}
+
+.ts-btn--danger {
+  border-color: var(--ts-status-error);
+  background: transparent;
+  color: var(--ts-status-error);
+}
+.ts-btn--danger:hover:not(:disabled) {
+  border-color: var(--ts-status-error);
+  background: color-mix(in srgb, var(--ts-status-error) 14%, transparent);
 }
 
 .ts-btn--block {
@@ -437,17 +457,25 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: var(--ts-control-h-sm);
+  height: var(--ts-control-h-sm);
+  padding: 0;
   border: 0;
   border-radius: var(--ts-radius-sm);
   background: transparent;
   color: var(--ts-text-secondary);
-  cursor: default;
+  cursor: pointer;
+  transition:
+    background var(--ts-motion-fast) ease,
+    color var(--ts-motion-fast) ease;
 }
-.ts-icon-btn:hover {
+.ts-icon-btn:hover:not(:disabled) {
   background: var(--ts-bg-elevated);
   color: var(--ts-text-primary);
+}
+.ts-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .ts-link {
@@ -475,17 +503,66 @@ textarea {
 }
 
 .ts-field input {
-  height: 32px;
-  padding: 0 10px;
+  height: var(--ts-control-h);
+  padding: 0 var(--ts-control-px);
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-sm);
   background: var(--ts-bg-app);
   color: var(--ts-text-primary);
-  outline: none;
 }
-.ts-field input:focus {
+/* 不要写 outline:none —— 那等于抹掉键盘用户唯一的反馈；弱化也只用同一组 token */
+.ts-field input:focus-visible {
   border-color: var(--ts-accent);
-  box-shadow: 0 0 0 3px var(--ts-focus-ring);
+  outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
+  outline-offset: 0;
+}
+
+/* 表单的三种附件（必填标记 / 说明 / 错误）——不要用 placeholder 承载规则 */
+.ts-field__hint {
+  margin: 0;
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-sm);
+  line-height: var(--ts-line-height);
+}
+
+.ts-field__required {
+  color: var(--ts-status-error);
+}
+
+.ts-field__error {
+  margin: 0;
+  color: var(--ts-status-error);
+  font-size: var(--ts-font-size-sm);
+}
+
+/* 行内二次确认（危险动作专用，docs/UI-KIT.md §3） */
+.ts-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ts-space-2);
+  padding: var(--ts-space-3);
+  border: 1px solid var(--ts-status-error);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-primary);
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-confirm p {
+  margin: 0;
+}
+
+/* 只给读屏/表单控件用的隐藏元素（文件选择这类原生控件要隐藏但必须可聚焦） */
+.ts-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
 }
 
 .ts-empty {
