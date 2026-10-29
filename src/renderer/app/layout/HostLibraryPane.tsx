@@ -1,47 +1,41 @@
-import type { MouseEvent } from 'react'
 import { HostSidebar, useVaultStore } from '@renderer/features/vault'
 import { useTabStore } from '@renderer/features/tabs/tab-store'
 
 /**
- * 左侧主机库（真正的 vault feature + 一处接线妥协）。
+ * 左侧主机库（真正的 vault feature + 产品语义接线）。
  *
- * 妥协点，必须写清楚：`HostTree` 目前的**双击语义是「编辑」**
- * （`features/vault/HostTree.tsx` 的 `onDoubleClick={() => onEdit(host.id)}`），
- * 而产品约定是「双击主机 = 连上去」。`features/vault` 不在 t7 的可改范围内，
- * 所以这里用**捕获阶段**的 `onDoubleClickCapture` 抢在目标处理器之前拦下：
- * React 的合成事件在捕获阶段调用 `stopPropagation()` 后，目标元素上的 bubble 处理器不会被调用。
+ * 历史（t37/#25 之前为什么这里有一段捕获阶段代码，留一行原因给后来的人）：
+ * `HostTree` 早期的双击语义是「编辑」，而产品约定是「双击主机 = 连上去」，
+ * 当时 `features/vault` 不在接线任务的可改范围内，所以外壳改用**捕获阶段**的双击处理器
+ * （`onDoubleClick` 的 capture 变体）抢在目标处理器之前 `preventDefault() + stopPropagation()` 后直连主机
+ * —— 副作用是 HostTree 自己的双击处理器永远拿不到事件，t37 的「双击打不开编辑器」
+ * 就是这么来的。
  *
- * 命中判定用 `closest('[data-testid="vault-host-item"]')` 而不是读 props：主机库里
- * 每一行的 id 只在 feature 内部，外壳不该知道 DOM 结构以外的细节。
- * 主机 id 取 `useVaultStore.selectedHostId`：**click 先于 dblclick 发生**，双击时它已经指向该行。
- *
- * 待办（已上报 captain）：请 vault-sync 给 `HostTree` 增加正式的 `onConnect` 回调，
- * 之后这里可以直接删掉捕获层。
+ * 现在由 feature 的正式通道接管：`HostSidebar` 透传 `onConnect`，`HostTree` 收到后
+ * 双击即连接；**不传时它退回「编辑」**，所以外壳必须一直传，否则双击会变成编辑器。
+ * 编辑的显式入口是行内铅笔按钮（`data-testid="host-edit"`）与行按钮上的 F2。
  */
 export function HostLibraryPane(): JSX.Element {
-  const handleDoubleClickCapture = (event: MouseEvent<HTMLDivElement>): void => {
-    const target = event.target as HTMLElement | null
-    if (!target?.closest('[data-testid="vault-host-item"]')) return
-    // 拦下「双击 = 编辑」；同时避免触发文本选择
-    event.preventDefault()
-    event.stopPropagation()
-    connectSelectedHost()
-  }
-
   return (
-    <div className="ts-sidebar-host" onDoubleClickCapture={handleDoubleClickCapture}>
-      <HostSidebar />
+    <div className="ts-sidebar-host">
+      <HostSidebar onConnect={connectSelectedHost} />
     </div>
   )
 }
 
-/** 打开（或聚焦）选中主机的页签；返回页签 id（调试与测试用） */
-export function connectSelectedHost(): string | null {
+/**
+ * 打开（或聚焦）主机的页签；返回页签 id（调试与测试用）。
+ *
+ * `hostId` 由 `HostTree` 在双击时给出。取它而不是只读 `selectedHostId`，是因为
+ * 「click 先于 dblclick」只是浏览器当前的行为，不该让连接对象取决于点击时序；
+ * 不传时仍回退到选中行，保持旧的调用语义不变。
+ */
+export function connectSelectedHost(hostId?: string): string | null {
   const vault = useVaultStore.getState()
   if (vault.status?.state !== 'unlocked') return null
-  const hostId = vault.selectedHostId
-  if (!hostId) return null
-  const host = vault.library?.hosts.find((candidate) => candidate.id === hostId)
+  const targetId = hostId ?? vault.selectedHostId
+  if (!targetId) return null
+  const host = vault.library?.hosts.find((candidate) => candidate.id === targetId)
   if (!host) return null
   // status 由 tab store 依据 hostId 自动置为 'connecting'；真正的连接在 XtermSurface 首帧发起
   return useTabStore.getState().openTab({ hostId: host.id, hostLabel: host.label, origin: 'host' })
