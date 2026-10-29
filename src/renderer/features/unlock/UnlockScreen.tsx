@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, KeyRound, LifeBuoy, Lock, ShieldCheck } from 'lucide-react'
+import { Download, KeyRound, Lock, ShieldCheck } from 'lucide-react'
 import { useShellStore } from '../../app/store'
 import * as api from '../vault/api'
 import { downloadTextFile } from '../vault/download'
@@ -190,7 +190,7 @@ export function UnlockScreen(): JSX.Element {
 
             {weakConfirmed ? (
               <p className="ts-unlock__warn" data-testid="weak-passphrase-warning">
-                <LifeBuoy size={14} aria-hidden="true" /> {t('unlock.weakTitle')} — {t('unlock.weakBody')}
+                {t('unlock.weakTitle')} — {t('unlock.weakBody')}
               </p>
             ) : null}
 
