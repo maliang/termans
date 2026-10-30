@@ -165,6 +165,17 @@
   background: var(--ts-bg-elevated);
 }
 
+/* 行内操作列（t54）：编辑在上、删除在下，竖排以省横向空间。
+   18px 宽、两枚 18px 高按钮，行高 40px 内刚好放得下，且不把主机名挤到换行。 */
+.ts-vault__host-actions {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: center;
+  width: 18px;
+}
+
 /* 编辑入口：默认隐形（列表本身是连接入口），悬停或键盘聚焦时显形；
    键盘用户另有 F2，避免只靠鼠标 */
 .ts-vault__host-edit {
@@ -172,8 +183,8 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: 1px solid transparent;
   border-radius: var(--ts-radius-sm);

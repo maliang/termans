@@ -223,6 +223,10 @@ export function HostTree({
                       <span className="ts-vault__host-addr">{formatAddress(host)}</span>
                     </span>
                   </button>
+                  {/* 行内操作（t54）：主人要求「编辑和删除上下排列，占用地方更小」——
+                      两枚 18px 方按钮竖排在一个 18px 宽的列里，比原来并排的两枚 22px 少占 26px 横向空间，
+                      主机名与地址因此能多显示几个字符。hover 才显形，见 vault.css。 */}
+                  <span className="ts-vault__host-actions">
                   {/* 编辑的显式入口：双击被「连接」占用后，这里是唯一不靠隐式手势的编辑入口（t37/#25） */}
                   <button
                     type="button"
@@ -232,7 +236,7 @@ export function HostTree({
                     title={`${t('hosts.edit')}：${host.label}`}
                     aria-label={`${t('hosts.edit')}：${host.label}`}
                   >
-                    <Pencil size={13} aria-hidden="true" />
+                    <Pencil size={11} aria-hidden="true" />
                   </button>
                   {/* 删除（t53）：主人反馈「ssh 项没有快捷删除图标」。确认放在侧栏，
                       这里只负责触发；不传 onDeleteHost 时不渲染，避免只读场景出现假入口。 */}
@@ -245,9 +249,10 @@ export function HostTree({
                       title={`${t('hosts.deleteHost')}：${host.label}`}
                       aria-label={`${t('hosts.deleteHost')}：${host.label}`}
                     >
-                      <Trash2 size={13} aria-hidden="true" />
+                      <Trash2 size={11} aria-hidden="true" />
                     </button>
                   ) : null}
+                  </span>
                 </li>
               ))}
             </ul>

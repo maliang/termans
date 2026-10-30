@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, X } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, Plus, X } from 'lucide-react'
 import { registerTabCommandHooks, requestCloseTab, useTabStore, type NewTabPickerMode, type TabStatus, type TerminalTab } from './tab-store'
 import { NewTabPicker } from './NewTabPicker'
 import { CloseTabDialog } from './CloseTabDialog'
@@ -24,6 +24,13 @@ export interface TerminalTabStripProps {
   className?: string
   /** settings.ui.confirmOnCloseTab；默认 true（有活跃会话时二次确认） */
   confirmOnClose?: boolean
+  /**
+   * 侧栏当前是否展开（t54）。与 `onToggleSidebar` 一起传才渲染左端的折叠/展开按钮——
+   * 不传（例如 dev mock 页单独挂页签条）时不渲染，免得出现一个点了没用的按钮。
+   */
+  sidebarVisible?: boolean
+  /** 切换侧栏折叠状态；由外壳注入（写 `settings.ui.showHostTree`） */
+  onToggleSidebar?: () => void
 }
 
 const STATUS_LABEL_KEY: Record<TabStatus, string> = {
@@ -52,7 +59,12 @@ function statusDefaultLabel(status: TabStatus): string {
   }
 }
 
-export function TerminalTabStrip({ className, confirmOnClose = true }: TerminalTabStripProps): JSX.Element {
+export function TerminalTabStrip({
+  className,
+  confirmOnClose = true,
+  sidebarVisible,
+  onToggleSidebar
+}: TerminalTabStripProps): JSX.Element {
   const { t } = useTranslation()
   const tabs = useTabStore((state) => state.tabs)
   const activeTabId = useTabStore((state) => state.activeTabId)
@@ -101,6 +113,23 @@ export function TerminalTabStrip({ className, confirmOnClose = true }: TerminalT
       className={['ts-tabstrip', className].filter(Boolean).join(' ')}
       data-testid="tab-strip"
     >
+      {onToggleSidebar ? (
+        <button
+          type="button"
+          className="ts-tabstrip__sidebar-toggle"
+          onClick={onToggleSidebar}
+          title={sidebarVisible === false ? '显示主机库' : '隐藏主机库'}
+          aria-label={sidebarVisible === false ? '显示主机库' : '隐藏主机库'}
+          aria-pressed={sidebarVisible !== false}
+          data-testid="sidebar-toggle"
+        >
+          {sidebarVisible === false ? (
+            <PanelLeftOpen size={15} aria-hidden="true" />
+          ) : (
+            <PanelLeftClose size={15} aria-hidden="true" />
+          )}
+        </button>
+      ) : null}
       <div className="ts-tabstrip__tabs" role="tablist">
         {tabs.map((tab, index) => {
           const statusLabel = t(`terminal:${STATUS_LABEL_KEY[tab.status]}`, {

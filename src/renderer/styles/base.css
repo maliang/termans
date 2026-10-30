@@ -835,34 +835,17 @@ textarea {
   display: none;
 }
 
-/* 折叠态：页签条左端让出把手的位置（把手是绝对定位在 `.ts-app` 上的） */
-.ts-app[data-sidebar-hidden='true'] .ts-tabstrip {
-  padding-left: 44px;
-}
-
-/* 折叠后的展开把手：放在页签条（=自绘标题栏）左端，与页签条的 `+` 排成一行。
-   位置要避开 macOS 红绿灯（y≈13–27），所以竖直方向按标题栏高度居中；页签条本身留出
-   44px 左内边距给它让位（见 `[data-sidebar-hidden='true'] .ts-tabstrip`）——把手若浮在
-   下方工具行上，会被误认成终端工具条里的一个按钮（t53 实测截图发现的）。 */
-.ts-sidebar-expand {
-  position: absolute;
-  top: calc((var(--ts-titlebar-height) - 28px) / 2);
-  left: 8px;
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--ts-border);
-  border-radius: var(--ts-radius-sm);
-  background: var(--ts-bg-surface);
-  color: var(--ts-text-secondary);
-  cursor: pointer;
-}
-
-.ts-sidebar-expand:hover {
-  background: var(--ts-bg-elevated);
-  color: var(--ts-text-primary);
+/*
+ * 折叠态：页签条左端要给 macOS 红绿灯让位（t54）。
+ *
+ * 侧栏展开时，红绿灯画在侧栏顶部（侧栏自己用 40px 顶部内边距避让），页签条从侧栏右边开始，
+ * 不会撞上；**一旦折叠，页签条就从 x=0 起排**，于是「折叠/展开按钮」和「+ 新建页签」直接压在
+ * 关闭按钮上——主人 2026-10-30 反馈的正是这个。
+ *
+ * 让位宽度按实测取 92px：`trafficLightPosition` 是 `{x:14, y:16}`，三颗按钮占 x≈14–82，
+ * 再留 10px 缝。**只在 darwin 生效**：Windows/Linux 用的是系统原生标题栏（`titleBarStyle: 'default'`），
+ * 窗口左上角没有红绿灯，多留 92px 只会凭空多一截空白。
+ */
+.ts-app[data-platform='darwin'][data-sidebar-hidden='true'] .ts-tabstrip {
+  padding-left: 92px;
 }

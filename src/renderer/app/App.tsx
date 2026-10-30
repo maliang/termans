@@ -2,7 +2,6 @@
 import './layout/i18next-compat'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { PanelLeftOpen } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { MenuCommand } from '@shared'
 import { AiPanel } from '@renderer/features/ai'
@@ -164,10 +163,6 @@ export function App(): JSX.Element {
         规则只作用于 `.ts-unlock` 之外的一级子节点，所以解锁屏自己照常显示。
       */}
       <style>{LOCKED_SHELL_CSS}</style>
-      {/*
-        折叠/展开（t53）：主人反馈「左侧栏目可以被折叠」，折叠后左侧给一个细窄的展开把手，
-        否则侧栏藏起来就再也点不出来（设置入口在侧栏底部，锁定态另有兜底入口）。
-      */}
       {sidebarVisible ? (
         <>
           <HostLibraryPane />
@@ -182,20 +177,16 @@ export function App(): JSX.Element {
             onCommit={(width) => void persistUi({ sidebarWidth: width })}
           />
         </>
-      ) : (
-        <button
-          type="button"
-          className="ts-sidebar-expand"
-          onClick={() => void persistUi({ showHostTree: true })}
-          title="展开主机库"
-          aria-label="展开主机库"
-          data-testid="sidebar-expand"
-        >
-          <PanelLeftOpen size={16} aria-hidden="true" />
-        </button>
-      )}
+      ) : null}
       <div className="ts-workspace">
-        <TerminalTabStrip />
+        {/*
+          折叠/展开按钮长在页签条左端（t54）：主人要求「关闭显示按钮固定在顶部新建标签按钮前面，
+          底部的去掉」。同一颗按钮切换两种状态，折叠后它自己还留在原地——不再需要「折叠后去外面找把手」。
+        */}
+        <TerminalTabStrip
+          sidebarVisible={sidebarVisible}
+          onToggleSidebar={() => void persistUi({ showHostTree: !sidebarVisible })}
+        />
         <TerminalWorkspace transport={getCaptureTransport()} settings={terminalSettings} platform={platform} />
       </div>
       {aiPanelVisible ? (

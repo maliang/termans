@@ -8,6 +8,41 @@
 }
 
 /*
+ * 侧栏折叠/展开按钮（t54）：固定在页签条最左端，就在「+ 新建页签」前面。
+ * 尺寸与 `+` 同为 26px，两者左对齐排成一组；折叠前后位置不变，用户不用重新找入口。
+ * `-webkit-app-region: no-drag` 是必须的：页签条整体是自绘标题栏的拖拽区，
+ * 少了它按钮的点击在真机上会被窗口服务器当成「拖窗口」吞掉（见 docs/UI-AUDIT.md 的拖拽区专章）。
+ */
+.ts-tabstrip__sidebar-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--ts-radius-sm);
+  background: transparent;
+  color: var(--ts-text-muted);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition:
+    color var(--ts-motion-fast) ease,
+    background var(--ts-motion-fast) ease;
+}
+
+.ts-tabstrip__sidebar-toggle:hover {
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-primary);
+}
+
+.ts-tabstrip__sidebar-toggle:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--ts-accent) 35%, transparent);
+  outline-offset: 1px;
+}
+
+/*
  * 新建按钮：页签条内、紧跟最后一个页签。
  * 页签多到溢出时 `sticky right` 让它在页签条右端停住——否则被滚出可视区，用户又找不到入口。
  * 背景必须不透明：滚过去的页签不能从按钮下面透出来。

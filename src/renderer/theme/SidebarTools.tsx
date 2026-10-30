@@ -1,6 +1,3 @@
-import { PanelLeftClose } from 'lucide-react'
-import { call, describeError } from '@renderer/platform/ipc'
-import { useShellStore } from '@renderer/app/store'
 import { SettingsEntry } from './SettingsDialogHost'
 
 /**
@@ -12,8 +9,11 @@ import { SettingsEntry } from './SettingsDialogHost'
  * 那会让「主机库」这个功能域承担跨域职责，也让 vault 的地盘里出现主题/语言的入口。
  * 这里只做摆放，动作仍走 `settings-dialog` 的 store（谁都能调）。
  *
- * 参考：VS Code 把设置入口固定在左下角（齿轮），Termius 的三段式外壳也在侧栏底部放
- * 全局入口。位置见 `docs/UI-KIT.md §10 布局骨架`。
+ * 参考：VS Code 把设置入口固定在左下角（齿轮）。位置见 `docs/UI-KIT.md §10 布局骨架`。
+ *
+ * 折叠侧栏的入口**不在这里**（t54 起）：主人要求「关闭显示按钮固定在顶部新建标签按钮前面，
+ * 底部的去掉」→ 折叠/展开统一由页签条左端的 `SidebarToggle`（`features/tabs/TabStrip.tsx`）承担，
+ * 一处开关、两种状态都在同一个位置，不需要先记住「折叠后把手跑到外面去了」。
  *
  * `data-testid`：
  * - `open-settings`：齿轮按钮本身——e2e（`e2e/fixtures/ui.ts:291`）依赖这个名字，不许改；
@@ -25,27 +25,6 @@ export function SidebarTools(): JSX.Element {
   return (
     <div className="ts-sidebar__tools" data-testid="sidebar-tools">
       <SettingsEntry testId="open-settings" className="ts-icon-btn" />
-      {/* 折叠侧栏（t53）：主人反馈「左侧栏目可以被折叠」。折叠态存在 settings.ui.showHostTree，
-          展开把手在外壳左上角（App.tsx 的 `.ts-sidebar-expand`），所以折叠后仍点得回来。 */}
-      <button
-        type="button"
-        className="ts-icon-btn"
-        data-testid="sidebar-collapse"
-        title="折叠主机库"
-        aria-label="折叠主机库"
-        onClick={() => {
-          void (async () => {
-            try {
-              const updated = await call('settings:update', { ui: { showHostTree: false } })
-              useShellStore.getState().setSettings(updated)
-            } catch (error) {
-              useShellStore.getState().setLastError(describeError(error))
-            }
-          })()
-        }}
-      >
-        <PanelLeftClose size={15} aria-hidden="true" />
-      </button>
       <span className="ts-sidebar__tools-slot" data-testid="sidebar-lock-slot" aria-hidden="true" />
     </div>
   )
