@@ -103,6 +103,8 @@ export function registerAiHandlers(service: AiService): void {
 
   handle('ai:test-provider', (request) => service.testProvider(request.providerId), providerIdRequestSchema)
 
+  handle('ai:list-models', (request) => service.listModels(request.providerId), providerIdRequestSchema)
+
   handle(
     'ai:chat',
     async (request) => {

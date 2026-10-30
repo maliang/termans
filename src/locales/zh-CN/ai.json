@@ -111,5 +111,10 @@
   "locked.action": "重试",
   "locked.details": "key 都存在加密包里（所以锁定时连主机名都不显示）。解锁后点「重试」，或到「设置 → AI」查看配置。",
   "provider.readonly.hint": "供应商名称、接口地址与 API key 都在「设置 → AI」里配置，这个面板只负责为当前对话选一个。",
-  "provider.deleted": "供应商已删除。"
+  "provider.deleted": "供应商已删除。",
+  "provider.action.fetchModels": "读取模型",
+  "provider.fetchModels.action": "读取模型",
+  "provider.fetchModels.hint": "向服务商查询真实可用的模型列表（GET /models）",
+  "provider.fetchModels.saveFirst": "请先保存这个供应商，再读取它的模型列表。",
+  "provider.fetchModels.done": "已从服务商读取到 {{count}} 个模型。"
 }

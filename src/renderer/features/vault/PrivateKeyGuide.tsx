@@ -59,7 +59,18 @@ export function PrivateKeyGuide({ host, onImported, onSwitchToPassword }: Privat
         <label className="ts-btn ts-btn--ghost">
           <Upload size={14} aria-hidden="true" />
           {t('key.import')}
-          <input type="file" accept=".pem,.key,.ppk,text/plain" hidden onChange={(event) => void onFile(event)} />
+          {/*
+            * 不要写 accept：私钥文件通常叫 `id_rsa` / `id_ed25519`，**没有扩展名**，
+            * accept=".pem,.key,.ppk" 会让 macOS 的文件对话框把它们全部灰掉——主人反馈
+            * 「导入私钥文件好像选中不了文件」就是这个。宁可让用户选错文件（读进来解析失败
+            * 会明确报错），也不能让正确的文件点不中。
+            */}
+          <input
+            type="file"
+            hidden
+            data-testid="private-key-file"
+            onChange={(event) => void onFile(event)}
+          />
         </label>
         <button type="button" className="ts-btn ts-btn--ghost" onClick={() => setShowPaste((value) => !value)}>
           {t('key.paste')}

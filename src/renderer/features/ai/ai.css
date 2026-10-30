@@ -781,3 +781,12 @@
   border-radius: var(--ts-radius-md);
   background: var(--ts-bg-elevated);
 }
+
+/* 模型字段：标题与「读取模型」按钮同一行（t53）。
+   单独排一行会让表单多出一个 22px 的空档，而这个按钮只在配置供应商时用一次。 */
+.ts-ai-form__label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ts-space-2);
+}

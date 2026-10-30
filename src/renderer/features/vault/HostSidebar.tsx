@@ -56,6 +56,8 @@ export function HostSidebar({ onConnect }: HostSidebarProps = {}): JSX.Element {
   const [groupName, setGroupName] = useState('')
   /** 等待二次确认的待删分组（真删不可撤销，主机不跟着删但会掉回「未分组」） */
   const [pendingDeleteGroup, setPendingDeleteGroup] = useState<string | null>(null)
+  /** 等待二次确认的待删主机（t53）：删除会连带清掉加密包里的凭据，必须二次确认 */
+  const [pendingDeleteHost, setPendingDeleteHost] = useState<string | null>(null)
   /** 「未分组」的显示名（t52）：存 settings.ui.ungroupedLabel，null 时用 i18n 文案 */
   const ungroupedLabel = useShellStore((state) => state.settings.ui.ungroupedLabel)
   const [keyTarget, setKeyTarget] = useState<HostView | null>(null)
@@ -125,6 +127,19 @@ export function HostSidebar({ onConnect }: HostSidebarProps = {}): JSX.Element {
     })
     setPendingDeleteGroup(null)
     if (done === true) await refresh()
+  }
+
+  async function deleteHost(hostId: string): Promise<void> {
+    const done = await run(async () => {
+      await api.deleteHost(hostId)
+      return true
+    })
+    setPendingDeleteHost(null)
+    // 删掉的是当前选中的那台时，顺手清掉选中态，避免右侧还停在「已删除」的主机上
+    if (done === true) {
+      if (selectedHostId === hostId) selectHost(null)
+      await refresh()
+    }
   }
 
   async function importSshConfig(): Promise<void> {
@@ -242,6 +257,20 @@ export function HostSidebar({ onConnect }: HostSidebarProps = {}): JSX.Element {
               >
                 {t('editor.save')}
               </button>
+              {/* 取消（t53）：之前只有 Enter 或 Ctrl+Z，主人反馈「点击新建分组后无法取消」。
+                  Esc 已在输入框上生效，这里补一个鼠标可达的出口，并且只关掉这一行、不碰已输入内容。 */}
+              <button
+                type="button"
+                className="ts-btn ts-btn--ghost"
+                onClick={() => {
+                  setCreatingGroup(false)
+                  setGroupName('')
+                }}
+                disabled={busy}
+                data-testid="group-new-cancel"
+              >
+                {t('editor.cancel')}
+              </button>
             </div>
           ) : null}
 
@@ -275,6 +304,35 @@ export function HostSidebar({ onConnect }: HostSidebarProps = {}): JSX.Element {
             </div>
           ) : null}
 
+          {pendingDeleteHost !== null ? (
+            <div className="ts-vault__delete-confirm" data-testid="host-delete-confirm">
+              <p className="ts-vault__delete-confirm-text">
+                {t('hosts.deleteHostConfirm', {
+                  label: library?.hosts.find((host) => host.id === pendingDeleteHost)?.label ?? ''
+                })}
+              </p>
+              <div className="ts-vault__delete-confirm-actions">
+                <button
+                  type="button"
+                  className="ts-btn"
+                  data-testid="host-delete-cancel"
+                  onClick={() => setPendingDeleteHost(null)}
+                >
+                  {t('hosts.deleteHostCancel')}
+                </button>
+                <button
+                  type="button"
+                  className="ts-btn ts-btn--danger"
+                  data-testid="host-delete-confirm-ok"
+                  onClick={() => void deleteHost(pendingDeleteHost)}
+                  disabled={busy}
+                >
+                  {t('hosts.deleteHost')}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <div className="ts-vault__scroll">
             {filtered === null ? (
               <p className="ts-vault__hint">{busy ? t('editor.saving') : ''}</p>
@@ -290,6 +348,7 @@ export function HostSidebar({ onConnect }: HostSidebarProps = {}): JSX.Element {
                 onImportSshConfig={() => void importSshConfig()}
                 onRenameGroup={renameGroup}
                 onDeleteGroup={setPendingDeleteGroup}
+                onDeleteHost={setPendingDeleteHost}
                 ungroupedLabel={ungroupedLabel}
                 {...(onConnect === undefined ? {} : { onConnect })}
               />

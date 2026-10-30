@@ -59,12 +59,16 @@ textarea {
    ========================================================================== */
 
 .ts-app {
+  position: relative; /* 折叠后的展开把手（.ts-sidebar-expand）以它为参照 */
   display: grid;
-  grid-template-columns: var(--ts-sidebar-width) minmax(0, 1fr) auto;
+  /* 五列：侧栏 | 分栏条 | 工作区 | 分栏条 | AI 面板（t53 支持拖动改宽）。
+     两条分栏列写成 auto：它们只在 JSX 真的渲染了 `.ts-splitter` 时才占 5px，
+     侧栏折叠 / AI 收起时那两列自然是 0，不需要额外的条件类名。 */
+  grid-template-columns: var(--ts-sidebar-width) auto minmax(0, 1fr) auto var(--ts-ai-panel-width);
   grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas:
-    'sidebar workspace ai'
-    'statusbar statusbar statusbar';
+    'sidebar ssplit workspace asplit ai'
+    'statusbar statusbar statusbar statusbar statusbar';
   height: 100vh;
   background: var(--ts-bg-app);
 }
@@ -87,6 +91,7 @@ textarea {
    看起来像「侧栏断了」（t34 截图实测 height 265px vs 行高 836px）。这里把那层变成
    flex 容器，让 aside 撑满；不靠改外壳组件，因为布局归样式层管。 */
 .ts-sidebar-host {
+  position: relative; /* `.ts-sidebar__tools` 以它为定位上下文（齿轮浮在底部工具行里） */
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -123,16 +128,19 @@ textarea {
    但**动作仍归主机库页脚**（本轮只留布局空间，不新接功能）。
    --------------------------------------------------------------------------- */
 .ts-sidebar__tools {
-  flex: none;
+  /* 主人反馈「左下角的设置没必要独占一行」：改成浮在侧栏底部工具行最左侧的图标位，
+     不再占一条 45px 的行。主机库页脚给左侧留出 34px（见 vault.css 的 `.ts-vault__foot`），
+     于是「齿轮 | 刷新 导入 私钥 | 同步 安全 锁定」看起来是一条连续的工具栏。 */
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: var(--ts-space-2);
-  /* 左右内边距与 `.ts-sidebar` 的 `padding: … 10px` 对齐，齿轮才会和主机行左缘同一条线；
-     上 8px 保持与列表的呼吸，下 4px 收到最小（主人反馈「下面的内边距可以再少一点」），
-     两条内边距故意不对称：上面要留出与列表的分隔感，下面贴住状态栏即可。 */
-  padding: var(--ts-space-2) 10px var(--ts-space-1);
-  border-top: 1px solid var(--ts-border);
-  background: var(--ts-bg-surface);
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 /* 工具区里「不属于工具的动作位」——本轮只占位（锁定入口仍在上方页脚），
@@ -409,6 +417,17 @@ textarea {
   cursor: not-allowed;
 }
 
+/* 小号按钮（t53）：只给「字段内的即时动作」用（如模型字段右边的「读取模型」），
+   高度对齐输入框内的文字基线，不参与页面主操作层级。 */
+.ts-btn--sm {
+  height: 22px;
+  padding: 0 var(--ts-space-2);
+  gap: 4px;
+  border-radius: var(--ts-radius-sm);
+  font-size: var(--ts-font-size-xs);
+  font-weight: var(--ts-font-weight-strong);
+}
+
 .ts-btn--primary {
   border-color: var(--ts-accent);
   background: var(--ts-accent);
@@ -570,9 +589,12 @@ textarea {
 .ts-input:focus-visible,
 .ts-select:focus-visible,
 .ts-textarea:focus-visible {
-  border-color: var(--ts-accent);
-  outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
-  outline-offset: 0;
+  /* 输入框的焦点反馈压到最轻：边框只染 70% accent，外圈 1px、35% 透明度。
+     全局键盘焦点环（上面 :focus-visible）仍保留 1.5px/60%，给按钮与链接用——
+     输入框是最高频的焦点目标，它太亮会让整个表单像在发光。 */
+  border-color: color-mix(in srgb, var(--ts-accent) 70%, var(--ts-border));
+  outline: 1px solid color-mix(in srgb, var(--ts-accent) 35%, transparent);
+  outline-offset: 1px;
 }
 
 .ts-input:disabled,
@@ -776,4 +798,71 @@ textarea {
   background: var(--ts-bg-elevated);
   color: var(--ts-status-error);
   font-size: var(--ts-font-size-sm);
+}
+
+/* ==========================================================================
+   面板分栏条与侧栏折叠（t53）
+   ========================================================================== */
+
+.ts-splitter {
+  width: 5px;
+  cursor: col-resize;
+  /* 平时完全透明：只在悬停/拖动时亮一条 2px 的线，不干扰界面
+     （拖动条的「可发现性」靠光标形状：进入 5px 区域就变 col-resize） */
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  transition: background var(--ts-motion-fast) ease;
+  /* 拖动时不要选中旁边文字（否则整屏会变蓝） */
+  user-select: none;
+  touch-action: none;
+}
+
+.ts-splitter:hover,
+.ts-splitter[data-dragging='true'],
+.ts-splitter:focus-visible {
+  background: color-mix(in srgb, var(--ts-accent) 45%, transparent);
+  outline: none;
+}
+
+.ts-splitter[data-dragging='true'] {
+  background: var(--ts-accent);
+}
+
+/* 折叠态：侧栏整块不挂载，列宽由行内 `--ts-sidebar-width: 0px` 归零；
+   这里再兜一层 display:none，避免 0 宽容器留下 1px 边框 */
+.ts-app[data-sidebar-hidden='true'] .ts-sidebar-host {
+  display: none;
+}
+
+/* 折叠态：页签条左端让出把手的位置（把手是绝对定位在 `.ts-app` 上的） */
+.ts-app[data-sidebar-hidden='true'] .ts-tabstrip {
+  padding-left: 44px;
+}
+
+/* 折叠后的展开把手：放在页签条（=自绘标题栏）左端，与页签条的 `+` 排成一行。
+   位置要避开 macOS 红绿灯（y≈13–27），所以竖直方向按标题栏高度居中；页签条本身留出
+   44px 左内边距给它让位（见 `[data-sidebar-hidden='true'] .ts-tabstrip`）——把手若浮在
+   下方工具行上，会被误认成终端工具条里的一个按钮（t53 实测截图发现的）。 */
+.ts-sidebar-expand {
+  position: absolute;
+  top: calc((var(--ts-titlebar-height) - 28px) / 2);
+  left: 8px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-surface);
+  color: var(--ts-text-secondary);
+  cursor: pointer;
+}
+
+.ts-sidebar-expand:hover {
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-primary);
 }

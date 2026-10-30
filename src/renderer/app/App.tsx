@@ -1,6 +1,8 @@
 // 必须在 features/vault 之前求值：它给 i18next v26 补回 addResourceBundle（原因见该文件头）
 import './layout/i18next-compat'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
+import { PanelLeftOpen } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { MenuCommand } from '@shared'
 import { AiPanel } from '@renderer/features/ai'
@@ -18,6 +20,7 @@ import { useShellStore } from './store'
 import { ErrorToast } from './layout/ErrorToast'
 import { HostKeyPrompt } from './layout/HostKeyPrompt'
 import { HostLibraryPane } from './layout/HostLibraryPane'
+import { PanelSplitter } from './layout/PanelSplitter'
 import { StatusBar } from './layout/StatusBar'
 import {
   activeTerminalSnapshot,
@@ -54,9 +57,33 @@ export function App(): JSX.Element {
   const vault = useShellStore((state) => state.vault)
   const previewLocked = useShellStore((state) => state.previewLocked)
   const aiPanelVisible = useShellStore((state) => state.aiPanelVisible)
+  // AI 面板的 grid 列宽跟着「是否展开」走：不展开时列宽 0，展开时用用户拖出来的宽度
+  const aiVisibleForLayout = aiPanelVisible
   const platform = useShellStore((state) => state.platform)
   const lastError = useShellStore((state) => state.lastError)
   const terminalSettings = useShellStore((state) => state.settings.terminal)
+  // 侧栏/AI 面板宽度（t53）：拖拽期间只改本地 state，松手才落盘——
+  // 拖动时每帧发一次 settings:update 会让主进程反复写 settings.json 并广播事件。
+  const uiSettings = useShellStore((state) => state.settings.ui)
+  const [sidebarWidth, setSidebarWidth] = useState(uiSettings.sidebarWidth)
+  const [aiPanelWidth, setAiPanelWidth] = useState(uiSettings.aiPanelWidth)
+  const sidebarVisible = uiSettings.showHostTree
+  useEffect(() => setSidebarWidth(uiSettings.sidebarWidth), [uiSettings.sidebarWidth])
+  useEffect(() => setAiPanelWidth(uiSettings.aiPanelWidth), [uiSettings.aiPanelWidth])
+
+  /** 只提交 ui 里的一个字段；主进程会广播 settings:changed，这里再写一次让界面立刻反映 */
+  const persistUi = useCallback(async (patch: Partial<typeof uiSettings>): Promise<void> => {
+    try {
+      // `aiPanelVisible` 只活在内存里（面板开关不落盘），而 `setSettings` 会用落盘值覆盖它——
+      // 只提交宽度的话，一松手 AI 面板就被判定成「关闭」而消失（t53 实测：拖完 AI 分栏条面板直接没了）。
+      const updated = await call('settings:update', {
+        ui: { ...patch, aiPanelVisible: useShellStore.getState().aiPanelVisible }
+      })
+      useShellStore.getState().setSettings(updated)
+    } catch (error) {
+      useShellStore.getState().setLastError(describeError(error))
+    }
+  }, [])
   // AI 面板要据此决定「能不能带上下文发送」：必须随页签/会话变化重渲染
   const hasSession = useTabStore((state) =>
     state.tabs.some(
@@ -121,7 +148,15 @@ export function App(): JSX.Element {
       data-platform={platform}
       data-booted={booted}
       data-locked={locked ? 'true' : undefined}
+      data-sidebar-hidden={sidebarVisible ? undefined : 'true'}
       data-testid="app-shell"
+      style={
+        {
+          // 折叠时列宽归零（`data-sidebar-hidden` 同时把侧栏整块 display:none，避免留下 0 宽边框）
+          '--ts-sidebar-width': `${sidebarVisible ? sidebarWidth : 0}px`,
+          '--ts-ai-panel-width': `${aiVisibleForLayout ? aiPanelWidth : 0}px`
+        } as CSSProperties
+      }
     >
       {/*
         锁定态：外壳保持挂载（终端会话、页签、AI 草稿都不销毁），但**不可见也不可聚焦** ——
@@ -129,17 +164,58 @@ export function App(): JSX.Element {
         规则只作用于 `.ts-unlock` 之外的一级子节点，所以解锁屏自己照常显示。
       */}
       <style>{LOCKED_SHELL_CSS}</style>
-      <HostLibraryPane />
+      {/*
+        折叠/展开（t53）：主人反馈「左侧栏目可以被折叠」，折叠后左侧给一个细窄的展开把手，
+        否则侧栏藏起来就再也点不出来（设置入口在侧栏底部，锁定态另有兜底入口）。
+      */}
+      {sidebarVisible ? (
+        <>
+          <HostLibraryPane />
+          <PanelSplitter
+            side="left"
+            value={sidebarWidth}
+            min={180}
+            max={560}
+            label="调整主机库宽度"
+            testId="sidebar-splitter"
+            onLive={setSidebarWidth}
+            onCommit={(width) => void persistUi({ sidebarWidth: width })}
+          />
+        </>
+      ) : (
+        <button
+          type="button"
+          className="ts-sidebar-expand"
+          onClick={() => void persistUi({ showHostTree: true })}
+          title="展开主机库"
+          aria-label="展开主机库"
+          data-testid="sidebar-expand"
+        >
+          <PanelLeftOpen size={16} aria-hidden="true" />
+        </button>
+      )}
       <div className="ts-workspace">
         <TerminalTabStrip />
         <TerminalWorkspace transport={getCaptureTransport()} settings={terminalSettings} platform={platform} />
       </div>
       {aiPanelVisible ? (
-        <AiPanel
-          hasSession={hasSession}
-          getContext={() => activeTerminalSnapshot()}
-          runCommand={writeCommand}
-        />
+        <>
+          <PanelSplitter
+            side="right"
+            value={aiPanelWidth}
+            min={240}
+            max={720}
+            label="调整 AI 面板宽度"
+            testId="ai-splitter"
+            onLive={setAiPanelWidth}
+            onCommit={(width) => void persistUi({ aiPanelWidth: width })}
+          />
+          <AiPanel
+            hasSession={hasSession}
+            getContext={() => activeTerminalSnapshot()}
+            runCommand={writeCommand}
+          />
+        </>
       ) : null}
       <StatusBar />
       {lastError ? <ErrorToast message={lastError} /> : null}

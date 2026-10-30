@@ -1,3 +1,6 @@
+import { PanelLeftClose } from 'lucide-react'
+import { call, describeError } from '@renderer/platform/ipc'
+import { useShellStore } from '@renderer/app/store'
 import { SettingsEntry } from './SettingsDialogHost'
 
 /**
@@ -22,6 +25,27 @@ export function SidebarTools(): JSX.Element {
   return (
     <div className="ts-sidebar__tools" data-testid="sidebar-tools">
       <SettingsEntry testId="open-settings" className="ts-icon-btn" />
+      {/* 折叠侧栏（t53）：主人反馈「左侧栏目可以被折叠」。折叠态存在 settings.ui.showHostTree，
+          展开把手在外壳左上角（App.tsx 的 `.ts-sidebar-expand`），所以折叠后仍点得回来。 */}
+      <button
+        type="button"
+        className="ts-icon-btn"
+        data-testid="sidebar-collapse"
+        title="折叠主机库"
+        aria-label="折叠主机库"
+        onClick={() => {
+          void (async () => {
+            try {
+              const updated = await call('settings:update', { ui: { showHostTree: false } })
+              useShellStore.getState().setSettings(updated)
+            } catch (error) {
+              useShellStore.getState().setLastError(describeError(error))
+            }
+          })()
+        }}
+      >
+        <PanelLeftClose size={15} aria-hidden="true" />
+      </button>
       <span className="ts-sidebar__tools-slot" data-testid="sidebar-lock-slot" aria-hidden="true" />
     </div>
   )

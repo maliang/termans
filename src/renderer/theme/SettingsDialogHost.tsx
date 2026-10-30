@@ -68,7 +68,7 @@ export function SettingsDialogHost(): JSX.Element | null {
       }}
     >
       <div
-        className="ts-dialog__panel"
+        className="ts-dialog__panel ts-settings__panel"
         role="dialog"
         aria-modal="true"
         aria-label={t('settings:title')}

@@ -93,6 +93,25 @@ function mergeUsage(current: AiUsage | null, patch: Partial<AiUsage> | undefined
   }
 }
 
+/** 供应商返回的模型 id 解析：OpenAI/Anthropic 用 `data[].id`，Ollama 用 `models[].name` */
+export function parseModelIds(bodyText: string): string[] {
+  try {
+    const json = JSON.parse(bodyText) as {
+      data?: Array<{ id?: string }>
+      models?: Array<{ name?: string; model?: string }>
+    }
+    const ids = new Set<string>()
+    for (const item of json.data ?? []) if (item.id) ids.add(item.id)
+    for (const item of json.models ?? []) {
+      const name = item.model ?? item.name
+      if (name) ids.add(name)
+    }
+    return [...ids].sort()
+  } catch {
+    return []
+  }
+}
+
 function requiresApiKey(provider: Pick<AiProvider, 'kind'>): boolean {
   // 本地 Ollama 默认无鉴权；其它供应商必须有 key（自建网关也至少要一个占位 token）
   return provider.kind !== 'ollama'
@@ -176,19 +195,46 @@ export class AiService {
     }
   }
 
+  /**
+   * 读取供应商真实可用的模型列表（t53）。
+   *
+   * 为什么放在主进程：请求要带 API key（只在主进程可解），而且**失败原因必须原样带回 UI**——
+   * 「读取模型失败」这四个字对用户没有任何用，409/401/网络超时才是他要的线索。
+   * 因此这里不抛异常，统一返回 `{models, error}`，由设置页直接展示。
+   */
+  async listModels(providerId: string): Promise<{ models: string[]; error: string | null }> {
+    const provider = await this.options.providers.get(providerId)
+    const apiKey = await this.options.providers.getApiKey(providerId)
+    const redactor = createRedactor(providerSecretValues(apiKey, provider.headers))
+    if (!apiKey && requiresApiKey(provider)) {
+      return { models: [], error: redactor.redactText('尚未配置 API key：请先填写并保存，再读取模型列表') }
+    }
+    const request = buildModelsRequest({ provider, apiKey, extraHeaders: provider.headers })
+    try {
+      const response = await requestJson(request, {
+        fetchImpl: this.options.fetchImpl,
+        now: this.options.now,
+        timeoutMs: this.options.connectTimeoutMs
+      })
+      if (!response.ok) {
+        const detail = extractProviderErrorMessage(response.status, response.text)
+        this.log(`list models failed id=${providerId} status=${response.status}`)
+        return { models: [], error: redactor.redactText(`HTTP ${response.status}：${detail}`) }
+      }
+      const models = parseModelIds(response.text)
+      this.log(`list models ok id=${providerId} count=${models.length}`)
+      return { models, error: models.length === 0 ? '供应商返回了空列表：请确认 Base URL 指向的是兼容端点' : null }
+    } catch (error) {
+      const described = this.describeError(error, redactor)
+      this.log(`list models error id=${providerId}`)
+      return { models: [], error: described.message }
+    }
+  }
+
   /** 连通成功时提示「模型名是否在返回列表里」——最常见的配置错误，能省一轮排查 */
   private describeModelPresence(provider: AiProvider, bodyText: string): string {
     try {
-      const json = JSON.parse(bodyText) as {
-        data?: Array<{ id?: string }>
-        models?: Array<{ name?: string; model?: string }>
-      }
-      const ids = new Set<string>()
-      for (const item of json.data ?? []) if (item.id) ids.add(item.id)
-      for (const item of json.models ?? []) {
-        const name = item.model ?? item.name
-        if (name) ids.add(name)
-      }
+      const ids = new Set(parseModelIds(bodyText))
       if (ids.size === 0) return ''
       if (ids.has(provider.model)) return `，模型 ${provider.model} 可用`
       const preview = [...ids].slice(0, 5).join(', ')

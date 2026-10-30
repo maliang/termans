@@ -282,12 +282,14 @@
   font-size: var(--ts-font-size-sm);
 }
 
+/* 与 base.css 的 `.ts-input` 焦点态一致（t53）：主人在设置页里也会碰到这些输入框，
+   两边不一致会出现「同一个应用里两套焦点观感」。数值解释见 base.css 同名规则。 */
 .ts-settings__input:focus-visible,
 .ts-settings__select:focus-visible,
 .ts-settings__textarea:focus-visible {
-  border-color: var(--ts-accent);
-  outline: var(--ts-focus-ring-width) solid var(--ts-focus-ring-color);
-  outline-offset: var(--ts-focus-ring-offset);
+  border-color: color-mix(in srgb, var(--ts-accent) 70%, var(--ts-border));
+  outline: 1px solid color-mix(in srgb, var(--ts-accent) 35%, transparent);
+  outline-offset: 1px;
 }
 
 /* 按钮语汇不在这里重复定义：唯一真源是 src/renderer/styles/base.css 的 .ts-btn
@@ -601,3 +603,10 @@
 /* 注释却还在说「等 embedded 模式做好后这层就只剩间距」，与代码现状相反，故删除。*/
 /* 判据：注释里出现的类名，必须当下就 `grep` 得到使用者。                      */
 /* -------------------------------------------------------------------------- */
+
+/* 设置弹窗固定高度（t53）：原先高度由内容撑出（`min-height: min(360px,56vh)`），
+   切页签会跳变——外观页很长、安全页很短，窗口跟着一伸一缩，主人反馈要固定。
+   这里钉到与 max-height 同一个值，内容超出的部分由各自的滚动容器消化。 */
+.ts-settings__panel {
+  height: var(--ts-dialog-max-h);
+}

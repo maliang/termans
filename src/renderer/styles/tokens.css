@@ -185,10 +185,12 @@ html {
   --ts-line-height-tight: 1.3;
   --ts-font-weight-strong: 600;
 
-  /* 焦点环：2px accent 外环 + 2px 偏移（键盘用户唯一可依赖的反馈，见 docs/UI-KIT.md） */
-  --ts-focus-ring-width: 2px;
+  /* 焦点环：细 + 半透明（键盘用户仍看得见，但不再在深色界面上抢眼——主人反馈
+     「输入框获取焦点后的亮边可以细一些淡一些」）。1.5px 在 2x 屏上是 3 物理像素，
+     比 2px 明显收敛；颜色用 accent 的 60% 混透明，压住「一圈实心琥珀」的存在感。 */
+  --ts-focus-ring-width: 1.5px;
   --ts-focus-ring-offset: 2px;
-  --ts-focus-ring-color: var(--ts-accent);
+  --ts-focus-ring-color: color-mix(in srgb, var(--ts-accent) 60%, transparent);
 
   /* 弹窗外壳：四个弹窗（设置 / 主机 / 同步 / 安全）共用同一组尺寸与遮罩 */
   --ts-dialog-width-sm: 420px;

@@ -47,6 +47,9 @@
    flex-shrink:0 保证窄侧栏下它不会先被压扁。 */
 .ts-vault__count {
   flex-shrink: 0;
+  /* 侧栏头部（标题右边的总数）仍靠右；分组行里的计数要跟在名称后面，
+     见下面 `.ts-vault__group-title .ts-vault__count` 的覆盖——主人反馈
+     「侧边栏分组旁的数字提示可以挨着分组名称」。 */
   margin-left: auto;
   padding: 1px 7px;
   border: 1px solid var(--ts-border);
@@ -265,7 +268,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 4px;
-  padding-top: 6px;
+  /* 左侧让出外壳齿轮的位置（`base.css` 的 `.ts-sidebar__tools` 浮在这里）：
+     27px 按钮 + 7px 间隙，于是「齿轮 | 刷新 导入 私钥 … 同步 安全 锁定」是一条工具栏。 */
+  padding: 6px 0 0 34px;
   border-top: 1px solid var(--ts-border);
 }
 
@@ -861,4 +866,22 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* 分组行：计数紧跟分组名（不再推到最右），操作按钮仍由 `.ts-vault__group-actions`
+   的 margin-left:auto 靠右，于是「名称 · 数字 …… 铅笔/垃圾桶」是一条自然的分隔。 */
+.ts-vault__group-title .ts-vault__count {
+  margin-left: 0;
+}
+
+/* 主机行的删除按钮（t53）：与铅笔同尺寸同显隐节奏，hover 转危险色——
+   红色只在鼠标真的指上来时出现，列表平时不泛红。 */
+.ts-vault__host-row:hover .ts-vault__host-delete,
+.ts-vault__host-delete:focus-visible {
+  opacity: 1;
+}
+
+.ts-vault__host-delete:hover {
+  background: color-mix(in srgb, var(--ts-status-error) 16%, transparent);
+  color: var(--ts-status-error);
 }

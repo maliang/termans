@@ -240,10 +240,41 @@ export function AiSettings(): JSX.Element {
     }))
   }, [])
 
+  /**
+   * 从服务商真实读取到的模型列表（t53）。预设里的 models 只是「常见清单」，
+   * 服务商新增/改名的模型它不知道——主人反馈「模型列表是空的」，所以要能真拉一次。
+   */
+  const [fetchedModels, setFetchedModels] = useState<string[]>([])
+  const [fetchingModels, setFetchingModels] = useState(false)
+
   const modelOptions = useMemo(() => {
     const matched = matchPresetByBaseUrl(form.baseUrl)
-    return matched?.models ?? []
-  }, [form.baseUrl])
+    const base = matched?.models ?? []
+    // 拉取结果放前面（那才是这台机器上真的能用的），预设做兜底
+    return [...new Set([...fetchedModels, ...base])]
+  }, [form.baseUrl, fetchedModels])
+
+  const handleFetchModels = useCallback(async (): Promise<void> => {
+    if (editingId === null) {
+      setMessage({ kind: 'error', text: t('ai:provider.fetchModels.saveFirst') })
+      return
+    }
+    setFetchingModels(true)
+    setMessage(null)
+    try {
+      const result = await call('ai:list-models', { providerId: editingId })
+      setFetchedModels(result.models)
+      if (result.error !== null) {
+        setMessage({ kind: 'error', text: result.error })
+      } else {
+        setMessage({ kind: 'ok', text: t('ai:provider.fetchModels.done', { count: result.models.length }) })
+      }
+    } catch (error) {
+      setMessage({ kind: 'error', text: describeError(error) })
+    } finally {
+      setFetchingModels(false)
+    }
+  }, [editingId, t])
 
   const handleSave = useCallback(async (): Promise<void> => {
     const parsed = parseHeaders(form.headersText)
@@ -557,10 +588,29 @@ export function AiSettings(): JSX.Element {
               </label>
 
               <label className="ts-field">
-                <span className="ts-field__label">{t('ai:provider.field.model')}</span>
+                <span className="ts-field__label ts-ai-form__label-row">
+                  {t('ai:provider.field.model')}
+                  {/* 从服务商读取（t53）：预设清单只是常见型号，真列表要问服务商 */}
+                  <button
+                    type="button"
+                    className="ts-btn ts-btn--ghost ts-btn--sm"
+                    onClick={() => void handleFetchModels()}
+                    disabled={busy !== null || fetchingModels || editingId === null}
+                    title={
+                      editingId === null ? t('ai:provider.fetchModels.saveFirst') : t('ai:provider.fetchModels.hint')
+                    }
+                    data-testid="ai-provider-models-fetch"
+                  >
+                    {fetchingModels ? <Loader2 size={12} className="ts-spin" aria-hidden="true" /> : <RotateCw size={12} aria-hidden="true" />}
+                    {t('ai:provider.fetchModels.action')}
+                  </button>
+                </span>
+                {/* 显式 aria-label：label 里还塞了「读取模型」按钮，只靠包裹 label 的可访问名
+                    就不再是纯「模型」（e2e 的 getByLabel 精确匹配会失败） */}
                 <input
                   className="ts-settings__input"
                   data-testid="ai-provider-model"
+                  aria-label={t('ai:provider.field.model')}
                   list="ts-ai-provider-models"
                   spellCheck={false}
                   value={form.model}

@@ -111,5 +111,10 @@
   "locked.action": "Try again",
   "locked.details": "Keys live inside the encrypted vault — that is also why hostnames stay hidden while locked. Unlock, press “Try again”, or open Settings → AI.",
   "provider.readonly.hint": "Provider names, endpoints and API keys are configured in Settings → AI. This panel only picks one for the conversation.",
-  "provider.deleted": "Provider deleted."
+  "provider.deleted": "Provider deleted.",
+  "provider.action.fetchModels": "Load models",
+  "provider.fetchModels.action": "Load models",
+  "provider.fetchModels.hint": "Ask the provider for the real model list (GET /models)",
+  "provider.fetchModels.saveFirst": "Save the provider first, then load its models.",
+  "provider.fetchModels.done": "Loaded {{count}} models from the provider."
 }

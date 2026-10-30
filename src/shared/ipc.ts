@@ -130,6 +130,8 @@ export const IPC_CHANNELS = {
     setApiKey: 'ai:set-api-key',
     clearApiKey: 'ai:clear-api-key',
     testProvider: 'ai:test-provider',
+    /** 读取供应商真实可用的模型列表（t53）：与「测试连接」同一条 GET /models */
+    listModels: 'ai:list-models',
     chat: 'ai:chat',
     cancel: 'ai:cancel',
     listConversations: 'ai:list-conversations'
@@ -226,6 +228,7 @@ export interface IpcInvokeContract {
   'ai:set-api-key': { request: { providerId: string; apiKey: string }; response: void }
   'ai:clear-api-key': { request: { providerId: string }; response: void }
   'ai:test-provider': { request: { providerId: string }; response: { ok: boolean; message: string } }
+  'ai:list-models': { request: { providerId: string }; response: { models: string[]; error: string | null } }
   'ai:chat': { request: AiChatRequest; response: { requestId: string } }
   'ai:cancel': { request: { requestId: string }; response: void }
   'ai:list-conversations': { request: void; response: { conversations: AiConversation[] } }

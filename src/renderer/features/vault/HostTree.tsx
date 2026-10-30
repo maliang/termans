@@ -25,6 +25,8 @@ interface HostTreeProps {
   onRenameGroup?: (groupId: string | null, name: string) => Promise<boolean>
   /** 删除分组（真实分组才给按钮；主机不会跟着删，会回到「未分组」） */
   onDeleteGroup?: (groupId: string) => void
+  /** 删除主机（t53）：只在传了它时渲染垃圾桶；确认与真正的删除由侧栏负责 */
+  onDeleteHost?: (hostId: string) => void
   /** 「未分组」的显示名；null/未传用 i18n 默认文案 */
   ungroupedLabel?: string | null
 }
@@ -76,6 +78,7 @@ export function HostTree({
   onImportSshConfig,
   onRenameGroup,
   onDeleteGroup,
+  onDeleteHost,
   ungroupedLabel
 }: HostTreeProps): JSX.Element {
   const { t } = useTranslation('vaultsync')
@@ -231,6 +234,20 @@ export function HostTree({
                   >
                     <Pencil size={13} aria-hidden="true" />
                   </button>
+                  {/* 删除（t53）：主人反馈「ssh 项没有快捷删除图标」。确认放在侧栏，
+                      这里只负责触发；不传 onDeleteHost 时不渲染，避免只读场景出现假入口。 */}
+                  {onDeleteHost ? (
+                    <button
+                      type="button"
+                      className="ts-vault__host-edit ts-vault__host-delete"
+                      onClick={() => onDeleteHost(host.id)}
+                      data-testid="host-delete"
+                      title={`${t('hosts.deleteHost')}：${host.label}`}
+                      aria-label={`${t('hosts.deleteHost')}：${host.label}`}
+                    >
+                      <Trash2 size={13} aria-hidden="true" />
+                    </button>
+                  ) : null}
                 </li>
               ))}
             </ul>

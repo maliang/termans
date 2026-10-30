@@ -142,3 +142,27 @@ DOM 级对比度全量扫描（逐元素取 computed `color` 与其最近不透�
 **验证边界（照实写）**：本机 `osascript`/`CGEventPost` 没有辅助功能权限（`-25211`），做不了真正的 OS 级点击；
 `webContents.sendInputEvent` 注入的是 RenderWidgetHost 一层的事件、不经过拖拽区命中判定，因此无法
 用它证明「拖拽区会吃掉点击」。当前守住的是「结构上不在拖拽区」+「真实输入事件能点动」两件事。
+
+## 2026-10-30 十一项界面反馈（t53）
+
+主人一次给了 11 条，逐条落点如下（截图在 `docs/assets/ui-audit/after-t53-*.png`）：
+
+| # | 反馈 | 落点 |
+|---|---|---|
+| ① | 关闭会话弹窗点不动 | t52 已修（`createPortal` + `.ts-dialog` 的 `no-drag`） |
+| ② | 该弹窗过窄、字号过大 | t52 迁 kit 时已用 `--ts-dialog-width-sm` 与 `--ts-font-size-base` |
+| ③ | 焦点亮边太抢眼 | `--ts-focus-ring-width: 1.5px`、`--ts-focus-ring-color` 改为 60% 混色；`.ts-input`/`.ts-settings__input` 焦点态统一成 `outline: 1px + 35% 混色`、`outline-offset: 1px` |
+| ④ | 分组计数贴着组名 | `.ts-vault__group-title .ts-vault__count { margin-left: 0 }`（侧栏头部总数仍靠右） |
+| ⑤ | 分组不能重命名 | t52 已加（hover 铅笔 + 行内输入，Enter 提交 / Esc 取消） |
+| ⑥ | 新建分组无法取消 | 新增「取消」按钮 `group-new-cancel`（Esc 仍有效） |
+| ⑦ | 设置窗口高度跳变 | `.ts-settings__panel { height: var(--ts-dialog-max-h) }`，内容区各自滚动 |
+| ⑧ | 私钥选不到文件 | 去掉 `accept=".pem,.key,.ppk,text/plain"`——`id_rsa`/`id_ed25519` 没有扩展名，会被系统文件对话框整片灰掉 |
+| ⑨ | AI 模型列表为空 | 新增 `ai:list-models` 通道（`parseModelIds` 解析 `data[].id` / `models[].name`），设置页模型行右侧「读取模型」按钮把服务商真实模型灌进 datalist |
+| ⑩ | 侧栏可折叠 | 底部工具条折叠按钮 + 页签条左端展开把手（`[data-sidebar-hidden]` 驱动） |
+| ⑪ | 侧栏/AI 面板可拖宽并记住 | `PanelSplitter`（pointer capture、`onLive` 只动本地 state、`onCommit` 落盘到 `settings.ui.sidebarWidth|aiPanelWidth`） |
+
+另外顺手做的两处：主机行 hover 时多一个垃圾桶（行内二次确认，`host-delete-confirm`），
+底部工具条的齿轮不再独占一行——它与主机库页脚的刷新/导入/同步/锁定排在同一行。
+
+**一条复验经验**：给 label 里加按钮会改变 input 的可访问名，`getByLabel('模型', { exact: true })`
+立刻失效（`e2e/fixtures/ui.ts` 正靠它）；这类改动必须补 `aria-label`，否则 e2e 红得莫名其妙。
