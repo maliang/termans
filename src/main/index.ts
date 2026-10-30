@@ -132,10 +132,18 @@ function createWindow(): BrowserWindow {
   win.once('ready-to-show', () => {
     if (isE2E) {
       if (isE2EQuiet) {
-        win.setPosition(-4000, -4000)
+        // 「静默」要两层：先把窗口挪到屏幕外，再把它设成全透明。
+        // 只挪位置不够——实测 `setPosition(-4000, -4000)` 被 macOS 夹回 `{x:0, y:33}`，
+        // 窗口照样出现在屏幕上（主人 2026-10-30 反馈过这一点）。
+        // 全透明窗口仍然正常合成，`page.screenshot()` 拍出来是有内容的（实测 1653 种颜色、最亮 236）。
+        win.setOpacity(0)
         app.dock?.hide()
       }
       win.showInactive()
+      if (isE2EQuiet) {
+        // 显示之后再挪一次：有些版本只在窗口可见后才允许改位置
+        win.setPosition(-4000, -4000)
+      }
       return
     }
     win.show()

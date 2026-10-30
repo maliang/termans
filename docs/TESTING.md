@@ -307,12 +307,22 @@ git worktree add /tmp/repro-<hash> <hash>     # 共享树里一个字节都不�
 "2/6 红"的假结论，还差点当成产品缺陷上报。做不到 worktree 的（例如要复用同一份 `userData`），就先在团队里
 声明「我要临时改 X 文件，窗口约 N 分钟」，改完 `git hash-object` 复核还原。
 
-**跑测试不许抢焦点（零打扰）**：`pnpm test:e2e` 会在桌面上真的开一个窗口——**窗口可以有，焦点不能抢**。
-共享的那台机器上有人正在打字、开会、录屏，一条 e2e 把窗口顶到最前面就是事故（最轻也是把别人的输入打断）。
+**跑测试要「看不见、也不抢焦点」（零打扰）**：`pnpm test:e2e` 会真的起一个窗口，而"不抢焦点"还不够——
+主人 2026-10-30 直接反馈「静默的时候还是有界面弹出来」。要的是**屏幕上什么都看不到**：
+
+1. `win.setOpacity(0)`：**唯一可靠的那一层**。实测 macOS 会把窗口位置夹回屏幕内——`setPosition(-4000, -4000)`
+   在 `ready-to-show` 里执行后读回 `getBounds()` 是 `{x:0, y:33}`，窗口老老实实出现在左上角（这就是被用户看到的原因）。
+   全透明窗口仍然正常合成，`page.screenshot()` 拍出来是有内容的（实测 1653 种颜色、最亮 236），用例不受影响。
+2. `win.showInactive()`：不激活、不抢键盘焦点。
+3. `win.setPosition(-4000, -4000)`：锦上添花，让它在 Mission Control / 截图工具里也别落在屏幕上。
+4. `app.dock.hide()`：省掉 Dock 图标闪动。
+
+`TERMANS_E2E_QUIET`（默认由 `e2e/harness.ts` 注入，`TERMANS_E2E_VISIBLE=1` 可关）控制这一组行为；
+真机调试要看得见窗口时再关它。
 
 | 允许 | 禁止 |
 | --- | --- |
-| `win.showInactive()`（e2e 分支，窗口出现但不激活） | `open -a` / `osascript … activate` / `tell application "X" to quit` |
+| `win.showInactive()` + `win.setOpacity(0)`（e2e 分支：屏幕上看不见、也不激活） | `open -a` / `osascript … activate` / `tell application "X" to quit` |
 | `webContents.capturePage()`（应用自己出栅格，零权限） | `screencapture`（要「屏幕录制」权限，本机第一次跑会弹权限框把用例卡住） |
 | `app.dock.hide()`（仅 e2e 分支，省掉 Dock 图标闪动） | `win.focus()` / `win.moveTop()` / `setAlwaysOnTop(true)` |
 
