@@ -65,3 +65,40 @@
 真外网供应商（OpenAI/Anthropic/Gemini/Ollama 真实端点 × 三档）、VoiceOver 播报顺序、高 DPI/200% 缩放下 333px 内容列的省略号与操作组、浮层真实拖动手感，按 QA-REPORT §8 清单人工过一遍；本机沙箱禁 Chromium（crashpad 需 PROCESS_SET_INFORMATION），e2e 全部走 Electron 真机驱动。
 
 验收结论：⚠️ 有条件通过
+
+---
+
+## 整改与复验（lead 收口，HEAD `4a851d7` / `b44c72c`）
+
+两条阻塞项已按上面的口径修完，属于**验收后的收口改动**，两笔分开提交：
+
+1. **P0 testid 回归**（`4a851d7`）
+   - `src/renderer/theme/ProviderCard.tsx:435` 卡片根元素恢复 ``data-testid={`ai-provider-item-${provider?.id ?? ''}`}``；
+     计数选择器 `ai-provider-card` 下移到摘要行（`:438`），同一张卡两个 testid，不插假元素。
+   - `tests/contract/e2e-selectors.test.ts` 的自检反例从真实前缀 `ai-provider-item-` 换成虚构的 `ai-provider-nope-`，
+     并新增一条「`ai-provider-item-` 必须仍存在」的正向守卫——把违约方向反过来钉。
+   - 变异验证（干净 worktree `/tmp/mut-check`，改回 `ai-provider-card` 后跑该契约测试）：**1 failed / 1 passed**，
+     证明这条守卫有信息量，不是恒绿。
+2. **P2 文案暴露原始参数名**（`4a851d7`）
+   - `src/locales/{en,zh-CN}/settings.json` 的 `ai.reasoning.hint` / `ai.reasoningEffort.hint` 四处改为
+     「按供应商协议自动映射为各自的推理强度参数」，键集与条数不变（各 141）。
+   - `grep -n 'reasoning_effort\|thinkingConfig\|budget_tokens' src/locales/*/settings.json src/locales/*/ai.json` → **0 命中**。
+3. **P3 顺带修一条**（同笔 `4a851d7`）：`src/shared/reasoning.ts` 的 `case 'openai'` 原本不看 `baseUrl`，
+   `kind=openai` + `localhost:11434` 仍会发 `reasoning_effort`；改为先判 `isOllamaEndpoint`。
+   补测 `tests/reasoning-map.test.ts`「kind 声明成 openai 但地址是本机 11434 时也不发」。
+4. **补一条运行时正向断言**（`b44c72c`）：`e2e/ai-settings-models.spec.ts` 保存后断言
+   `ai-provider-item-<id>` 确实是 1 个——此前只有源文本层面的守卫，没有真机 DOM 证据。
+
+复验数字（全部在整改后的 HEAD 上由 lead 独立复跑）：
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm typecheck` | exit 0 |
+| `npx vitest run` | **59 files / 694 passed** |
+| `env -u ELECTRON_RUN_AS_NODE pnpm build` | exit 0 |
+| `npx playwright test e2e/ai-settings-models.spec.ts` | **5 passed**（含新增 testid 正向断言） |
+| `npx playwright test e2e/ --workers=1` | **35 passed (2.4m)** |
+
+至此 14 条 AC 全部 PASS，无阻塞项。仍未处理的是上面已登记的 5 条 P3 观察里的其余四条
+（AC-2 未单写 `max-width:720px`、`TECHNICAL.md:107/161` 笔误、`missingKeyReport()` 无消费者、
+`ProviderCard.tsx:421` 跨组件 `document.querySelector` 跳转），它们不影响验收结论。
