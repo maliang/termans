@@ -113,9 +113,10 @@ test('AC-1/AC-2/AC-11：未保存的草稿也能读到模型，点选即回填�
   expect(modelsRequest?.authorization).toBe(`***${API_KEY.slice(-4)}`)
 
   // AC-1：没点保存 → 一个供应商都不该入库。
-  // 断言必须**能对这个错误行为转红**（QA D-2）：用真实卡片 testid `ai-provider-card`
-  // （新建态是 `ai-provider-card-new`，不会混进来）+ IPC `ai:list-providers` 双重取证，
-  // 不能用 `ai-provider-item` 这种 UI 里永不存在的前缀——那种断言恒绿、等于没守。
+  // 断言必须**能对这个错误行为转红**（QA D-2）：用计数选择器 `ai-provider-card`
+  // （只挂在摘要行、新建态不挂）+ IPC `ai:list-providers` 双重取证。
+  // 注意：`ai-provider-item-<id>` 当时曾被改名消失，那才是「前缀恒不存在 = 恒绿」的坑；
+  // 现在它被恢复在卡片根元素上，可以正常用作按 id 定位（见下面保存后的正向断言）。
   expect(await page.getByTestId('ai-provider-card').count(), '草稿读取后冒出了已保存卡片').toBe(0)
   expect(await persistedProviders(page), '草稿读取把供应商写库了').toEqual([])
 
@@ -128,6 +129,11 @@ test('AC-1/AC-2/AC-11：未保存的草稿也能读到模型，点选即回填�
   await page.getByTestId('ai-provider-save').click()
   await expect.poll(() => page.getByTestId('ai-provider-card').count(), { timeout: 15_000 }).toBe(1)
   await expect.poll(async () => (await persistedProviders(page)).length, { timeout: 15_000 }).toBe(1)
+
+  // 同一张卡片必须同时挂两个 testid：摘要行 `ai-provider-card`（计数用）与
+  // 根元素 `ai-provider-item-<id>`（按 id 定位、v1 起的既有契约）。少任何一个都算破契约。
+  const savedId = (await persistedProviders(page))[0]!.id
+  await expect(page.getByTestId(`ai-provider-item-${savedId}`)).toHaveCount(1)
 })
 
 test('AC-2：手输的模型名不会被下一次读取清空', async () => {
