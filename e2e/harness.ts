@@ -90,6 +90,8 @@ function buildEnv(userDataDir: string, extra?: Record<string, string>): Record<s
   env['NODE_ENV'] = 'production'
   env['TERMANS_E2E'] = '1'
   env['TERMANS_E2E_USER_DATA'] = userDataDir
+  // 静默模式：窗口在屏幕外创建、Dock 图标收起，跑测试不在主人眼前弹窗也不抢焦点
+  env['TERMANS_E2E_QUIET'] = process.env['TERMANS_E2E_VISIBLE'] === '1' ? '0' : '1'
   return env
 }
 

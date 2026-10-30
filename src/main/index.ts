@@ -17,6 +17,8 @@ import type { AppInfo, AppPlatform, MenuCommand } from '@shared'
  */
 
 const isE2E = process.env['TERMANS_E2E'] === '1'
+// e2e 静默模式：窗口创建即放到屏幕外，跑测试不会在用户眼前闪一下（默认开启，TERMANS_E2E_VISIBLE=1 关掉）
+const isE2EQuiet = isE2E && process.env['TERMANS_E2E_QUIET'] === '1'
 const rendererDevUrl = process.env['ELECTRON_RENDERER_URL']
 
 let mainWindow: BrowserWindow | null = null
@@ -127,7 +129,17 @@ function createWindow(): BrowserWindow {
 
   // e2e 用 showInactive()：窗口必须真的存在（隐藏窗口 capturePage 可能拍出空白），但绝不抢焦点——
   // 否则 `pnpm test:e2e` 会把主人正在打字的窗口顶掉。人工启动走的仍是 show()（见 docs/TESTING.md §6）。
-  win.once('ready-to-show', () => (isE2E ? win.showInactive() : win.show()))
+  win.once('ready-to-show', () => {
+    if (isE2E) {
+      if (isE2EQuiet) {
+        win.setPosition(-4000, -4000)
+        app.dock?.hide()
+      }
+      win.showInactive()
+      return
+    }
+    win.show()
+  })
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null
   })
