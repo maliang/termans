@@ -17,12 +17,16 @@ import {
   aiStreamErrorSchema,
   type AiChatRequest,
   type AiConversation,
+  type AiListModelsFailure,
+  type AiListModelsRequest,
+  type AiListModelsResult,
   type AiMessage,
   type AiProvider,
+  type AiProviderDraft,
   type AiProviderInput,
   type AiUsage
 } from '@shared/models/ai'
-import type { AiSettings } from '@shared/models/settings'
+import { DEFAULT_SETTINGS, type AiSettings } from '@shared/models/settings'
 import {
   buildChatRequest,
   buildModelsRequest,
@@ -34,7 +38,7 @@ import {
 import { composeMessages, resolveContextLines } from './context'
 import { ConversationStore } from './conversations'
 import { AiRequestError, extractProviderErrorMessage, requestJson, streamRequest } from './http'
-import { ProviderRepository, type SaveProviderExtras, type StoredProvider } from './provider-store'
+import { ProviderRepository, sanitizeHeaders, type SaveProviderExtras, type StoredProvider } from './provider-store'
 import { createRedactor, providerSecretValues, type Redactor } from './redact'
 import type { StreamChunk } from './stream'
 
@@ -117,6 +121,51 @@ function requiresApiKey(provider: Pick<AiProvider, 'kind'>): boolean {
   return provider.kind !== 'ollama'
 }
 
+/**
+ * 供应商失败原文透给渲染层前的字数上限（r2 AC-10）。
+ *
+ * 单点约束：**先脱敏、再截断**。顺序反了就会把 `sk-…` 切成半截前缀，
+ * 专门用来兜底的脱敏正则匹配不到，等于把 key 片段漏出去。
+ */
+export const LIST_MODELS_MESSAGE_MAX_LENGTH = 300
+
+export function clipFailureMessage(message: string): string {
+  return message.length > LIST_MODELS_MESSAGE_MAX_LENGTH
+    ? message.slice(0, LIST_MODELS_MESSAGE_MAX_LENGTH)
+    : message
+}
+
+/**
+ * 把「读取模型」失败的异常翻译成结构化原因（AC-3）。
+ *
+ * 为什么不用 `describeError` 的整句：渲染层要按 `kind` 走自己的 i18n 文案（AC-12），
+ * 拿中文整句去匹配字符串是最脆的耦合。`message` 一律过 redactor——供应商原文里常带
+ * 回显的 key 片段，这里是唯一出口。`error` 字段仍保留整句只为向后兼容。
+ *
+ * `kind` 只有契约里那 5 个值（`aiListModelsFailureSchema`）：UI 只备了这五套文案，
+ * 内部/未知错误按连接层失败呈现（`message` 仍是真实原因，不会丢掉信息）。
+ */
+export function toListModelsFailure(error: unknown, redactor: Redactor): AiListModelsFailure {
+  const describe = (text: string): string => clipFailureMessage(redactor.redactText(text))
+  if (error instanceof AiRequestError) {
+    const providerText = error.bodyText
+      ? extractProviderErrorMessage(error.status ?? 0, error.bodyText)
+      : ''
+    const message = describe(providerText || error.message)
+    switch (error.kind) {
+      case 'timeout':
+        return { kind: 'timeout', status: null, message }
+      case 'network':
+        return { kind: 'network', status: null, message }
+      case 'http':
+        return { kind: 'http', status: error.status ?? null, message }
+      default:
+        return { kind: 'network', status: error.status ?? null, message }
+    }
+  }
+  return { kind: 'network', status: null, message: describe(error instanceof Error ? error.message : String(error)) }
+}
+
 export class AiService {
   private readonly options: AiServiceOptions
   private readonly active = new Map<string, ActiveRequest>()
@@ -196,39 +245,98 @@ export class AiService {
   }
 
   /**
-   * 读取供应商真实可用的模型列表（t53）。
+   * 读取供应商真实可用的模型列表（t53 / AC-1）。
    *
    * 为什么放在主进程：请求要带 API key（只在主进程可解），而且**失败原因必须原样带回 UI**——
    * 「读取模型失败」这四个字对用户没有任何用，409/401/网络超时才是他要的线索。
-   * 因此这里不抛异常，统一返回 `{models, error}`，由设置页直接展示。
+   * 因此这里不抛异常，统一返回 `{models, error, failure}`，由设置页直接展示。
+   *
+   * 两条入口（AC-1）：
+   * - `{providerId}`：已保存的供应商，key 从 vault 取（老行为不变）；
+   * - `{draft}`：设置页里正在编辑、**尚未保存**的配置，key 明文只在这趟 IPC 里存在。
+   *   草稿路径全程不碰 `providers.save` / vault 写入，也不落任何文件。
+   * 两条路径只在「配置从哪来」上不同，请求构造 / 错误分级 / 脱敏共用下面同一段代码——
+   * 分成两套实现必然行为分叉（本项目已有同类事故）。
    */
-  async listModels(providerId: string): Promise<{ models: string[]; error: string | null }> {
-    const provider = await this.options.providers.get(providerId)
-    const apiKey = await this.options.providers.getApiKey(providerId)
-    const redactor = createRedactor(providerSecretValues(apiKey, provider.headers))
-    if (!apiKey && requiresApiKey(provider)) {
-      return { models: [], error: redactor.redactText('尚未配置 API key：请先填写并保存，再读取模型列表') }
+  async listModels(request: AiListModelsRequest): Promise<AiListModelsResult> {
+    const { provider, apiKey, extraHeaders, logId } = await this.resolveModelsTarget(request)
+    const redactor = createRedactor(providerSecretValues(apiKey, extraHeaders))
+    if (requiresApiKey(provider) && !apiKey) {
+      const message = redactor.redactText('尚未配置 API key：请先填写并保存，再读取模型列表')
+      this.log(`list models no-key id=${logId}`)
+      return { models: [], error: message, failure: { kind: 'no-key', status: null, message: '' } }
     }
-    const request = buildModelsRequest({ provider, apiKey, extraHeaders: provider.headers })
+    const built = buildModelsRequest({ provider, apiKey, extraHeaders })
     try {
-      const response = await requestJson(request, {
+      const response = await requestJson(built, {
         fetchImpl: this.options.fetchImpl,
         now: this.options.now,
         timeoutMs: this.options.connectTimeoutMs
       })
       if (!response.ok) {
-        const detail = extractProviderErrorMessage(response.status, response.text)
-        this.log(`list models failed id=${providerId} status=${response.status}`)
-        return { models: [], error: redactor.redactText(`HTTP ${response.status}：${detail}`) }
+        const detail = redactor.redactText(extractProviderErrorMessage(response.status, response.text))
+        this.log(`list models failed id=${logId} status=${response.status}`)
+        return {
+          models: [],
+          error: clipFailureMessage(redactor.redactText(`HTTP ${response.status}：${detail}`)),
+          failure: {
+            kind: 'http',
+            status: response.status,
+            message: detail ? clipFailureMessage(detail) : `HTTP ${response.status}`
+          }
+        }
       }
       const models = parseModelIds(response.text)
-      this.log(`list models ok id=${providerId} count=${models.length}`)
-      return { models, error: models.length === 0 ? '供应商返回了空列表：请确认 Base URL 指向的是兼容端点' : null }
+      this.log(`list models ok id=${logId} count=${models.length}`)
+      if (models.length === 0) {
+        // 空列表是「配置看起来对但端点是兼容层」的典型症状，单列一个 kind 让 UI 说人话。
+        return {
+          models: [],
+          error: redactor.redactText('供应商返回了空列表：请确认 Base URL 指向的是兼容端点'),
+          failure: { kind: 'empty', status: null, message: '' }
+        }
+      }
+      return { models, error: null, failure: null }
     } catch (error) {
       const described = this.describeError(error, redactor)
-      this.log(`list models error id=${providerId}`)
-      return { models: [], error: described.message }
+      const failure = toListModelsFailure(error, redactor)
+      this.log(`list models error id=${logId} kind=${failure.kind}`)
+      return { models: [], error: described.message, failure }
     }
+  }
+
+  /**
+   * 解析 `{providerId}` / `{draft}` 两种入口，产出统一的请求原料。
+   *
+   * 草稿的 `headers` 必须在这里（主进程）再过一遍 `sanitizeHeaders`——渲染层传什么都不能信，
+   * 且必须与保存路径是同一条实现（provider-store.ts 的唯一版本），不能另写一套白名单。
+   */
+  private async resolveModelsTarget(
+    request: AiListModelsRequest
+  ): Promise<{ provider: AiProvider; apiKey: string | null; extraHeaders: Record<string, string>; logId: string }> {
+    if ('draft' in request && request.draft) {
+      const draft: AiProviderDraft = request.draft
+      const now = new Date(this.options.now?.() ?? Date.now()).toISOString()
+      const provider: AiProvider = {
+        id: 'draft',
+        name: 'draft',
+        kind: draft.kind,
+        baseUrl: draft.baseUrl,
+        model: draft.model ?? '',
+        apiKeyRef: null,
+        temperature: 0.3,
+        maxTokens: 2_048,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now
+      }
+      const apiKey = draft.apiKey && draft.apiKey.trim() ? draft.apiKey.trim() : null
+      return { provider, apiKey, extraHeaders: sanitizeHeaders(draft.headers), logId: 'draft' }
+    }
+    const providerId = (request as { providerId: string }).providerId
+    const provider = await this.options.providers.get(providerId)
+    const apiKey = await this.options.providers.getApiKey(providerId)
+    return { provider, apiKey, extraHeaders: provider.headers ?? {}, logId: providerId }
   }
 
   /** 连通成功时提示「模型名是否在返回列表里」——最常见的配置错误，能省一轮排查 */
@@ -288,7 +396,10 @@ export class AiService {
       provider,
       apiKey,
       extraHeaders: provider.headers,
-      messages
+      messages,
+      // 全局默认思考强度（AC-8）：缺字段的旧配置由 DEFAULT_SETTINGS 兜底成 medium，
+      // 具体发什么键由 adapters 按协议判定，这里只负责把「用户选的那一档」送下去。
+      reasoningEffort: settings.reasoningEffort ?? DEFAULT_SETTINGS.ai.reasoningEffort
     }
     const built = buildChatRequest(adapterInput)
     const active: ActiveRequest = {

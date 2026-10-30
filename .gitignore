@@ -16,5 +16,10 @@ coverage/
 playwright-report/
 test-results/
 
+# 构建/包管理器本地产物（注意：build/ docs/ tests/ e2e/ 是入库内容，不要加进来）
+*.tsbuildinfo
+.pnpm-store/
+
 # 团队协作状态不入库
 .agent-teams/
+logs/

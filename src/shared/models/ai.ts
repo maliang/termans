@@ -36,6 +36,64 @@ export type AiProvider = z.infer<typeof aiProviderSchema>
 export const aiProviderInputSchema = aiProviderSchema.omit({ createdAt: true, updatedAt: true })
 export type AiProviderInput = z.infer<typeof aiProviderInputSchema>
 
+/**
+ * 「读模型清单」用的临时草稿（r2 AC-4：刚填完 key 就能读模型，不必先保存）。
+ *
+ * 只活在单次 IPC 调用里：主进程用它现拼请求、读完即弃，**不落 providers.json、不写 vault**。
+ * 因此这里不收 `id`/时间戳，`apiKey` 是明文（与 `apiKeyRef` 的引用槽位是两码事）。
+ */
+export const aiProviderDraftSchema = z
+  .object({
+    kind: aiProviderKindSchema,
+    /** 不强制 `url()`：用户可能正边输边点「读取模型」，合法性交给真正的请求去报错 */
+    baseUrl: z.string().min(1),
+    model: z.string().optional(),
+    apiKey: z.string().optional(),
+    /** 自定义请求头（代理/网关用），与 provider-store 的 ExtraHeaders 同形 */
+    headers: z.record(z.string(), z.string()).optional()
+  })
+  .strict()
+export type AiProviderDraft = z.infer<typeof aiProviderDraftSchema>
+
+/**
+ * 读模型清单的请求：**二选一**（`providerId` 已保存的供应商 / `draft` 未保存的草稿）。
+ * strict 是关键——两个都传时无法判断该用谁的 key 与 baseUrl，必须在 IPC 边界就拒绝，
+ * 而不是在 service 里靠「先判断哪个非空」的隐式优先级。
+ */
+export const aiListModelsRequestSchema = z.union([
+  z.object({ providerId: z.string().min(1) }).strict(),
+  z.object({ draft: aiProviderDraftSchema }).strict()
+])
+export type AiListModelsRequest = z.infer<typeof aiListModelsRequestSchema>
+
+/**
+ * 失败原因结构化（而不是一句自由文本）：UI 要能显示 HTTP 状态码、并区分
+ * 「没填 key」「有 key 但服务商返回空列表」「网络/超时」，靠字符串猜是猜不准的。
+ * - no-key：本地就知道缺 key，没有发请求
+ * - empty：请求成功但 0 个模型
+ * - http：服务商返回非 2xx，`status` 有值、`message` 已脱敏且截断到 300 字
+ * - timeout / network：请求没走完
+ */
+export const aiListModelsFailureKindSchema = z.enum(['no-key', 'empty', 'http', 'timeout', 'network'])
+export type AiListModelsFailureKind = z.infer<typeof aiListModelsFailureKindSchema>
+
+export const aiListModelsFailureSchema = z.object({
+  kind: aiListModelsFailureKindSchema,
+  /** 仅 `http` 有值；其余恒 null（本地失败没有状态码） */
+  status: z.number().int().nullable(),
+  /** 已脱敏、已截断（主进程 `clipFailureMessage` 之后）才允许跨进程序列化 */
+  message: z.string()
+})
+export type AiListModelsFailure = z.infer<typeof aiListModelsFailureSchema>
+
+export const aiListModelsResultSchema = z.object({
+  models: z.array(z.string()),
+  /** 兼容字段：失败时给一个可展示的整句；成功为 null */
+  error: z.string().nullable(),
+  failure: aiListModelsFailureSchema.nullable()
+})
+export type AiListModelsResult = z.infer<typeof aiListModelsResultSchema>
+
 export const aiMessageRoleSchema = z.enum(['system', 'user', 'assistant'])
 export type AiMessageRole = z.infer<typeof aiMessageRoleSchema>
 

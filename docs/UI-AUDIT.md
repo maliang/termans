@@ -166,3 +166,17 @@ DOM 级对比度全量扫描（逐元素取 computed `color` 与其最近不透�
 
 **一条复验经验**：给 label 里加按钮会改变 input 的可访问名，`getByLabel('模型', { exact: true })`
 立刻失效（`e2e/fixtures/ui.ts` 正靠它）；这类改动必须补 `aria-label`，否则 e2e 红得莫名其妙。
+
+## 2026-10-30 设置→AI 改成卡片工作台（r2）
+
+| # | 反馈 | 落点 |
+|---|---|---|
+| ⑫ | AI 配置不直观、填完 key 不能立刻选模型 | 设置→AI 改为纵向单列四段（A0 开关与披露 / A1 全局默认思考强度 / A2 供应商卡片列表 / A3 默认供应商·上下文行数）：卡片行摘要一行给出「名称 · 模型 · key 尾 4 位 · 默认徽标 · 三类操作」，点行卡片内联展开编辑（展开即挂载、收起即卸载），编辑器内含「读取模型」按钮走 `ai:list-models` 拉服务商真实清单再点选；三档思考强度按协议统一映射（OpenAI `reasoning_effort` / Anthropic 思考预算并抬 `max_tokens` / Gemini `thinkingConfig`），不支持的端点显示「已忽略」但不偷偷禁用 |
+
+四态截图（深/浅 × 卡片列表/展开编辑器），shot 脚本在运行期日志目录，图已入库：
+`docs/assets/ui-audit/after-ai-settings-r2-dark-01-cards.png`、`after-ai-settings-r2-dark-02-editor.png`、
+`after-ai-settings-r2-light-01-cards.png`、`after-ai-settings-r2-light-02-editor.png`。
+
+**口径（不是能力，别当证据用）**：卡片上「已配置」的绿色圆点是按 `apiKeyRef !== null` **推断**出来的
+（`src/renderer/theme/ProviderCard.tsx` 的 `is-ok`/`is-missing`），**不是连通性探测**——本轮截图一次
+网络请求都没发；`src/shared` 也没有「读回 key」的通道。真要说「这个 key 能用」，只有点「测试连接」的结果算数。

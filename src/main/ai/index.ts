@@ -57,3 +57,11 @@ export type { AdapterInput, BuiltRequest, InterpretedChunk, StreamFormat } from 
 export { streamRequest, requestJson, AiRequestError, extractProviderErrorMessage } from './http'
 export { SseDecoder, NdjsonDecoder, parseJsonPayload, isDoneSentinel } from './stream'
 export type { StreamChunk, StreamDecoder } from './stream'
+
+/* 思考强度：映射表本体只住在 @shared/reasoning（渲染层与主进程共用一份），这里只做转出口，
+ * 让 AI 模块的测试与上层不必记具体路径。 */
+export { resolveReasoningMode, anthropicMinMaxTokens, ANTHROPIC_MIN_MAX_TOKENS, ANTHROPIC_THINKING_BUDGET } from '@shared'
+export type { ReasoningEffort, ReasoningMode, ReasoningPlan } from '@shared'
+/* 读取模型失败的结构化原因（AC-3）：单测直接断言 kind/status，而不是中文整句 */
+export { toListModelsFailure, parseModelIds } from './service'
+export type { AiListModelsFailure, AiListModelsRequest, AiListModelsResult, AiProviderDraft } from '@shared'

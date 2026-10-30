@@ -303,9 +303,14 @@
   min-width: 0;
 }
 
-.ts-ai-form input,
-.ts-ai-form select,
-.ts-ai-form textarea {
+/* 只在 AI 面板内生效（r2 收窄）：r1 时设置页也挂 `.ts-ai-form`，这条通配的
+   `padding: 5px 7px` / `border: var(--ts-border)` 会把设置页所有输入框都染成面板的样子，
+   与其它设置页（高 32 / border-strong / `.ts-settings__input` 语汇）不一致。
+   设置页 r2 已换成 `.ts-ai-provider-form` + `.ts-settings__input`；这里加前缀把作用域钉死，
+   免得以后有人在设置页复用 `.ts-ai-form` 又把污染带回来。 */
+.ts-ai-panel .ts-ai-form input,
+.ts-ai-panel .ts-ai-form select,
+.ts-ai-panel .ts-ai-form textarea {
   width: 100%;
   padding: 5px 7px;
   border: 1px solid var(--ts-border);
@@ -794,3 +799,758 @@
   justify-content: space-between;
   gap: var(--ts-space-2);
 }
+
+/* ============================================================================
+   设置 → AI（r2）：卡片列表 + 卡片内联编辑器 + 模型组合框 + 三档思考强度
+   设置页内容列实宽 666px（弹窗 880 − 边框 − 左导航 180 − 两侧内边距）。
+   横向不滚动的保证不是「调个宽度」，而是：
+     · 行摘要六项里五个 flex:none 固定段（圆点 15 / key 尾 ≤96 / 徽标 36 / 图标按钮 26×3 / 间隙）
+     · 所有文本节点 min-width:0 + overflow:hidden + text-overflow:ellipsis + white-space:nowrap
+     · 任何一行都不许 flex-wrap：换行会把 44px 行高撑成两行，视觉上「卡片在跳」
+   ========================================================================== */
+
+.ts-ai-provider-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ts-space-2);
+}
+
+.ts-ai-provider-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ts-ai-provider-cards > li {
+  min-width: 0;
+}
+
+.ts-ai-provider-card {
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-md);
+  background: color-mix(in srgb, var(--ts-bg-elevated) 55%, transparent);
+  transition:
+    background-color var(--ts-motion-fast) ease,
+    border-color var(--ts-motion-fast) ease;
+}
+
+.ts-ai-provider-card:hover {
+  border-color: var(--ts-border-strong);
+  background: var(--ts-bg-elevated);
+}
+
+.ts-ai-provider-card.is-expanded {
+  border-color: var(--ts-border-strong);
+  /* 展开态唯一的琥珀：左侧 2px 竖条（第二处是主按钮，第三处是浮层选中行） */
+  border-left: 2px solid var(--ts-accent);
+  background: var(--ts-bg-elevated);
+}
+
+.ts-ai-provider-card--add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px var(--ts-space-3);
+  color: var(--ts-text-secondary);
+  font-family: var(--ts-font-ui);
+  font-size: var(--ts-font-size-sm);
+  cursor: pointer;
+  border-style: dashed;
+  background: transparent;
+}
+
+.ts-ai-provider-card--add:hover:not(:disabled) {
+  color: var(--ts-text-primary);
+  border-color: var(--ts-border-strong);
+  background: var(--ts-bg-elevated);
+}
+
+.ts-ai-provider-card--add:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ts-ai-provider-card__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--ts-space-2);
+  min-width: 0;
+  padding: 8px;
+  min-height: 44px;
+}
+
+.ts-ai-provider-card__main {
+  display: flex;
+  align-items: center;
+  gap: var(--ts-space-2);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ts-ai-provider-card__main:active {
+  filter: brightness(0.96);
+}
+
+.ts-ai-provider-card__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+/* 形状 + 颜色双通道：只靠颜色在对比度主题下会看不出区别 */
+.ts-ai-provider-card__dot.is-ok {
+  background: var(--ts-status-ok);
+}
+
+.ts-ai-provider-card__dot.is-missing {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--ts-text-muted);
+}
+
+.ts-ai-provider-card__name {
+  flex: none;
+  max-width: 160px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--ts-font-size-sm);
+  font-weight: var(--ts-font-weight-strong);
+}
+
+.ts-ai-provider-card__model {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ts-text-secondary);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-xs);
+}
+
+.ts-ai-provider-card__key {
+  flex: none;
+  max-width: 96px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ts-text-muted);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-xs);
+}
+
+.ts-ai-provider-card__key.is-empty {
+  font-family: var(--ts-font-ui);
+  font-style: italic;
+}
+
+.ts-ai-provider-card__badge {
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  border: 1px solid var(--ts-border);
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-xs);
+  white-space: nowrap;
+}
+
+.ts-ai-provider-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+}
+
+.ts-ai-provider-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ts-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color var(--ts-motion-fast) ease,
+    color var(--ts-motion-fast) ease;
+}
+
+.ts-ai-provider-card__icon:hover {
+  background: var(--ts-bg-app);
+  color: var(--ts-text-primary);
+}
+
+.ts-ai-provider-card__icon:active {
+  filter: brightness(0.96);
+}
+
+.ts-ai-provider-card__icon.is-danger:hover {
+  color: var(--ts-status-error);
+}
+
+.ts-ai-provider-card__icon:focus-visible {
+  outline: 2px solid var(--ts-accent);
+  outline-offset: 1px;
+}
+
+/* 编辑区：往下沉一档层次（bg-app），与卡片本体区分；圆角只保下面两角 */
+.ts-ai-provider-card__editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid var(--ts-border);
+  border-radius: 0 0 var(--ts-radius-md) var(--ts-radius-md);
+  background: var(--ts-bg-app);
+  min-width: 0;
+}
+
+.ts-ai-provider-card__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ts-ai-provider-card__keyfield {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ts-ai-provider-card__keyfield > .ts-settings__input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ts-ai-provider-card__label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ts-space-2);
+}
+
+.ts-ai-provider-card__inline-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ts-space-2);
+}
+
+.ts-ai-provider-card__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--ts-space-2);
+  padding-top: 2px;
+}
+
+.ts-ai-provider-card__footer > [data-testid='ai-provider-test'] {
+  margin-right: auto;
+}
+
+/* 卡片内只读的思考强度行：改只在 A1 一处（AC-8），这里只负责「告诉你在跟随哪一档 + 怎么去改」 */
+.ts-ai-provider-card__effort {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-surface);
+  min-width: 0;
+}
+
+.ts-ai-provider-card__effort-label {
+  flex: none;
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ts-ai-provider-card__effort-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-link-btn {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ts-accent);
+  font-family: var(--ts-font-ui);
+  font-size: var(--ts-font-size-xs);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ts-link-btn:hover {
+  color: var(--ts-accent-strong);
+}
+
+/* A1 三档分段控件 */
+.ts-ai-effort {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ts-ai-effort__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ts-space-3);
+  min-width: 0;
+}
+
+.ts-ai-effort__label {
+  flex: none;
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ts-ai-effort__seg {
+  display: flex;
+  flex: none;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  overflow: hidden;
+}
+
+.ts-ai-effort__item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 32px;
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-sm);
+  cursor: pointer;
+  transition:
+    background-color var(--ts-motion-fast) ease,
+    color var(--ts-motion-fast) ease;
+  /* radio 本体视觉隐藏但保留可聚焦/可读 */
+  position: relative;
+}
+
+.ts-ai-effort__item + .ts-ai-effort__item {
+  border-left: 1px solid var(--ts-border);
+}
+
+.ts-ai-effort__item input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.ts-ai-effort__item:hover {
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-primary);
+}
+
+/* 选中 = 抬起一档 + 1px 琥珀描边；不要整条琥珀实底（那样三档会像三个主按钮） */
+.ts-ai-effort__item.is-checked {
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-primary);
+  box-shadow: inset 0 0 0 1px var(--ts-accent);
+}
+
+.ts-ai-effort__item:focus-within {
+  outline: 2px solid var(--ts-accent);
+  outline-offset: -2px;
+}
+
+.ts-ai-effort__item:active {
+  filter: brightness(0.96);
+}
+
+.ts-ai-effort__caption {
+  margin: 0;
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-xs);
+  line-height: 1.45;
+}
+
+.ts-ai-effort__caption.is-muted {
+  font-style: italic;
+}
+
+.ts-ai-effort__warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 4px 8px;
+  border-left: 3px solid var(--ts-status-warn);
+  background: color-mix(in srgb, var(--ts-status-warn) 10%, transparent);
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-xs);
+  line-height: 1.45;
+}
+
+/* 新建卡：目录 / 手动 分段 */
+.ts-ai-mode {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  overflow: hidden;
+}
+
+.ts-ai-mode__tab {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--ts-text-secondary);
+  font-family: var(--ts-font-ui);
+  font-size: var(--ts-font-size-xs);
+  cursor: pointer;
+}
+
+.ts-ai-mode__tab + .ts-ai-mode__tab {
+  border-left: 1px solid var(--ts-border);
+}
+
+.ts-ai-mode__tab:hover {
+  color: var(--ts-text-primary);
+  background: var(--ts-bg-elevated);
+}
+
+.ts-ai-mode__tab.is-active {
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-primary);
+  box-shadow: inset 0 -2px 0 var(--ts-accent);
+}
+
+.ts-ai-catalog {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  max-height: 264px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.ts-ai-catalog__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-surface);
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-ui);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--ts-motion-fast) ease,
+    border-color var(--ts-motion-fast) ease;
+}
+
+.ts-ai-catalog__item:hover {
+  border-color: var(--ts-border-strong);
+  background: var(--ts-bg-elevated);
+}
+
+.ts-ai-catalog__item.is-selected {
+  border-color: var(--ts-accent);
+  background: var(--ts-bg-elevated);
+}
+
+.ts-ai-catalog__item:active {
+  filter: brightness(0.96);
+}
+
+.ts-ai-catalog__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ts-ai-catalog__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--ts-font-size-sm);
+  font-weight: var(--ts-font-weight-strong);
+}
+
+.ts-ai-catalog__kind {
+  flex: none;
+  color: var(--ts-text-muted);
+  font-size: 11px;
+}
+
+.ts-ai-catalog__url {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ts-text-secondary);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-xs);
+}
+
+.ts-ai-catalog__note {
+  color: var(--ts-text-muted);
+  font-size: 11px;
+}
+
+/* 高级折叠区：数字字段藏在里面（编辑态首屏只留必填的六件事） */
+.ts-ai-advanced__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ts-space-2);
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-surface);
+  color: var(--ts-text-secondary);
+  font-family: var(--ts-font-ui);
+  font-size: var(--ts-font-size-xs);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.ts-ai-advanced__head:hover {
+  color: var(--ts-text-primary);
+  border-color: var(--ts-border-strong);
+}
+
+.ts-ai-advanced__head.is-open {
+  border-color: var(--ts-border-strong);
+  color: var(--ts-text-primary);
+}
+
+.ts-ai-advanced__summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ts-text-muted);
+  font-family: var(--ts-font-mono);
+}
+
+.ts-ai-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-surface);
+  min-width: 0;
+}
+
+/* 模型组合框：触发器就是输入框本身；浮层 portal 到 body（设置对话框是滚动容器，就地渲染会被裁切） */
+.ts-ai-model-combo {
+  position: relative;
+  min-width: 0;
+}
+
+.ts-ai-model-combo__trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ts-ai-model-combo__input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ts-ai-model-combo__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--ts-border);
+  border-radius: 6px;
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-secondary);
+  cursor: pointer;
+}
+
+.ts-ai-model-combo__toggle:hover {
+  border-color: var(--ts-border-strong);
+  color: var(--ts-text-primary);
+}
+
+.ts-ai-model-combo__toggle svg {
+  transition: transform var(--ts-motion-fast) ease;
+}
+
+.ts-ai-model-combo__toggle svg[data-open='true'] {
+  transform: rotate(180deg);
+}
+
+.ts-ai-model-combo__panel {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  max-height: 300px;
+  overflow: hidden;
+  border: 1px solid var(--ts-border-strong);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-elevated);
+  box-shadow: var(--ts-shadow-popover);
+  animation: ts-ai-popover-in 120ms ease-out;
+}
+
+/* 进场只淡入 + 轻微缩放都不做：浮层是 fixed 定位，任何位移/缩放都会让「点击目标在动」，
+   自动化点击判定为不稳定的同时，手快的人也会点空。120ms 淡入已经够说明「它刚出现」。 */
+@keyframes ts-ai-popover-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.ts-ai-model-combo__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--ts-border);
+  color: var(--ts-text-muted);
+}
+
+.ts-ai-model-combo__search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-ui);
+  font-size: var(--ts-font-size-sm);
+  outline: none;
+}
+
+.ts-ai-model-combo__list {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  overflow-y: auto;
+  max-height: 252px;
+}
+
+.ts-ai-model-combo__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ts-space-2);
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-xs);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+/* 浮层里唯一的琥珀：选中行底色（第三处，另两处是主按钮与展开卡竖条） */
+.ts-ai-model-combo__option[aria-selected='true'] {
+  background: color-mix(in srgb, var(--ts-accent) 18%, transparent);
+}
+
+.ts-ai-model-combo__option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ts-ai-model-combo__option-tag {
+  flex: none;
+  color: var(--ts-text-muted);
+  font-family: var(--ts-font-ui);
+  font-size: 11px;
+}
+
+.ts-ai-model-combo__empty {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-xs);
+  line-height: 1.45;
+}
+
+.ts-ai-provider-count {
+  margin-left: 8px;
+  color: var(--ts-text-muted);
+  font-family: var(--ts-font-mono);
+  font-size: var(--ts-font-size-xs);
+  font-weight: 400;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ts-ai-provider-card,
+  .ts-ai-provider-card__icon,
+  .ts-ai-effort__item,
+  .ts-ai-catalog__item {
+    transition: none;
+  }
+
+  .ts-ai-model-combo__panel {
+    animation: none;
+  }
+
+  .ts-ai-model-combo__toggle svg {
+    transition: none;
+  }
+}
+

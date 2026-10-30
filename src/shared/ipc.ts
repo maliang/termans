@@ -1,5 +1,15 @@
 import type { AppInfo } from './models/app'
-import type { AiChatRequest, AiConversation, AiProvider, AiProviderInput, AiStreamDelta, AiStreamDone, AiStreamError } from './models/ai'
+import type {
+  AiChatRequest,
+  AiConversation,
+  AiListModelsRequest,
+  AiListModelsResult,
+  AiProvider,
+  AiProviderInput,
+  AiStreamDelta,
+  AiStreamDone,
+  AiStreamError
+} from './models/ai'
 import type { GroupInput, GroupRecord, HostInput, HostLibrary, HostRecord, HostSortUpdate } from './models/host'
 import type { KnownHostEntry, KnownHostRemoveRequest, KnownHostTrustRequest } from './models/known-host'
 import type { Settings, SettingsPatch } from './models/settings'
@@ -228,7 +238,13 @@ export interface IpcInvokeContract {
   'ai:set-api-key': { request: { providerId: string; apiKey: string }; response: void }
   'ai:clear-api-key': { request: { providerId: string }; response: void }
   'ai:test-provider': { request: { providerId: string }; response: { ok: boolean; message: string } }
-  'ai:list-models': { request: { providerId: string }; response: { models: string[]; error: string | null } }
+  /**
+   * 读取供应商真实可用的模型列表（t53）。
+   * 请求二选一：`{providerId}` 用已保存供应商（key 从 vault 取）；
+   * `{draft}` 用编辑器里的未保存配置（key 明文只在这趟 IPC 里存在，绝不落盘）——AC-1。
+   * 响应里 `error` 保留给人看的整句（向后兼容），`failure` 给结构化原因（AC-3）。
+   */
+  'ai:list-models': { request: AiListModelsRequest; response: AiListModelsResult }
   'ai:chat': { request: AiChatRequest; response: { requestId: string } }
   'ai:cancel': { request: { requestId: string }; response: void }
   'ai:list-conversations': { request: void; response: { conversations: AiConversation[] } }

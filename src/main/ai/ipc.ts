@@ -13,6 +13,7 @@
 import { z } from 'zod'
 import {
   aiChatRequestSchema,
+  aiListModelsRequestSchema,
   aiProviderInputSchema,
   aiTerminalContextSchema,
   type AiProvider,
@@ -103,7 +104,9 @@ export function registerAiHandlers(service: AiService): void {
 
   handle('ai:test-provider', (request) => service.testProvider(request.providerId), providerIdRequestSchema)
 
-  handle('ai:list-models', (request) => service.listModels(request.providerId), providerIdRequestSchema)
+  // 请求形状由 shared schema 守（strict 二选一：{providerId} | {draft}），handler 保持薄：
+  // 校验失败在 registry 里就被拦成 IPC 错误信封，不会把半截草稿送进 service。
+  handle('ai:list-models', (request) => service.listModels(request), aiListModelsRequestSchema)
 
   handle(
     'ai:chat',

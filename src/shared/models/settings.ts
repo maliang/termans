@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { LOCALES } from '../i18n'
+import { REASONING_EFFORT_DEFAULT, reasoningEffortSchema } from '../reasoning'
 import { knownHostsPolicySchema } from './known-host'
 import { conflictStrategySchema } from './vault'
 
@@ -52,6 +53,12 @@ export const aiSettingsSchema = z.object({
   autoContext: z.boolean(),
   /** 注入终端上下文的行数上限 500；默认值见 DEFAULT_SETTINGS.ai.contextLines（200，与上下文模块默认一致） */
   contextLines: z.number().int().min(0).max(500),
+  /**
+   * 全局默认思考强度（r2 AC-8：全应用唯一可编辑处就是在设置页顶部）。
+   * **故意不加 `.default()`**：`withDefaults` 是按字段 partial 解析的，字段自带 default 会让
+   * 「缺字段」与「显式给值」在补全阶段无法区分；缺字段由 DEFAULT_SETTINGS 兜底更稳。
+   */
+  reasoningEffort: reasoningEffortSchema,
   defaultProviderId: z.string().nullable(),
   /** 硬约束：AI 产出的命令必须二次确认后才写入终端，不可配置为 false */
   commandConfirmation: z.literal(true)
@@ -144,6 +151,7 @@ export const DEFAULT_SETTINGS: Settings = {
     enabled: false,
     autoContext: false,
     contextLines: 200,
+    reasoningEffort: REASONING_EFFORT_DEFAULT,
     defaultProviderId: null,
     commandConfirmation: true
   },

@@ -209,4 +209,11 @@ html {
 
   /* 动效：只用于 hover / 展开这类微交互，超过 200ms 会显得迟钝 */
   --ts-motion-fast: 120ms;
+
+  /* 浮层阴影（模型下拉）：单值跨两套主题成立。
+     不能复用 --ts-dialog-shadow —— 它的颜色是 --ts-bg-overlay，浅色主题下是
+     半透明白，给浮层会变成一圈泛光。这里靠 42% 黑投影分层 + 0 0 0 1px 描边环
+     保证浅色主题边界清晰。写在本 html{} 块（非契约块）内：:root / [data-theme]
+     那两块与 src/shared/theme.ts 的 THEME_TOKENS 逐 token 比对，多一个就红。 */
+  --ts-shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.42), 0 0 0 1px var(--ts-border-strong);
 }

@@ -13,6 +13,8 @@ import type { IpcRequestOf } from '@shared'
 import type {
   AiChatRequest,
   AiConversation,
+  AiListModelsRequest,
+  AiListModelsResult,
   AiProvider,
   AiProviderInput,
   AiStreamDelta,
@@ -64,6 +66,25 @@ export async function clearApiKey(providerId: string): Promise<void> {
 
 export async function testProvider(providerId: string): Promise<{ ok: boolean; message: string }> {
   return call('ai:test-provider', { providerId })
+}
+
+/**
+ * 读取供应商的模型清单。
+ *
+ * 请求是**二选一**的联合类型（`{providerId}` 或 `{draft}`）：草稿分支让「填完 key 就能读模型」
+ * 成立（AC-4），且主进程不会因为这一次读取而创建任何供应商记录。
+ *
+ * 返回值这里显式重建一次，而不是把信封整个交出去：本项目踩过「直接用 `{ok,data,error}` 包装
+ * 导致判断恒 undefined」的坑，所以在这一个门面里把 `failure` / `error` 的缺省值补齐，
+ * 组件侧只需处理领域字段。
+ */
+export async function listModels(request: AiListModelsRequest): Promise<AiListModelsResult> {
+  const result = await call('ai:list-models', request)
+  return {
+    models: Array.isArray(result.models) ? result.models : [],
+    error: result.error ?? null,
+    failure: result.failure ?? null
+  }
 }
 
 export async function listConversations(): Promise<AiConversation[]> {

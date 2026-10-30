@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_SETTINGS,
   aiCommandSuggestionSchema,
+  aiListModelsRequestSchema,
+  aiListModelsResultSchema,
   aiSettingsSchema,
   hostInputSchema,
   hostLibrarySchema,
@@ -115,6 +117,42 @@ describe('设置模型', () => {
   it('越界数值被拒绝（字号/侧栏宽度）', () => {
     expect(() => settingsPatchSchema.parse({ terminal: { fontSize: 4 } })).toThrow()
     expect(() => settingsPatchSchema.parse({ ui: { sidebarWidth: 900 } })).toThrow()
+  })
+})
+
+describe('AI 思考强度与模型清单契约', () => {
+  it('aiSettingsSchema 允许缺省 reasoningEffort 且拒绝非法值', () => {
+    expect(DEFAULT_SETTINGS.ai.reasoningEffort).toBe('medium')
+    // 旧配置文件里没有这个字段：只补它自己，其余字段照旧保留（不许整份回退成默认值）
+    const merged = withDefaults({ ai: { enabled: true, contextLines: 321 } })
+    expect(merged.ai.reasoningEffort).toBe('medium')
+    expect(merged.ai.enabled).toBe(true)
+    expect(merged.ai.contextLines).toBe(321)
+
+    expect(aiSettingsSchema.partial().parse({ reasoningEffort: 'high' }).reasoningEffort).toBe('high')
+    expect(() => aiSettingsSchema.parse({ ...DEFAULT_SETTINGS.ai, reasoningEffort: 'ultra' })).toThrow()
+    // 设置补丁也必须认这一档（设置页改它走的就是 patch 通道）
+    expect(settingsPatchSchema.parse({ ai: { reasoningEffort: 'low' } }).ai?.reasoningEffort).toBe('low')
+  })
+
+  it('aiListModelsRequestSchema 拒绝同时传 providerId 与 draft', () => {
+    const draft = { kind: 'openai' as const, baseUrl: 'https://api.example.com/v1' }
+    expect(aiListModelsRequestSchema.parse({ providerId: 'p1' })).toEqual({ providerId: 'p1' })
+    expect(aiListModelsRequestSchema.parse({ draft })).toEqual({ draft })
+    // 两个都传时无法判断该用谁的 key / baseUrl，必须在 IPC 边界就拒绝（strict 二选一）
+    expect(() => aiListModelsRequestSchema.parse({ providerId: 'p1', draft })).toThrow()
+    expect(() => aiListModelsRequestSchema.parse({})).toThrow()
+    expect(() => aiListModelsRequestSchema.parse({ draft: { ...draft, bogus: 1 } })).toThrow()
+  })
+
+  it('aiListModelsResultSchema 允许 failure 为 null', () => {
+    expect(aiListModelsResultSchema.parse({ models: ['gpt-4o'], error: null, failure: null }).failure).toBeNull()
+    const failure = { kind: 'http' as const, status: 401, message: 'Invalid API key' }
+    expect(aiListModelsResultSchema.parse({ models: [], error: 'x', failure }).failure).toEqual(failure)
+    // kind 只认五种：UI 只为这五套文案准备了 i18n
+    expect(() =>
+      aiListModelsResultSchema.parse({ models: [], error: null, failure: { kind: 'unknown', status: null, message: '' } })
+    ).toThrow()
   })
 })
 

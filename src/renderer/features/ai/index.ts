@@ -18,8 +18,6 @@
  */
 export { AiPanel } from './AiPanel'
 export type { AiPanelProps } from './AiPanel'
-export { ProviderForm } from './ProviderForm'
-export type { ProviderFormProps } from './ProviderForm'
 export {
   useAiStore,
   DEFAULT_TEMPLATES,

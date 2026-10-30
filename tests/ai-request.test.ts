@@ -381,3 +381,54 @@ describe('重试与超时（429/5xx 一次退避）', () => {
     expect(response.text).toContain('bad key')
   })
 })
+
+/**
+ * AC-9 回归：思考强度改造（`reasoning_effort` / `thinking` / `thinkingConfig`）只在
+ * `buildBody` 末尾追加，**不得**动既有字段。这里对四家的老字段各断言一次，
+ * 是「同一次改造把 temperature/max_tokens 挤掉」这类事故的唯一探测器。
+ */
+describe('思考强度改造不破坏既有请求体（AC-9）', () => {
+  const messages = [{ role: 'user' as const, content: '你好' }]
+
+  it('传 reasoning_effort 后 OpenAI 的 temperature / max_tokens / stream_options 原样保留', () => {
+    const body = JSON.parse(
+      buildChatRequest({ provider: provider({ kind: 'openai' }), apiKey: 'sk-x', messages, reasoningEffort: 'high' }).body ?? '{}'
+    )
+    expect(body.reasoning_effort).toBe('high')
+    expect(body.temperature).toBe(0.3)
+    expect(body.max_tokens).toBe(2048)
+    expect(body.stream).toBe(true)
+    expect(body.stream_options).toEqual({ include_usage: true })
+  })
+
+  it('Anthropic 抬 max_tokens 只影响本次请求：入参 provider 对象不被改写', () => {
+    const anthropic = provider({ kind: 'anthropic', baseUrl: 'https://api.anthropic.com' })
+    const snapshot = JSON.stringify(anthropic)
+    const body = JSON.parse(buildChatRequest({ provider: anthropic, apiKey: 'sk-x', messages, reasoningEffort: 'high' }).body ?? '{}')
+    expect(body.max_tokens).toBeGreaterThan(2048)
+    expect(JSON.stringify(anthropic)).toBe(snapshot)
+  })
+
+  it('Gemini / Ollama 的既有字段（temperature、maxOutputTokens、num_predict）不被改造动到', () => {
+    const gemini = JSON.parse(
+      buildChatRequest({
+        provider: provider({ kind: 'openai-compatible', baseUrl: 'https://generativelanguage.googleapis.com/v1beta' }),
+        apiKey: 'sk-x',
+        messages,
+        reasoningEffort: 'low'
+      }).body ?? '{}'
+    )
+    expect(gemini.generationConfig.temperature).toBe(0.3)
+    expect(gemini.generationConfig.maxOutputTokens).toBe(2048)
+    const ollama = JSON.parse(
+      buildChatRequest({
+        provider: provider({ kind: 'ollama', baseUrl: 'http://127.0.0.1:11434' }),
+        apiKey: null,
+        messages,
+        reasoningEffort: 'medium'
+      }).body ?? '{}'
+    )
+    expect(ollama.options).toEqual({ temperature: 0.3, num_predict: 2048 })
+    expect(ollama.stream).toBe(true)
+  })
+})

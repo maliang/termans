@@ -14,6 +14,13 @@
  * | 停止标记 | `[DONE]` | `message_stop` | 流自然结束 | `done: true` |
  */
 import type { AiMessage, AiProvider, AiUsage } from '@shared/models/ai'
+import {
+  ANTHROPIC_MIN_MAX_TOKENS,
+  ANTHROPIC_THINKING_BUDGET,
+  isGeminiEndpoint,
+  resolveReasoningMode,
+  type ReasoningEffort
+} from '@shared'
 import { parseJsonPayload, isDoneSentinel, SseDecoder, NdjsonDecoder, type StreamChunk, type StreamDecoder } from './stream'
 
 export type StreamFormat = 'sse-openai' | 'sse-anthropic' | 'sse-gemini' | 'ndjson-ollama'
@@ -33,6 +40,12 @@ export interface AdapterInput {
   extraHeaders?: Record<string, string>
   /** 已由主进程组装好的消息（含 system 提示与终端上下文） */
   messages: AiMessage[]
+  /**
+   * 全局默认思考强度（settings.ai.reasoningEffort）。
+   * 缺省 / null = 不发任何推理参数，行为与本功能上线前逐字一致。
+   * 「该协议发什么」由 @shared/reasoning 的 resolveReasoningMode 决定，本文件不持有第二份映射表。
+   */
+  reasoningEffort?: ReasoningEffort | null
 }
 
 export interface InterpretedChunk {
@@ -47,7 +60,6 @@ export interface InterpretedChunk {
 }
 
 const ANTHROPIC_VERSION = '2023-06-01'
-const GEMINI_HOST = 'generativelanguage.googleapis.com'
 
 /* ------------------------------ URL 归一化 ------------------------------ */
 
@@ -112,7 +124,6 @@ export function ollamaUrl(baseUrl: string, suffix: '/api/chat' | '/api/tags'): s
 /* ------------------------------ 格式判定 ------------------------------ */
 
 export function resolveStreamFormat(provider: Pick<AiProvider, 'kind' | 'baseUrl'>): StreamFormat {
-  const host = safeHost(provider.baseUrl)
   const path = safePath(provider.baseUrl)
   switch (provider.kind) {
     case 'anthropic':
@@ -121,8 +132,10 @@ export function resolveStreamFormat(provider: Pick<AiProvider, 'kind' | 'baseUrl
       // 显式用 Ollama 的 OpenAI 兼容端点（base 以 /v1 结尾）时走 OpenAI 格式
       return hasVersionSegment(path) ? 'sse-openai' : 'ndjson-ollama'
     case 'openai-compatible':
-      // Gemini 的 OpenAI 兼容端点带 /openai 后缀，仍按 OpenAI 处理
-      if (host === GEMINI_HOST && !/\/openai$/i.test(path)) return 'sse-gemini'
+      // Gemini 的 OpenAI 兼容端点带 /openai 后缀，仍按 OpenAI 处理。
+      // 判定复用 @shared/reasoning 的 isGeminiEndpoint：「要不要发 thinkingConfig」与
+      // 「按什么格式解析流」必须是同一个事实，本文件不再持有第二份主机名/路径判定。
+      if (isGeminiEndpoint(provider.baseUrl)) return 'sse-gemini'
       return 'sse-openai'
     case 'openai':
     default:
@@ -210,6 +223,9 @@ function chatUrl(provider: AiProvider): string {
 
 function buildBody(input: AdapterInput, format: StreamFormat): Record<string, unknown> {
   const { provider, messages } = input
+  // 三档思考强度的「发什么」只由 @shared/reasoning 判定；本文件不再写第二份数字/白名单。
+  const reasoning = resolveReasoningMode({ kind: provider.kind, baseUrl: provider.baseUrl })
+  const level = input.reasoningEffort ?? null
   switch (format) {
     case 'sse-anthropic': {
       const system = messages
@@ -227,6 +243,16 @@ function buildBody(input: AdapterInput, format: StreamFormat): Record<string, un
         messages: turns
       }
       if (system) body.system = system
+      if (level && reasoning.mode === 'anthropic-thinking') {
+        // AC-7 的两条硬约束：
+        // 1) budget_tokens 必须 < max_tokens。默认预设 maxTokens 只有 2048，而「高」要 16384，
+        //    所以只对**这一次请求**抬到「预算 + 1024」的下限，绝不写回配置（文案会明说不修改保存值）。
+        // 2) 开启 thinking 时 temperature 只接受 1 —— 直接不发这个键（省略即 1），
+        //    而不是把用户保存的 0.3 偷偷改成 1 发出去（那是另一种静默篡改）。
+        body.thinking = { type: 'enabled', budget_tokens: ANTHROPIC_THINKING_BUDGET[level] }
+        body.max_tokens = Math.max(provider.maxTokens, ANTHROPIC_MIN_MAX_TOKENS[level])
+        delete body.temperature
+      }
       return body
     }
     case 'sse-gemini': {
@@ -237,14 +263,20 @@ function buildBody(input: AdapterInput, format: StreamFormat): Record<string, un
       const contents = messages
         .filter((m) => m.role !== 'system')
         .map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }))
-      const body: Record<string, unknown> = {
-        contents,
-        generationConfig: { temperature: provider.temperature, maxOutputTokens: provider.maxTokens }
+      const generationConfig: Record<string, unknown> = {
+        temperature: provider.temperature,
+        maxOutputTokens: provider.maxTokens
       }
+      // Gemini 的 thinkingBudget 与 Anthropic 的预算同值（设计表 §2.2），复用同一张预算表避免第二份数字。
+      if (level && reasoning.mode === 'gemini-budget') {
+        generationConfig.thinkingConfig = { thinkingBudget: ANTHROPIC_THINKING_BUDGET[level] }
+      }
+      const body: Record<string, unknown> = { contents, generationConfig }
       if (system) body.systemInstruction = { parts: [{ text: system }] }
       return body
     }
     case 'ndjson-ollama':
+      // Ollama 协议没有等价参数：一个推理键都不加（reasoning.mode === 'none'）。
       return {
         model: provider.model,
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
@@ -261,6 +293,9 @@ function buildBody(input: AdapterInput, format: StreamFormat): Record<string, un
         max_tokens: provider.maxTokens
       }
       if (supportsStreamOptions(provider)) body.stream_options = { include_usage: true }
+      // 只有 OpenAI 官方（及白名单里的兼容端点）认 reasoning_effort；其余兼容端点宁可明确不发，
+      // 也不猜一个字段名让供应商静默 400。
+      if (level && reasoning.mode === 'openai-effort') body.reasoning_effort = level
       return body
     }
   }
