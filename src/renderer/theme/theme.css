@@ -13,6 +13,13 @@
   position: fixed;
   inset: 0;
   z-index: 40;
+  /*
+   * 页签条（`.ts-tabstrip`）整块是 `-webkit-app-region: drag`，落在拖拽区里的鼠标事件会被
+   * 窗口服务器当成「拖窗口」吃掉，根本到不了 DOM。关闭页签的二次确认弹窗原先渲染在页签条
+   * 内部，于是真机上按钮「点了没反应」——而 Playwright 的合成点击绕过 app-region，e2e 一直是绿的。
+   * 弹窗自己声明 no-drag，等于在拖拽区里挖一个可点的洞；CloseTabDialog 另外改成了 portal 到 body。
+   */
+  -webkit-app-region: no-drag;
   display: flex;
   align-items: center;
   justify-content: center;

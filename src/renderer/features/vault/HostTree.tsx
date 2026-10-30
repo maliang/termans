@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FileInput, Folder, FolderPlus, Pencil, Plus, Server } from 'lucide-react'
+import { FileInput, Folder, FolderPlus, Pencil, Plus, Server, Trash2 } from 'lucide-react'
 import type { GroupRecord } from '@shared'
 import type { HostView, LibraryView } from './api'
 
@@ -18,6 +18,15 @@ interface HostTreeProps {
   onCreate: () => void
   onCreateGroup: () => void
   onImportSshConfig: () => void
+  /**
+   * 分组改名。`groupId === null` 表示给「未分组」这一栏改显示名（它是虚拟分组，
+   * 没有自己的记录，只影响显示）。返回 false 表示失败，编辑态保留让用户改。
+   */
+  onRenameGroup?: (groupId: string | null, name: string) => Promise<boolean>
+  /** 删除分组（真实分组才给按钮；主机不会跟着删，会回到「未分组」） */
+  onDeleteGroup?: (groupId: string) => void
+  /** 「未分组」的显示名；null/未传用 i18n 默认文案 */
+  ungroupedLabel?: string | null
 }
 
 interface TreeGroup {
@@ -64,10 +73,36 @@ export function HostTree({
   onConnect,
   onCreate,
   onCreateGroup,
-  onImportSshConfig
+  onImportSshConfig,
+  onRenameGroup,
+  onDeleteGroup,
+  ungroupedLabel
 }: HostTreeProps): JSX.Element {
   const { t } = useTranslation('vaultsync')
   const tree = useMemo(() => buildGroups({ ...library, groups }), [library, groups])
+  /**
+   * 正在改名的分组：`null` = 没在改名；`'ungrouped'` = 未分组那一栏；其余是 groupId。
+   * 用字符串而不是 GroupRecord，因为「未分组」没有记录。
+   */
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+
+  function startRename(key: string, current: string): void {
+    if (!onRenameGroup) return
+    setRenaming(key)
+    setDraft(current)
+  }
+
+  async function commitRename(groupId: string | null): Promise<void> {
+    if (renaming === null || !onRenameGroup) return
+    const name = draft.trim()
+    if (name.length === 0) {
+      setRenaming(null)
+      return
+    }
+    const ok = await onRenameGroup(groupId, name)
+    if (ok) setRenaming(null)
+  }
 
   if (library.hosts.length === 0) {
     return (
@@ -102,10 +137,60 @@ export function HostTree({
         const key = node.group?.id ?? 'ungrouped'
         return (
           <div key={key} className="ts-vault__group">
-            <div className="ts-vault__group-title">
+            <div className={`ts-vault__group-title${renaming === key ? ' ts-vault__group-title--editing' : ''}`}>
               <Folder size={13} aria-hidden="true" />
-              <span className="ts-vault__group-name">{node.group?.name ?? t('hosts.groupUntitled')}</span>
+              {renaming === key ? (
+                <input
+                  autoFocus
+                  className="ts-input ts-vault__group-input"
+                  value={draft}
+                  aria-label={t('hosts.renameGroup')}
+                  data-testid={`group-rename-input-${key}`}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onBlur={() => void commitRename(node.group?.id ?? null)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void commitRename(node.group?.id ?? null)
+                    }
+                    if (event.key === 'Escape') {
+                      event.preventDefault()
+                      setRenaming(null)
+                    }
+                  }}
+                />
+              ) : (
+                <span className="ts-vault__group-name">{node.group?.name ?? ungroupedLabel ?? t('hosts.groupUntitled')}</span>
+              )}
               <span className="ts-vault__count">{node.hosts.length}</span>
+              {/* 分组操作（t52）：改名对「未分组」也开放（只改显示名）；删除只给真实分组，
+                  主机不会跟着删，回到未分组。默认隐藏，hover/键盘聚焦才出现，不抢主机的视觉。 */}
+              {onRenameGroup ? (
+                <span className="ts-vault__group-actions">
+                  <button
+                    type="button"
+                    className="ts-icon-btn ts-vault__group-action"
+                    title={`${t('hosts.renameGroup')}：${node.group?.name ?? ungroupedLabel ?? t('hosts.groupUntitled')}`}
+                    aria-label={`${t('hosts.renameGroup')}：${node.group?.name ?? ungroupedLabel ?? t('hosts.groupUntitled')}`}
+                    data-testid={`group-rename-${key}`}
+                    onClick={() => startRename(key, node.group?.name ?? ungroupedLabel ?? t('hosts.groupUntitled'))}
+                  >
+                    <Pencil size={12} aria-hidden="true" />
+                  </button>
+                  {node.group !== null && onDeleteGroup ? (
+                    <button
+                      type="button"
+                      className="ts-icon-btn ts-vault__group-action ts-vault__group-action--danger"
+                      title={`${t('hosts.deleteGroup')}：${node.group.name}`}
+                      aria-label={`${t('hosts.deleteGroup')}：${node.group.name}`}
+                      data-testid={`group-delete-${key}`}
+                      onClick={() => onDeleteGroup(node.group!.id)}
+                    >
+                      <Trash2 size={12} aria-hidden="true" />
+                    </button>
+                  ) : null}
+                </span>
+              ) : null}
             </div>
             <ul className="ts-vault__hosts" role="list">
               {node.hosts.map((host) => (

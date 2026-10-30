@@ -76,7 +76,13 @@ export const uiSettingsSchema = z.object({
   aiPanelVisible: z.boolean(),
   showHostTree: z.boolean(),
   /** 关闭有活动连接的页签时二次确认 */
-  confirmOnCloseTab: z.boolean()
+  confirmOnCloseTab: z.boolean(),
+  /**
+   * 「未分组」这一栏的显示名。null = 用 i18n 的默认文案。
+   * 「未分组」是虚拟分组（= `groupId === null` 的主机），没有自己的记录，
+   * 所以改名只影响显示，不写进主机库、也不影响同步语义。
+   */
+  ungroupedLabel: z.string().trim().min(1).max(40).nullable().default(null)
 })
 export type UiSettings = z.infer<typeof uiSettingsSchema>
 
@@ -152,7 +158,8 @@ export const DEFAULT_SETTINGS: Settings = {
     aiPanelWidth: 360,
     aiPanelVisible: false,
     showHostTree: true,
-    confirmOnCloseTab: true
+    confirmOnCloseTab: true,
+    ungroupedLabel: null
   }
 }
 

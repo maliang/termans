@@ -121,3 +121,24 @@ DOM 级对比度全量扫描（逐元素取 computed `color` 与其最近不透�
 回归守卫：`src/renderer/theme/contrast.ts` 的配对从 9 组扩到 12 组（muted 从 1 对扩成 app/surface/elevated 3 对、
 新增 button-hover 对，全部 `min: 4.5`），由 `tests/contract/theme-contrast.test.ts` 逐主题断言；
 改后证据图：`after-warn-dark.png` / `after-warn-light.png`（弱口令警告条，1320×860 @2x）。
+
+## 2026-10-30 拖拽区（`-webkit-app-region`）吃掉点击
+
+**现象**：关闭页签的二次确认弹窗，点「取消」「仍然关闭」都没反应（真机），e2e 全绿。
+
+**根因**：`CloseTabDialog` 由页签条渲染，而页签条 `<header class="ts-tabstrip">` 是窗口标题栏
+（`base.css` 里 `-webkit-app-region: drag`）。落在拖拽区里的鼠标按下事件会被窗口服务器当成
+「拖窗口」处理，事件根本到不了 DOM。Playwright 的合成点击不经过 AppKit 的拖拽区判定，所以
+`e2e/ssh-terminal.spec.ts` 里 `.click()` 一直是绿的——这是「e2e 绿但真机坏」的典型形态。
+
+**修法**（双层，缺一不可）：
+1. `CloseTabDialog` 改为 `createPortal(dialog, document.body)`，彻底离开拖拽区；
+2. `.ts-dialog` 显式 `-webkit-app-region: no-drag`——今后任何弹窗即便被渲染进标题栏也点得动。
+
+**回归守卫**：`e2e/ssh-terminal.spec.ts` 在关闭弹窗处断言「弹窗祖先链上没有 `drag`」+「已 portal 到 body」，
+改回内联渲染立刻变红。同理提醒：在 `.ts-tabstrip` 内新增任何可交互元素，都要顺手写 `no-drag`
+（`NewTabPicker` 早就这么做了，弹窗漏了）。
+
+**验证边界（照实写）**：本机 `osascript`/`CGEventPost` 没有辅助功能权限（`-25211`），做不了真正的 OS 级点击；
+`webContents.sendInputEvent` 注入的是 RenderWidgetHost 一层的事件、不经过拖拽区命中判定，因此无法
+用它证明「拖拽区会吃掉点击」。当前守住的是「结构上不在拖拽区」+「真实输入事件能点动」两件事。

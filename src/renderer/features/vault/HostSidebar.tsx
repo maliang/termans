@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useShellStore } from '@renderer/app/store'
+import { call } from '@renderer/platform/ipc'
 import { openSettingsDialog } from '@renderer/theme/settings-dialog'
 import { FileInput, GitBranch, KeyRound, Lock, Plus, RefreshCw, Search, ShieldCheck, X } from 'lucide-react'
 import * as api from './api'
@@ -52,6 +54,10 @@ export function HostSidebar({ onConnect }: HostSidebarProps = {}): JSX.Element {
   const [creating, setCreating] = useState(false)
   const [creatingGroup, setCreatingGroup] = useState(false)
   const [groupName, setGroupName] = useState('')
+  /** 等待二次确认的待删分组（真删不可撤销，主机不跟着删但会掉回「未分组」） */
+  const [pendingDeleteGroup, setPendingDeleteGroup] = useState<string | null>(null)
+  /** 「未分组」的显示名（t52）：存 settings.ui.ungroupedLabel，null 时用 i18n 文案 */
+  const ungroupedLabel = useShellStore((state) => state.settings.ui.ungroupedLabel)
   const [keyTarget, setKeyTarget] = useState<HostView | null>(null)
 
   const unlocked = status?.state === 'unlocked'
@@ -88,6 +94,37 @@ export function HostSidebar({ onConnect }: HostSidebarProps = {}): JSX.Element {
       setCreatingGroup(false)
       await refresh()
     }
+  }
+
+  /**
+   * 分组改名（t52）。`groupId === null` = 给「未分组」改显示名：它是虚拟分组（`groupId === null`
+   * 的主机），没有自己的记录，所以只写设置里的显示名，不碰主机库、不影响同步。
+   */
+  async function renameGroup(groupId: string | null, name: string): Promise<boolean> {
+    if (groupId === null) {
+      const done = await run(async () => {
+        await call('settings:update', { ui: { ungroupedLabel: name } })
+        return true
+      })
+      return done === true
+    }
+    const group = library?.groups.find((candidate) => candidate.id === groupId)
+    if (group === undefined) return false
+    const updated = await run(async () =>
+      api.updateGroup(groupId, { name, parentId: group.parentId, color: group.color })
+    )
+    if (updated === null) return false
+    await refresh()
+    return true
+  }
+
+  async function deleteGroup(groupId: string): Promise<void> {
+    const done = await run(async () => {
+      await api.deleteGroup(groupId)
+      return true
+    })
+    setPendingDeleteGroup(null)
+    if (done === true) await refresh()
   }
 
   async function importSshConfig(): Promise<void> {
@@ -189,15 +226,52 @@ export function HostSidebar({ onConnect }: HostSidebarProps = {}): JSX.Element {
                 value={groupName}
                 placeholder={t('hosts.newGroup')}
                 aria-label={t('hosts.newGroup')}
+                data-testid="group-new-input"
                 onChange={(event) => setGroupName(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') void createGroup()
                   if (event.key === 'Escape') setCreatingGroup(false)
                 }}
               />
-              <button type="button" className="ts-btn ts-btn--primary" onClick={() => void createGroup()} disabled={busy}>
+              <button
+                type="button"
+                className="ts-btn ts-btn--primary"
+                onClick={() => void createGroup()}
+                disabled={busy}
+                data-testid="group-new-save"
+              >
                 {t('editor.save')}
               </button>
+            </div>
+          ) : null}
+
+          {pendingDeleteGroup !== null ? (
+            <div className="ts-vault__delete-confirm" data-testid="group-delete-confirm">
+              <p className="ts-vault__delete-confirm-text">
+                {t('hosts.deleteGroupConfirm', {
+                  name: library?.groups.find((group) => group.id === pendingDeleteGroup)?.name ?? '',
+                  count: library?.hosts.filter((host) => host.groupId === pendingDeleteGroup).length ?? 0
+                })}
+              </p>
+              <div className="ts-vault__delete-confirm-actions">
+                <button
+                  type="button"
+                  className="ts-btn"
+                  data-testid="group-delete-cancel"
+                  onClick={() => setPendingDeleteGroup(null)}
+                >
+                  {t('hosts.groupDeleteCancel')}
+                </button>
+                <button
+                  type="button"
+                  className="ts-btn ts-btn--danger"
+                  data-testid="group-delete-confirm-ok"
+                  onClick={() => void deleteGroup(pendingDeleteGroup)}
+                  disabled={busy}
+                >
+                  {t('hosts.deleteGroup')}
+                </button>
+              </div>
             </div>
           ) : null}
 
@@ -214,6 +288,9 @@ export function HostSidebar({ onConnect }: HostSidebarProps = {}): JSX.Element {
                 onCreate={() => setCreating(true)}
                 onCreateGroup={() => setCreatingGroup(true)}
                 onImportSshConfig={() => void importSshConfig()}
+                onRenameGroup={renameGroup}
+                onDeleteGroup={setPendingDeleteGroup}
+                ungroupedLabel={ungroupedLabel}
                 {...(onConnect === undefined ? {} : { onConnect })}
               />
             )}

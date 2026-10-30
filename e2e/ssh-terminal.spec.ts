@@ -136,6 +136,24 @@ test('多页签：新开第二个页签、切回保留 scrollback、关闭需二
   await page.getByTestId('tab-close-2').click()
   const closeDialog = page.getByTestId('close-tab-dialog')
   await expect(closeDialog).toBeVisible()
+  /*
+   * 回归守卫（t52）：页签条整块是 `-webkit-app-region: drag`（标题栏可拖动），弹窗若留在里面，
+   * 真机上按钮「点了没反应」——事件被窗口服务器当成拖窗口吃掉，而 Playwright 的合成点击
+   * 绕过 app-region，所以只靠下面那些 .click() 永远看不出问题。
+   * 这里断言弹窗已 portal 到 body，且祖先链上没有拖拽区。改回内联渲染会立刻变红。
+   */
+  const dialogPlacement = await page.evaluate(() => {
+    const panel = document.querySelector('[data-testid="close-tab-dialog"]')
+    let node: Element | null = panel?.parentElement ?? null
+    let inDragRegion = false
+    while (node !== null) {
+      if (getComputedStyle(node).getPropertyValue('-webkit-app-region').trim() === 'drag') inDragRegion = true
+      node = node.parentElement
+    }
+    return { inBody: panel?.closest('.ts-dialog')?.parentElement === document.body, inDragRegion }
+  })
+  expect(dialogPlacement.inDragRegion, '弹窗不许落在窗口拖拽区里').toBe(false)
+  expect(dialogPlacement.inBody, '弹窗要 portal 到 body，不要留在页签条内部').toBe(true)
   await page.getByTestId('close-tab-cancel').click()
   await expect(closeDialog).toBeHidden()
   await expect(page.getByTestId('tab-2')).toBeVisible()

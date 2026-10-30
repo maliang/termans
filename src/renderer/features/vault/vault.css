@@ -347,18 +347,81 @@
 }
 
 .ts-vault__row--tight {
-  gap: 4px;
+  gap: var(--ts-space-2);
+  flex-wrap: nowrap;
 }
 
+/*
+ * 新建分组那一行：输入框与「保存」按钮必须同高，否则一眼就像没对齐（t52 用户反馈）。
+ * 高度统一吃 `--ts-control-h-sm`（= .ts-btn 的高度），输入框用 kit 的 .ts-input 语义，
+ * 但这里保留自己的 border/background 覆盖，避免侧栏里出现两种底色。
+ */
 .ts-vault__row--tight input {
   flex: 1;
   min-width: 0;
-  padding: 4px 8px;
+  height: var(--ts-control-h-sm);
+  padding: 0 var(--ts-space-2);
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-sm);
   background: var(--ts-bg-app);
   color: var(--ts-text-primary);
   font: inherit;
+}
+
+/* 分组改名：输入框吃掉分组名那一列，按钮仍在右侧 */
+.ts-vault__group-input {
+  flex: 1;
+  min-width: 0;
+  height: var(--ts-control-h-sm);
+  padding: 0 var(--ts-space-2);
+}
+
+/* 分组操作按钮：平时隐形，hover / 键盘聚焦 / 改名中才出现，不跟主机行抢注意力 */
+.ts-vault__group-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0;
+}
+
+.ts-vault__group-title:hover .ts-vault__group-actions,
+.ts-vault__group-title:focus-within .ts-vault__group-actions,
+.ts-vault__group-title--editing .ts-vault__group-actions {
+  opacity: 1;
+}
+
+.ts-vault__group-action {
+  width: 20px;
+  height: 20px;
+}
+
+.ts-vault__group-action--danger:hover:not(:disabled) {
+  color: var(--ts-danger);
+}
+
+/* 删除分组的二次确认：行内小面板，不用模态框（改动局部、不需要打断视线） */
+.ts-vault__delete-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ts-space-1);
+  padding: var(--ts-space-2);
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-elevated);
+}
+
+.ts-vault__delete-confirm-text {
+  margin: 0;
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-sm);
+  line-height: 1.45;
+}
+
+.ts-vault__delete-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ts-space-2);
 }
 
 .ts-vault__check {

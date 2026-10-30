@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { TerminalTab } from './tab-store'
 
@@ -8,7 +9,11 @@ import type { TerminalTab } from './tab-store'
  * `base.css` 里的 `.ts-confirm` 是**行内**确认条（危险动作的小红框），不是模态框，
  * 早先我把它当模态框用过，两套同名规则叠在一起会在视口四周描出红边（已改掉）。
  *
- * 位置：页签条内部直接渲染，不依赖 app 的门户组件——页签条要能独立接进任何布局。
+ * 位置：**portal 到 document.body**，而不是留在页签条内部。页签条整块是
+ * `-webkit-app-region: drag`（标题栏可拖动），留在里面的弹窗会落进拖拽区：真机上按钮
+ * 点了没反应（事件被窗口服务器当拖窗口吃掉），而 Playwright 的合成点击绕过 app-region，
+ * e2e 一直绿。portal 出去 + `.ts-dialog` 自带 `no-drag`，双层兜住这类「只在真机上坏」的问题。
+ * 页签条依旧不依赖 app 的门户组件：portal 的目标就是 document.body。
  */
 
 export interface CloseTabDialogProps {
@@ -25,7 +30,7 @@ export function CloseTabDialog({ tab, onConfirm, onCancel }: CloseTabDialogProps
    * t36 起用另一条 key（只有一个 {{title}} 占位）说同一件事。
    */
   const sameHost = tab.hostLabel !== null && tab.hostLabel === tab.title
-  return (
+  const dialog = (
     <div className="ts-dialog ts-tab-modal" role="presentation" onMouseDown={onCancel}>
       <div
         className="ts-dialog__panel ts-dialog__panel--sm"
@@ -81,4 +86,6 @@ export function CloseTabDialog({ tab, onConfirm, onCancel }: CloseTabDialogProps
       </div>
     </div>
   )
+  // 单测里可能没有 document（node 环境），退回直接渲染，避免为了一个 portal 让组件不可测。
+  return typeof document === 'undefined' ? dialog : createPortal(dialog, document.body)
 }
