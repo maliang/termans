@@ -325,6 +325,14 @@ git worktree add /tmp/repro-<hash> <hash>     # 共享树里一个字节都不�
 `TERMANS_E2E=1` + `TERMANS_E2E_USER_DATA`）→ 那条用例的窗口以 `alpha=1.0` 真出现在屏幕中央。**静默这种默认行为
 不能挂在"每个调用方都记得设置"的开关上**；要开可见性就反着来（显式 opt-out）。
 
+**判据要两个字段一起看：`onscreen === true` 且 `alpha > 0` 才算"用户看得见"**。只看 alpha 会误报——
+窗口在 `ready-to-show` 之前、以及 0×0 的辅助窗口，都会以 `alpha=1.0` 出现在列表里但 `onscreen=false`
+（未参与合成，屏幕上没有）。实测全量 30 条 e2e 跑完一遍（221 次采样）：`onscreen=true` 的 302 帧 **alpha 全是 0.0**；
+alpha=1.0 的 9 帧全部 `onscreen=false`。**如果把 alpha 当唯一判据，会得出一句错的"有 8 帧亮着"。**
+
+**Dock 与 Cmd+Tab**：`app.dock.hide()` 之后 `app.dock.isVisible()` 为 false，且 Launch Services 里
+`lsappinfo find name=Termans` 查不到该应用（accessory 策略）——所以它既不闪 Dock 图标，也不会出现在 ⌘Tab 列表里。
+
 窗口服务器级取证（比看 Electron 侧 `getOpacity()` 更硬）：`CGWindowListCopyWindowInfo` 读自家窗口的
 `kCGWindowAlpha` 与 `kCGWindowBounds`。修后实测 `alpha=0.0`、`1320x860@-1280,33`（已出屏幕）、同批 11 个样本
 前台应用全是用户原本的 App；修前同法实测 `alpha=1.0`、`@203,65`（屏幕正中）。`onscreen=true` 只代表它还在窗口列表里。
