@@ -20,6 +20,15 @@ import { ErrorToast } from './layout/ErrorToast'
 import { HostKeyPrompt } from './layout/HostKeyPrompt'
 import { HostLibraryPane } from './layout/HostLibraryPane'
 import { PanelSplitter } from './layout/PanelSplitter'
+
+/* 面板宽度的边界（t56）：下限对齐主进程 `uiSettingsSchema`，上限受「工作区最小宽」约束 */
+const SIDEBAR_MIN = 220
+const SIDEBAR_MAX = 560
+const AI_PANEL_MIN = 320
+const AI_PANEL_MAX = 720
+/** 工作区（终端 + 页签区）在任何窗口尺寸下都要保留的最小宽度，低于它终端就没有可用列数了。
+ *  取 400：窗口最小 960 − 侧栏 220 − AI 320 = 420，再留 20px 余量给栅格列与边框。 */
+const WORKSPACE_MIN = 400
 import { StatusBar } from './layout/StatusBar'
 import {
   activeTerminalSnapshot,
@@ -70,6 +79,46 @@ export function App(): JSX.Element {
   useEffect(() => setSidebarWidth(uiSettings.sidebarWidth), [uiSettings.sidebarWidth])
   useEffect(() => setAiPanelWidth(uiSettings.aiPanelWidth), [uiSettings.aiPanelWidth])
 
+  /*
+   * 面板宽度上下限（t56）。
+   *
+   * 下限（可读性/美观）：侧栏 200、AI 面板 280 —— 实测 180 时侧栏空态文案折成三行、
+   * 240 时 AI 面板的说明文字被面板边缘切掉，所以画面可读的下限比 schema 的存储下限（180/240）
+   * 更高；两者之差由下面的 clamp effect 在加载时抹平。
+   * 上限（可用性）：不只看 schema 的硬上限 560/720，还要**给工作区留够** ——
+   * 实测两个面板都拖到硬上限时工作区只剩 38px，终端等于被挤没了（主人 2026-10-30 提的就是这件事）。
+   * 所以动态上限 = min(硬上限, 窗口宽 - 另一侧面板宽 - 工作区最小宽 480)。
+   */
+  // persistUi 定义在本文件更后面，用 ref 转发：否则「窗口变窄就收回宽度」的 effect 会落在它的声明之前（TDZ）
+  const persistUiRef = useRef<((patch: Partial<typeof uiSettings>) => Promise<void>) | null>(null)
+
+  const [windowWidth, setWindowWidth] = useState(() => (typeof window === 'undefined' ? 1320 : window.innerWidth))
+  useEffect(() => {
+    const onResize = (): void => setWindowWidth(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  const sidebarMax = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, windowWidth - (aiVisibleForLayout ? aiPanelWidth : 0) - WORKSPACE_MIN))
+  const aiPanelMax = Math.max(AI_PANEL_MIN, Math.min(AI_PANEL_MAX, windowWidth - (sidebarVisible ? sidebarWidth : 0) - WORKSPACE_MIN))
+
+  // 窗口变小后，上一次落盘的宽度可能已经不合法（两个面板合计超宽）——按当前窗口把宽度收回来并落盘，
+  // 否则用户下次启动看到的还是「工作区被挤没」的状态。
+  useEffect(() => {
+    // 两个方向都收：窗口变窄时收回上限；旧版本存下的宽度可能低于新下限（schema 的 min 是 180/240，
+    // 界面的可读下限提高到了 200/280），加载后同样拉回来并落盘。
+    const nextSidebar = Math.min(sidebarMax, Math.max(SIDEBAR_MIN, sidebarWidth))
+    if (nextSidebar !== sidebarWidth) {
+      setSidebarWidth(nextSidebar)
+      void persistUiRef.current?.({ sidebarWidth: nextSidebar })
+    }
+    const nextAi = Math.min(aiPanelMax, Math.max(AI_PANEL_MIN, aiPanelWidth))
+    if (nextAi !== aiPanelWidth) {
+      setAiPanelWidth(nextAi)
+      void persistUiRef.current?.({ aiPanelWidth: nextAi })
+    }
+  }, [sidebarMax, aiPanelMax, sidebarWidth, aiPanelWidth])
+
   /** 只提交 ui 里的一个字段；主进程会广播 settings:changed，这里再写一次让界面立刻反映 */
   const persistUi = useCallback(async (patch: Partial<typeof uiSettings>): Promise<void> => {
     try {
@@ -83,6 +132,9 @@ export function App(): JSX.Element {
       useShellStore.getState().setLastError(describeError(error))
     }
   }, [])
+  // 把 persistUi 挂到上面那个 ref 上（见 `persistUiRef` 的声明处）
+  persistUiRef.current = persistUi
+
   // AI 面板要据此决定「能不能带上下文发送」：必须随页签/会话变化重渲染
   const hasSession = useTabStore((state) =>
     state.tabs.some(
@@ -169,8 +221,8 @@ export function App(): JSX.Element {
           <PanelSplitter
             side="left"
             value={sidebarWidth}
-            min={180}
-            max={560}
+            min={SIDEBAR_MIN}
+            max={sidebarMax}
             label="调整主机库宽度"
             testId="sidebar-splitter"
             onLive={setSidebarWidth}
@@ -194,8 +246,8 @@ export function App(): JSX.Element {
           <PanelSplitter
             side="right"
             value={aiPanelWidth}
-            min={240}
-            max={720}
+            min={AI_PANEL_MIN}
+            max={aiPanelMax}
             label="调整 AI 面板宽度"
             testId="ai-splitter"
             onLive={setAiPanelWidth}

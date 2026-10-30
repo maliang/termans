@@ -574,7 +574,11 @@
 }
 
 .ts-ai-empty .ts-empty__body {
-  max-width: 30em;
+  /* `min(30em, 100%)` 而不是只写 30em：面板被拖到最小宽（280px）时，30em ≈ 420px 比容器还宽，
+     文字会横向溢出、被父级裁掉一个字符（实测「任何内容」变成「何内容」，t56）。
+     同时允许长词/URL 断行，避免横向滚动条。 */
+  max-width: min(30em, 100%);
+  overflow-wrap: anywhere;
   line-height: 1.55;
   color: var(--ts-text-secondary);
 }
