@@ -98,6 +98,11 @@ describe('供应商 → 思考强度协议', () => {
       expected: { mode: 'none', reason: 'ollama' }
     },
     {
+      title: 'kind 声明成 openai 但地址是本机 11434 时也不发（端口比 kind 硬）',
+      input: { kind: 'openai', baseUrl: 'http://localhost:11434/v1' },
+      expected: { mode: 'none', reason: 'ollama' }
+    },
+    {
       title: '半截地址不抛错（用户还在输入）',
       input: { kind: 'openai-compatible', baseUrl: 'api.example.com' },
       expected: { mode: 'none', reason: 'unknown-endpoint' }

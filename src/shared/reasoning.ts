@@ -112,6 +112,10 @@ export function resolveReasoningMode(input: { kind: AiProviderKind; baseUrl: str
     case 'anthropic':
       return { mode: 'anthropic-thinking', reason: 'anthropic' }
     case 'openai':
+      // kind 声明成 openai、但地址其实是本机 Ollama（11434）时依旧不发：
+      // 端口是比 kind 更硬的事实，发了只会被忽略或返回 400，
+      // 与界面文案「本地与不支持的端点会忽略这一档」保持一致。
+      if (isOllamaEndpoint(input.baseUrl)) return { mode: 'none', reason: 'ollama' }
       return { mode: 'openai-effort', reason: 'openai' }
     case 'ollama':
       return { mode: 'none', reason: 'ollama' }

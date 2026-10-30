@@ -432,10 +432,13 @@ export function ProviderCard({
   return (
     <div
       className={expanded ? 'ts-ai-provider-card is-expanded' : 'ts-ai-provider-card'}
-      data-testid={isNew ? 'ai-provider-card-new' : 'ai-provider-card'}
+      // 卡片根元素必须保留旧 testid `ai-provider-item-<id>`（v1 就有，改名会打断既有用法）；
+      // 计数选择器 `ai-provider-card` 下移到摘要行：同一张卡挂两个 testid，既能按 id 精确定位，
+      // 也能按「已保存卡片数」计数，且不必为测试插任何假元素。
+      data-testid={isNew ? 'ai-provider-card-new' : `ai-provider-item-${provider?.id ?? ''}`}
       data-provider-id={provider?.id}
     >
-      <div className="ts-ai-provider-card__summary">
+      <div className="ts-ai-provider-card__summary" data-testid={isNew ? undefined : 'ai-provider-card'}>
         <button
           type="button"
           className="ts-ai-provider-card__main"

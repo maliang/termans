@@ -6,9 +6,12 @@ import { join, resolve } from 'node:path'
  * e2e 选择器必须能命中真实存在的东西（QA D-2 的类级守卫）。
  *
  * 事故回顾：`e2e/ai-settings-models.spec.ts` 曾用
- * `[data-testid^="ai-provider-item-"]` 计数为 0 来证明「草稿读模型不落盘」，
- * 而卡片 testid 其实是 `ai-provider-card` / `ai-provider-card-new` ——
- * 那个前缀在整份 UI 里**永不存在**，计数恒为 0，断言恒绿，等于没守。
+ * `[data-testid^="ai-provider-item-"]` 计数来证明「草稿读模型不落盘」，
+ * 而当时卡片 testid 被改成了 `ai-provider-card` / `ai-provider-card-new`，
+ * 旧前缀在整份 UI 里**不存在**，计数恒为 0，断言恒绿，等于没守
+ * （那段历史还让 `ai-provider-item-` 这条既有契约整体消失）。
+ * 现在的口径：卡片根元素保留 `ai-provider-item-<id>`，摘要行挂 `ai-provider-card` 供计数，
+ * 两个 testid 同时存在，谁都不许单方面消失。
  *
  * 这类假绿的共同机制是「选择器指向不存在的 testid」，且失败的表现不是红，而是永远绿。
  * 所以这里对 e2e 里所有**前缀选择器**（`[data-testid^="..."]`）做静态对账：
@@ -69,12 +72,18 @@ describe('e2e 选择器与真实 testid 对账', () => {
     ).toEqual([])
   })
 
-  it('自检：扫到了前缀选择器，且能识别一个虚构前缀（证明本测试不是恒绿）', () => {
+  it('自检：扫到了前缀选择器，且能识别虚构前缀（证明本测试不是恒绿）', () => {
     const selectors = e2ePrefixSelectors()
     // 目前只有一个（`theme-option-`）；若归零说明正则或目录扫描坏了，同样是「恒绿」
     expect(selectors.length).toBeGreaterThan(0)
     const testIds = rendererTestIds()
-    expect(testIds.some((value) => value.includes('ai-provider-item-'))).toBe(false)
+    // 自检必须拿**虚构**前缀做反例。曾经这里写的是 `ai-provider-item-`，
+    // 而它正是历史遗留的真实 testid——一旦卡片改名，这行会把「违约」固化成断言，
+    // 让删掉旧 testid 的改动反而通过（AI 设置页 r2 实测踩过）。
+    expect(testIds.some((value) => value.includes('ai-provider-nope-'))).toBe(false)
+    // 真实存在的前缀必须判 true，否则「扫描到了但认不出」也会恒绿
     expect(testIds.some((value) => value.includes('theme-option-'))).toBe(true)
+    // 旧 testid 体系（ai-provider-item-<id>）是有消费者的既有契约，必须仍在
+    expect(testIds.some((value) => value.includes('ai-provider-item-'))).toBe(true)
   })
 })
