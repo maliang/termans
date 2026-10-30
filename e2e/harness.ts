@@ -90,8 +90,9 @@ function buildEnv(userDataDir: string, extra?: Record<string, string>): Record<s
   env['NODE_ENV'] = 'production'
   env['TERMANS_E2E'] = '1'
   env['TERMANS_E2E_USER_DATA'] = userDataDir
-  // 静默模式：窗口在屏幕外创建、Dock 图标收起，跑测试不在主人眼前弹窗也不抢焦点
-  env['TERMANS_E2E_QUIET'] = process.env['TERMANS_E2E_VISIBLE'] === '1' ? '0' : '1'
+  // 静默模式由主进程按 `TERMANS_E2E` 自动开启（见 src/main/index.ts 的 isE2EQuiet），
+  // 这里只把「我要看窗口」的用户意图透传下去：`TERMANS_E2E_VISIBLE=1 pnpm test:e2e`
+  if (process.env['TERMANS_E2E_VISIBLE'] === '1') env['TERMANS_E2E_VISIBLE'] = '1'
   return env
 }
 

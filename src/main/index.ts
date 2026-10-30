@@ -17,8 +17,16 @@ import type { AppInfo, AppPlatform, MenuCommand } from '@shared'
  */
 
 const isE2E = process.env['TERMANS_E2E'] === '1'
-// e2e 静默模式：窗口创建即放到屏幕外，跑测试不会在用户眼前闪一下（默认开启，TERMANS_E2E_VISIBLE=1 关掉）
-const isE2EQuiet = isE2E && process.env['TERMANS_E2E_QUIET'] === '1'
+/**
+ * e2e 静默模式：窗口全透明 + 移出屏幕 + 收起 Dock，跑测试不会在主人眼前弹窗。
+ *
+ * **判据故意只看 `TERMANS_E2E`**：任何一条 e2e 路径（包括不走 `e2e/harness.ts`、自己
+ * `_electron.launch` 的 `e2e/smoke.spec.ts`）都必须静默。曾经用独立的
+ * `TERMANS_E2E_QUIET` 开关，结果 smoke 那条没设它 → 窗口以 alpha=1.0 真出现在屏幕上
+ * （主人 2026-10-30 反馈「静默的时候还是有界面弹出来」的直接原因）。
+ * 需要看窗口时显式给 `TERMANS_E2E_VISIBLE=1`。
+ */
+const isE2EQuiet = isE2E && process.env['TERMANS_E2E_VISIBLE'] !== '1'
 const rendererDevUrl = process.env['ELECTRON_RENDERER_URL']
 
 let mainWindow: BrowserWindow | null = null

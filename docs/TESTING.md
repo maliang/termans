@@ -317,8 +317,17 @@ git worktree add /tmp/repro-<hash> <hash>     # 共享树里一个字节都不�
 3. `win.setPosition(-4000, -4000)`：锦上添花，让它在 Mission Control / 截图工具里也别落在屏幕上。
 4. `app.dock.hide()`：省掉 Dock 图标闪动。
 
-`TERMANS_E2E_QUIET`（默认由 `e2e/harness.ts` 注入，`TERMANS_E2E_VISIBLE=1` 可关）控制这一组行为；
-真机调试要看得见窗口时再关它。
+**判据只看 `TERMANS_E2E`**（`src/main/index.ts` 的 `const isE2EQuiet = isE2E && process.env['TERMANS_E2E_VISIBLE'] !== '1'`）：
+任何一条 e2e 路径都必须静默，真机调试要看得见窗口时显式给 `TERMANS_E2E_VISIBLE=1`。
+
+这条「判据只看有没有 `TERMANS_E2E`」是被一次漏网逼出来的：早先静默由独立的 `TERMANS_E2E_QUIET` 开关控制，
+只有走 `e2e/harness.ts` 的 9 条 spec 会注入它，而 `e2e/smoke.spec.ts` **自己 `_electron.launch`**（只设
+`TERMANS_E2E=1` + `TERMANS_E2E_USER_DATA`）→ 那条用例的窗口以 `alpha=1.0` 真出现在屏幕中央。**静默这种默认行为
+不能挂在"每个调用方都记得设置"的开关上**；要开可见性就反着来（显式 opt-out）。
+
+窗口服务器级取证（比看 Electron 侧 `getOpacity()` 更硬）：`CGWindowListCopyWindowInfo` 读自家窗口的
+`kCGWindowAlpha` 与 `kCGWindowBounds`。修后实测 `alpha=0.0`、`1320x860@-1280,33`（已出屏幕）、同批 11 个样本
+前台应用全是用户原本的 App；修前同法实测 `alpha=1.0`、`@203,65`（屏幕正中）。`onscreen=true` 只代表它还在窗口列表里。
 
 | 允许 | 禁止 |
 | --- | --- |
@@ -326,9 +335,9 @@ git worktree add /tmp/repro-<hash> <hash>     # 共享树里一个字节都不�
 | `webContents.capturePage()`（应用自己出栅格，零权限） | `screencapture`（要「屏幕录制」权限，本机第一次跑会弹权限框把用例卡住） |
 | `app.dock.hide()`（仅 e2e 分支，省掉 Dock 图标闪动） | `win.focus()` / `win.moveTop()` / `setAlwaysOnTop(true)` |
 
-实现落在 `src/main/index.ts` 的 `const isE2E = process.env.TERMANS_E2E === '1'`（同 `harness.ts` 设的那条）：
-`win.once('ready-to-show', () => (isE2E ? win.showInactive() : win.show()))`。这个开关**只对 e2e 生效**，
-打包产物里那段代码存在但永不触发（用户环境里不存在 `TERMANS_E2E`），人工启动走的仍是 `show()`。
+实现落在 `src/main/index.ts` 的 `win.once('ready-to-show', …)`：`isE2EQuiet` 时依次
+`setOpacity(0)` → `dock.hide()` → `showInactive()` → `setPosition(-4000, -4000)`，否则 `show()`。
+这个开关**只对 e2e 生效**，打包产物里那段代码存在但永不触发（用户环境里不存在 `TERMANS_E2E`），人工启动走的仍是 `show()`。
 
 `app.dock.hide()` 同理，必须严格写在 `if (isE2E)` 里——写漏了装给用户的 App 会从 Dock 里消失。
 
