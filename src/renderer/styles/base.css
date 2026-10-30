@@ -62,7 +62,7 @@ textarea {
   position: relative; /* 折叠后的展开把手（.ts-sidebar-expand）以它为参照 */
   display: grid;
   /* 五列：侧栏 | 分栏条 | 工作区 | 分栏条 | AI 面板（t53 支持拖动改宽）。
-     两条分栏列写成 auto：它们只在 JSX 真的渲染了 `.ts-splitter` 时才占 5px，
+     两条分栏列写成 auto：它们只在 JSX 真的渲染了 `.ts-splitter` 时才占 1px（t55：视觉一条线），
      侧栏折叠 / AI 收起时那两列自然是 0，不需要额外的条件类名。 */
   grid-template-columns: var(--ts-sidebar-width) auto minmax(0, 1fr) auto var(--ts-ai-panel-width);
   grid-template-rows: minmax(0, 1fr) auto;
@@ -804,29 +804,48 @@ textarea {
    面板分栏条与侧栏折叠（t53）
    ========================================================================== */
 
+/*
+ * 分栏拖拽条（t55，主人反馈「拖动条太宽，一条线就行，可拖动状态的颜色再淡一些」）。
+ *
+ * 视觉只有 **1px**：平时就是一条和 `--ts-border` 同色的分隔线，悬停/拖动时这条线淡淡地染上琥珀，
+ * 「能看出变化」就够，不再整块铺色。
+ *
+ * 手感靠伪元素撑出来的**透明抓取带**：`::before` 左右各伸出 4px（视觉上不存在，但指针事件照常命中
+ * 这个元素），所以 9px 宽的抓取区里都能起拖、`setPointerCapture` 也照常生效。
+ * 只缩视觉、不缩命中区——否则 1px 的线要用像素级瞄准才点得到。
+ */
 .ts-splitter {
-  width: 5px;
-  cursor: col-resize;
-  /* 平时完全透明：只在悬停/拖动时亮一条 2px 的线，不干扰界面
-     （拖动条的「可发现性」靠光标形状：进入 5px 区域就变 col-resize） */
-  background: transparent;
+  position: relative;
+  /* 抬高一层：`::before` 的抓取带压在相邻两列上，不抬层的话 DOM 靠后的工作区会在右侧 4px 里抢走命中
+     （实测 elementFromPoint 在右侧 3px 处命中 `.ts-term-empty`） */
+  z-index: 1;
+  width: 1px;
+  padding: 0;
   border: 0;
-  border-radius: 2px;
+  cursor: col-resize;
+  background: var(--ts-border);
   transition: background var(--ts-motion-fast) ease;
   /* 拖动时不要选中旁边文字（否则整屏会变蓝） */
   user-select: none;
   touch-action: none;
 }
 
-.ts-splitter:hover,
-.ts-splitter[data-dragging='true'],
-.ts-splitter:focus-visible {
-  background: color-mix(in srgb, var(--ts-accent) 45%, transparent);
-  outline: none;
+.ts-splitter::before {
+  content: '';
+  position: absolute;
+  inset: 0 -4px;
 }
 
-.ts-splitter[data-dragging='true'] {
-  background: var(--ts-accent);
+.ts-splitter:hover {
+  background: color-mix(in srgb, var(--ts-accent) 18%, var(--ts-border));
+}
+
+/* 拖动中比悬停再亮一点点就够：主人 2026-10-30「颜色可以再淡一些，能看出变化即可」。
+   18% → 30% 的琥珀，落在 1px 的线上是「有反应」而不是「跳出来一根亮条」。 */
+.ts-splitter[data-dragging='true'],
+.ts-splitter:focus-visible {
+  background: color-mix(in srgb, var(--ts-accent) 30%, transparent);
+  outline: none;
 }
 
 /* 折叠态：侧栏整块不挂载，列宽由行内 `--ts-sidebar-width: 0px` 归零；
