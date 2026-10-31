@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RotateCw } from 'lucide-react'
 import { isIpcCallError } from '@shared'
@@ -181,8 +181,18 @@ export function AiSettings(): JSX.Element {
   const canEdit = providersState === 'ready' || providersState === 'locked'
   const hasDraft = expandedId === 'new'
 
+  const globalEffortRef = useRef<HTMLDivElement>(null)
+
+  /** 卡片里「去全局设置」的唯一实现：滚到 A1 并把当前档位的单选项聚焦（跨组件 DOM 查询已移除） */
+  const revealGlobalEffort = useCallback((): void => {
+    const host = globalEffortRef.current
+    if (!host) return
+    host.scrollIntoView({ block: 'center' })
+    host.querySelector<HTMLInputElement>('input[type="radio"]:checked')?.focus()
+  }, [])
+
   return (
-    <section className="ts-settings__section" data-testid="ai-settings">
+    <section className="ts-settings__section ts-ai-settings" data-testid="ai-settings">
       {/* A0 总开关 */}
       <div className="ts-settings__field">
         <label className="ts-settings__checkbox">
@@ -203,8 +213,9 @@ export function AiSettings(): JSX.Element {
         </p>
       </div>
 
-      {/* A1 全局默认思考强度 */}
-      <div className="ts-settings__field">
+      {/* A1 全局默认思考强度。ref 供卡片里的「去全局设置」跳转用：
+          跳转由本组件提供，卡片不再自己去 document 里 querySelector 别人的 DOM。 */}
+      <div className="ts-settings__field" ref={globalEffortRef}>
         <ReasoningEffortControl
           value={effort}
           disabled={saving}
@@ -283,6 +294,7 @@ export function AiSettings(): JSX.Element {
                   onDeleted={(providerId) => void handleDeleted(providerId)}
                   onMakeDefault={makeDefault}
                   onRefresh={() => void refreshProviders()}
+                  onRevealGlobalEffort={revealGlobalEffort}
                 />
               </li>
             ))}

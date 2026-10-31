@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client'
 import '../styles/tokens.css'
 import '../styles/base.css'
 import { App } from './App'
-import { initI18n } from '../i18n'
+import { initI18n, missingKeyReport, type MissingKeyInfo } from '../i18n'
 
 /**
  * 渲染层入口。
@@ -16,6 +16,12 @@ import { initI18n } from '../i18n'
  */
 async function start(): Promise<void> {
   await initI18n()
+  /**
+   * 缺键报告的唯一消费者：e2e（`e2e/theme-locale.spec.ts` 切语言后断言为空）与人工排查。
+   * 只读诊断数据，不含凭据；挂在 window 上是为了让被测进程外的断言够得着。
+   */
+  ;(window as Window & { __termansMissingKeys?: () => readonly MissingKeyInfo[] }).__termansMissingKeys =
+    missingKeyReport
   const container = document.getElementById('root')
   if (!container) throw new Error('Renderer bootstrap failed: #root element not found')
   createRoot(container).render(

@@ -85,4 +85,13 @@ test('切语言：已知标签从中文变英文再切回中文', async () => {
   await page.getByTestId('locale-select').selectOption('zh-CN')
   await page.getByTestId('settings-close').click()
   await expect(heading).toHaveText('主机库', { timeout: 10_000 })
+
+  // 两轮切换后不许出现缺 key（缺 key 时界面会显示裸 key，肉眼才看得出；这里让它直接判红）
+  const missing = await page.evaluate(() => {
+    const read = (window as unknown as { __termansMissingKeys?: () => readonly { namespace: string; key: string }[] })
+      .__termansMissingKeys
+    return read ? read() : null
+  })
+  expect(missing, '渲染层没有暴露 __termansMissingKeys（缺键报告没有消费者）').not.toBeNull()
+  expect(missing, `切换语言后出现缺 key：${JSON.stringify(missing)}`).toEqual([])
 })

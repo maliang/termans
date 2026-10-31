@@ -1118,6 +1118,11 @@
 }
 
 /* A1 三档分段控件 */
+/** 设置 → AI 的内容列上限（AC-2）：不依赖设置弹窗当前多宽，日后放开弹窗宽度也不会把表单拉散 */
+.ts-ai-settings {
+  max-width: 720px;
+}
+
 .ts-ai-effort {
   display: flex;
   flex-direction: column;

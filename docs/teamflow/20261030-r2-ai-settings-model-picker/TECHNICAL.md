@@ -104,7 +104,7 @@ export type AiListModelsResult = z.infer<typeof aiListModelsResultSchema>
 
 ### 2.4 失败明文的截断位置
 
-`src/main/ai/service.ts` 的 `listModels` 出口处对 `failure.message` 做 `slice(0, 300)`（单点，渲染层不再截断）。脱敏仍是 service 既有逻辑（替换本次输入的 key + 正则兜底 `sk-…`/`pk-…`，只留尾 4 位），截断必须**放在脱敏之后**，否则可能把 key 前缀切成半截而绕开正则。
+`src/main/ai/service.ts` 的 `listModels` 出口处对 `failure.message` 做 `slice(0, 300)`（脱敏与截断都不在渲染层重复做；渲染层只保留一处 300 字**兜底**并补省略号，见 `src/renderer/theme/ProviderCard.tsx:151-155`，不改内容、不二次脱敏）。脱敏仍是 service 既有逻辑（替换本次输入的 key + 正则兜底 `sk-…`/`pk-…`，只留尾 4 位），截断必须**放在脱敏之后**，否则可能把 key 前缀切成半截而绕开正则。
 
 ## 3. API 设计（IPC）
 
@@ -158,7 +158,7 @@ export interface ModelComboboxProps {
   options: string[]
   onChange: (value: string) => void
   ariaLabel: string
-  inputTestId?: string          // 默认 'ai-provider-models-combo'
+  inputTestId?: string          // 默认 'ai-provider-model'
   optionTestIdPrefix?: string   // 默认 'ai-model-option-'
   disabled?: boolean
 }

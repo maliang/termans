@@ -47,6 +47,8 @@ export interface ProviderCardProps {
   onMakeDefault: (providerId: string) => void
   /** 清 key / 测试连接之后让父层重拉一次列表（契约外的可选钩子，仅供卡片自用） */
   onRefresh?: () => void
+  /** A1 全局思考强度区块由父层拥有；卡片只发出「请带我去」的意图，不直接查别人的 DOM */
+  onRevealGlobalEffort?: () => void
 }
 
 type Mode = 'catalog' | 'custom'
@@ -164,7 +166,8 @@ export function ProviderCard({
   onSaved,
   onDeleted,
   onMakeDefault,
-  onRefresh
+  onRefresh,
+  onRevealGlobalEffort
 }: ProviderCardProps): JSX.Element {
   const { t } = useTranslation(['settings', 'ai', 'common'])
   const isNew = provider === null
@@ -418,11 +421,8 @@ export function ProviderCard({
   }, [confirmDelete, onDeleted, provider])
 
   const goGlobalEffort = useCallback((): void => {
-    const target = document.querySelector<HTMLElement>('[data-testid="ai-reasoning-effort-global"]')
-    if (!target) return
-    target.scrollIntoView({ block: 'center' })
-    target.querySelector<HTMLButtonElement>('input[type="radio"]:checked')?.focus()
-  }, [])
+    onRevealGlobalEffort?.()
+  }, [onRevealGlobalEffort])
 
   const summaryName = isNew ? t('ai:provider.add') : form.name.trim().length > 0 ? form.name : (provider?.name ?? '')
   const summaryModel = isNew ? t('ai:provider.catalog.pending') : form.model.trim()
