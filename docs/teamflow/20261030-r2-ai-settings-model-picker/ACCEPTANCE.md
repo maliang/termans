@@ -102,3 +102,16 @@
 至此 14 条 AC 全部 PASS，无阻塞项。仍未处理的是上面已登记的 5 条 P3 观察里的其余四条
 （AC-2 未单写 `max-width:720px`、`TECHNICAL.md:107/161` 笔误、`missingKeyReport()` 无消费者、
 `ProviderCard.tsx:421` 跨组件 `document.querySelector` 跳转），它们不影响验收结论。
+
+## 九、P3 观察收口（0.1.1）
+
+主人 2026-11-01 指示「清掉再打一版」，上面 §六 登记的 4 条 P3 观察已全部处理（P3-1 已在 `4a851d7` 处理）：
+
+| 条目 | 处理 | 取证 |
+| --- | --- | --- |
+| AC-2 未单写 `max-width:720px` | `src/renderer/features/ai/ai.css` 新增 `.ts-ai-settings{max-width:720px}`，随 `AiSettings` 根 section 生效 | 内容列上限不再依赖设置弹窗当前宽度 |
+| `TECHNICAL.md` §2.4 与 §5 两处笔误 | 改文档而不是改代码：写明渲染层保留 300 字兜底 + 省略号；`inputTestId` 默认值改为实际的 `ai-provider-model` | 与 `src/renderer/theme/ProviderCard.tsx:151-155`、`ModelCombobox.tsx:44` 一致 |
+| `missingKeyReport()` 无消费者 | 渲染层挂 `window.__termansMissingKeys`，`e2e/theme-locale.spec.ts` 两轮语言切换后断言为空（缺键时界面显示裸 key，肉眼才看得出） | `e2e/theme-locale.spec.ts` 新增断言 |
+| `ProviderCard` 跨组件 `document.querySelector` | 改回调：`AiSettings` 用 `globalEffortRef` 实现 `revealGlobalEffort`，经 `onRevealGlobalEffort` 传给卡片 | `ProviderCard.tsx:420-424` 只发出意图，不再查别人的 DOM |
+
+复验（HEAD `c7de41d`，本机实跑）：`pnpm typecheck` node/web 双遍 exit 0；`npx vitest run` **59 files / 695 passed**；`pnpm build` exit 0；全量 `npx playwright test e2e/ --workers=1` **35 passed (2.5m)**。版本号升至 `0.1.1` 并重新打包安装。
