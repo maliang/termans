@@ -35,7 +35,6 @@ const en = {
   'unlock.recoveryBody': 'This code is shown once. It can decrypt your vault if you forget the passphrase — keep it somewhere safe, never in the repo.',
   'unlock.recoveryDownload': 'Download recovery code',
   'unlock.recoveryDone': 'I have saved it',
-  'unlock.previewMode': 'Continue in preview mode',
   'unlock.lockedBanner': 'Vault is locked',
 
   /* 多库（r3 AC-10..AC-14）：只写库名与时间，**不出现任何路径**（AC-3 的 0 命中） */
@@ -278,7 +277,6 @@ const zhCN: Record<keyof typeof en, string> = {
   'unlock.recoveryBody': '恢复码只显示这一次。忘记口令时它能解开加密包——请存到安全的地方，不要放进仓库。',
   'unlock.recoveryDownload': '下载恢复码',
   'unlock.recoveryDone': '我已经保存好了',
-  'unlock.previewMode': '以预览模式继续',
   'unlock.lockedBanner': '加密包已锁定',
 
   'unlock.library.current': '当前库',

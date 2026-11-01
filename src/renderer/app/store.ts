@@ -29,7 +29,6 @@ export interface ShellState {
   /** 加密包状态；unknown = 还没问到主进程（骨架期模块未接线时也停在这里） */
   vault: VaultState | 'unknown'
   /** 骨架期的本地锁定预览：真实模块接线后由 vault:state-changed 驱动，这一位会被删掉 */
-  previewLocked: boolean
   tabs: ShellTab[]
   activeTabId: string | null
   aiPanelVisible: boolean
@@ -40,7 +39,6 @@ export interface ShellState {
   setAppInfo: (info: AppInfo) => void
   setSettings: (settings: Settings) => void
   setVault: (vault: VaultState | 'unknown') => void
-  setPreviewLocked: (locked: boolean) => void
   setLastError: (message: string | null) => void
   toggleAiPanel: () => void
   openTab: (tab?: Partial<ShellTab>) => void
@@ -61,7 +59,6 @@ export const useShellStore = create<ShellState>((set, get) => ({
   appInfo: null,
   settings: DEFAULT_SETTINGS,
   vault: 'unknown',
-  previewLocked: false,
   tabs: [],
   activeTabId: null,
   aiPanelVisible: DEFAULT_SETTINGS.ui.aiPanelVisible,
@@ -72,7 +69,6 @@ export const useShellStore = create<ShellState>((set, get) => ({
   setAppInfo: (appInfo) => set({ appInfo }),
   setSettings: (settings) => set({ settings, aiPanelVisible: settings.ui.aiPanelVisible }),
   setVault: (vault) => set({ vault }),
-  setPreviewLocked: (previewLocked) => set({ previewLocked }),
   setLastError: (lastError) => set({ lastError }),
   toggleAiPanel: () => set((state) => ({ aiPanelVisible: !state.aiPanelVisible })),
 

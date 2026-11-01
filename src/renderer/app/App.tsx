@@ -65,7 +65,6 @@ export function App(): JSX.Element {
   useTranslation()
   const booted = useShellStore((state) => state.booted)
   const vault = useShellStore((state) => state.vault)
-  const previewLocked = useShellStore((state) => state.previewLocked)
   const aiPanelVisible = useShellStore((state) => state.aiPanelVisible)
   // AI 面板的 grid 列宽跟着「是否展开」走：不展开时列宽 0，展开时用用户拖出来的宽度
   const aiVisibleForLayout = aiPanelVisible
@@ -187,7 +186,7 @@ export function App(): JSX.Element {
   // `recoveryPending`：建库成功后主进程已是 unlocked，但恢复码只显示这一次 ——
   // 确认之前不许外壳接管，否则恢复码页会一闪而过（r3 AC-16）。
   const recoveryPending = useVaultStore((state) => state.recoveryPending)
-  const locked = previewLocked || recoveryPending || vault === 'locked' || vault === 'uninitialized'
+  const locked = recoveryPending || vault === 'locked' || vault === 'uninitialized'
 
   // 锁定时必须收起设置对话框：`.ts-dialog` 在锁定态被抬到 z-index 70（高于解锁屏 60），
   // 对话框一旦开着，遮罩就会挡住解锁屏的「解锁」按钮，用户点不动、也看不出为什么。

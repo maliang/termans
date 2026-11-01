@@ -12,7 +12,6 @@ import {
   Timer
 } from 'lucide-react'
 import type { VaultLibraryMeta, VaultStatus, VaultUnlockFailure } from '@shared'
-import { useShellStore } from '../../app/store'
 import * as api from '../vault/api'
 import { downloadTextFile } from '../vault/download'
 import { useVaultErrorText, useVaultStore } from '../vault/store'
@@ -387,7 +386,6 @@ export function UnlockScreen(): JSX.Element {
   const setRecoveryPending = useVaultStore((state) => state.setRecoveryPending)
   const busy = useVaultStore((state) => state.busy)
   const error = useVaultErrorText()
-  const setPreviewLocked = useShellStore((state) => state.setPreviewLocked)
 
   const [mode, setMode] = useState<Mode>('unlock')
   const [passphrase, setPassphrase] = useState('')
@@ -886,14 +884,6 @@ export function UnlockScreen(): JSX.Element {
                 {t('unlock.newLibrary.entry')}
               </button>
             ) : null}
-            <button
-              type="button"
-              className="ts-link"
-              onClick={() => setPreviewLocked(true)}
-              data-testid="preview-mode"
-            >
-              {t('unlock.previewMode')}
-            </button>
           </footer>
         )}
       </div>

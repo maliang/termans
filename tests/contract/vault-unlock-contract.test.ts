@@ -93,7 +93,6 @@ const LEGACY_TEST_IDS = [
   'unlock-vault',
   'recover-vault',
   'recovery-code-input',
-  'preview-mode',
   'unlock-recovery-code',
   'weak-passphrase-warning'
 ] as const
@@ -378,9 +377,14 @@ describe('e2e 锚点对账（unlock-lockout.spec.ts）', () => {
     }
     const spec = readFileSync(specPath, 'utf8')
     const used = [...spec.matchAll(/getByTestId\((['"])([^'"]+)\1\)/g)].map((match) => match[2])
+    // 反向守卫用的 testid：spec 里出现它们是为了断言「必须不存在」，所以允许在 src 里找不到。
+    // 不加这个白名单，反向守卫会被这条对账判红，等于逼着人别写反向断言。
+    const REMOVED_TEST_IDS = new Set(['preview-mode'])
     expect(used.length).toBeGreaterThan(5)
     const declared = declaredTestIds()
-    const missing = [...new Set(used)].filter((id) => !declared.some((value) => value.includes(id)))
+    const missing = [...new Set(used)]
+      .filter((id) => !REMOVED_TEST_IDS.has(id))
+      .filter((id) => !declared.some((value) => value.includes(id)))
     expect(missing, `e2e 取不到的 testid（断言会恒绿或超时）：\n  ${missing.join('\n  ')}`).toEqual([])
   })
 })

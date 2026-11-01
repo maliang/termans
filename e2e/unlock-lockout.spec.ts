@@ -76,6 +76,11 @@ test.describe('r3 · 锁定自救与新建本地库', () => {
     await createVault(page)
     await lockVault(page)
 
+    // 「以预览模式继续」已删除：它只把 previewLocked 置真，而锁定态本来就是 hidden，
+    // 点了没有任何可见变化（主人实测「点击没效果」）。锁定态要看界面/换主题走齿轮兜底入口。
+    await expect(page.getByTestId('preview-mode'), '已删除的死按钮不得复活').toHaveCount(0)
+    await expect(page.getByTestId('lock-tools'), '锁定态必须有设置兜底入口').toBeVisible()
+
     const outcome = await attemptUnlock(page, WRONG_PASSPHRASE)
     expect(outcome, '错口令不允许解锁成功').toEqual({ kind: 'failed', cls: 'bad-passphrase' })
 
