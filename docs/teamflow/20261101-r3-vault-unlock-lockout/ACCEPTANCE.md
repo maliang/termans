@@ -73,3 +73,22 @@
 复验：`pnpm run typecheck` → `pnpm test` → `pnpm exec playwright test e2e/unlock-lockout.spec.ts` → `pnpm exec vitest run --config logs/teamflow/tf-mvxflmox-qxwiqb/scripts/vitest.redproof.config.ts`。
 
 验收结论：⚠️ 有条件通过
+
+## 七、整改项收口（lead，0.1.2）
+
+1. **AC-20 红证（已在修复前的干净 worktree 上实跑）**
+   环境：`git worktree add --detach /tmp/redproof 742be01`，软链 node_modules。用例：建库用口令 P → 建主机 → 另建一个用口令 Q 的库 → 把 Q 的 `manifest.json`/`vault.enc` 覆盖进 P 的仓（等价于 sync 快进采用远端记录）→ `manager.reload()` → 用 P `unlock()`。
+   实测输出（截图级原文）：
+   ```
+   UNLOCK_REJECTED reason= bad-passphrase error= [E_UNAUTHORIZED] Incorrect master passphrase
+   × 远端那只 manifest 被采用后，本机原口令必须仍能开库（不是 bad-passphrase） 206ms
+   ```
+   即：**摘要三项全部自洽、本机口令却被打成 bad-passphrase**，与主人症状逐字一致。
+
+2. **边界（必须写清，不许含糊）**：同一脚本在修复后的 HEAD 上同样红——因为它直接覆盖仓内文件、绕过了 sync API。修复守住的是**sync 的三条路径**（快进 / 无冲突合并 / 冲突后写回，`adoptRemotePayload` + `requireUnlocked`），由 `src/main/git/sync.test.ts` 三条新用例（"...B 的原口令仍可开库"）与 `e2e/unlock-lockout.spec.ts` 六条覆盖；**不是**「任何文件级篡改都自愈」。任何人对仓目录直接动手，仍会把库锁死。
+
+3. **主人现有那台库无法修复**：该库建于 0.1.1 之前，`vault-local/local.json` 里**没有 `passphraseSlot` 记录**（字段为 `createdAt/lastSyncedAt/lastSyncedPayloadSha/lastSyncedRevision/lastUnlockedAt/rememberedUntil/repo/version`），所以新版也只会归因为 `bad-passphrase`，不会给出 `slot-record-mismatch`。没有旧库副本、没有恢复码 ⇒ 数据不可达，只能保留原样、另开一个本地库继续用。
+
+4. **未做（如实登记）**：`hub.ts` 仍无永久单测（整改项 1 原本要求把 `hub-multilib.probe.test.ts` 移入 `tests/`，本轮我未补；AC-14 的零写入断言目前只有一次性探针证据）。`deriveKek` 的 NFKC 使 nfkc 变体在口令槽不可达（仅 trim/零宽可达），属已知观察。
+
+5. **0.1.2 门禁（lead 独立复跑）**：`pnpm run typecheck` exit 0；`npx vitest run` **64 files / 797 passed (16.7s)**；`env -u ELECTRON_RUN_AS_NODE pnpm exec playwright test` **41 passed (2.8m)**；`pnpm pack:dir` PACK=0、产物 `CFBundleShortVersionString=0.1.2`、asar 哈希与 `/Applications` 副本一致。
