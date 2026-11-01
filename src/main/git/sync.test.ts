@@ -5,12 +5,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { IpcCallError } from '@shared'
 import { SCRYPT_TEST } from '../crypto'
 import { VaultManager } from '../vault/manager'
+import { readRepo } from '../vault/repo'
 import { createFileSecretBox, type SecretBox } from '../vault/secret-box'
 import { FIXTURE_HOSTNAMES, FIXTURE_PASSWORD, hostInput } from '../vault/test-fixtures'
 import { SyncCoordinator } from './sync'
 import { gitCli, startTestGitServer, type TestGitServer } from './test-git-server'
 
 const PASSPHRASE = 'correct horse battery staple'
+/** 另一台机器轮换出来的新口令（也是另一把槽） */
+const ROTATED_PASSPHRASE = 'Zebra7Quantum-Lantern-Ferry'
 
 interface Machine {
   dir: string
@@ -327,4 +330,126 @@ describe('A→B 迁移全流程（临时 bare 仓库 + 真实 smart-HTTP）', ()
     local.manager.lock()
     await expectIpcAsync(local.sync.push(), 'E_INVALID_ARGUMENT', 'git')
   }, 30_000)
+})
+
+/**
+ * AC-21：同步只能决定「接不接受远端内容」，不能决定「用谁的锁」。
+ *
+ * 这三例的共同布景是「A 机换了口令槽 → B 机同步」。槽一换，远端 `manifest.passphraseKey`
+ * 与 AAD 盐都变；如果 B 原样接受，B 下次用自己的口令就开不了库（r3 的原始症状）。
+ * 判据不是「同步成功」，而是「同步之后仓库里那把槽仍是 B 本机的那把，且 B 的原口令还能开库」。
+ */
+describe('AC-21 同步三条路径保槽（远端换过的口令槽不许盖掉本机那把）', () => {
+  /** 断言仓库里的槽 / 盐仍是本机权威记录，并用本机原口令真的开一次库（反证槽没被换） */
+  function expectLocalSlotKept(target: Machine, label: string): void {
+    const slot = target.manager.localSlot()
+    expect(slot, `${label}: 本机必须有权威槽记录`).not.toBeNull()
+    const snapshot = readRepo(target.repoDir)
+    expect(snapshot, `${label}: 仓库必须已落地`).not.toBeNull()
+    expect(snapshot!.manifest.passphraseKey, `${label}: 仓库里的口令槽必须仍是本机那把`).toEqual(slot!.passphraseKey)
+    expect(snapshot!.envelope.kdf.salt, `${label}: 仓库里的 KDF 盐必须与本机槽成对`).toBe(slot!.salt)
+    target.manager.lock()
+    expect(target.manager.unlock(PASSPHRASE, false).state, `${label}: 本机原口令必须仍能解锁`).toBe('unlocked')
+  }
+
+  function remoteVaultManifest(): { passphraseKey: unknown; revision: number } {
+    return JSON.parse(gitCli(['-C', server.bareDir, 'show', 'main:manifest.json'])) as {
+      passphraseKey: unknown
+      revision: number
+    }
+  }
+
+  it('快进路径：A 机轮换口令后 B 机 pull，仓库必须改用 B 的本机槽重封（B 的原口令仍可开库）', async () => {
+    const a = machine('ac21-ff-a')
+    a.manager.create(PASSPHRASE)
+    a.manager.createHost(hostInput({ label: 'shared', hostname: FIXTURE_HOSTNAMES[0] }))
+    expect((await a.sync.bootstrap({ remoteUrl: server.url, branch: 'main', auth: 'none' })).state).toBe('idle')
+
+    const b = machine('ac21-ff-b')
+    expect((await b.sync.bootstrap({ remoteUrl: server.url, branch: 'main', auth: 'none' })).state).toBe('idle')
+    b.manager.unlock(PASSPHRASE, false)
+    const slotBefore = b.manager.localSlot()
+    expect(slotBefore).not.toBeNull()
+    const remoteBefore = gitCli(['-C', server.bareDir, 'rev-parse', 'main']).trim()
+
+    // A 换口令 = 换槽：远端 manifest.passphraseKey 与 AAD 盐一起变
+    a.manager.rotate({ currentPassphrase: PASSPHRASE, newPassphrase: ROTATED_PASSPHRASE })
+    expect((await a.sync.push()).state).toBe('idle')
+    const rotatedRemote = remoteVaultManifest()
+    expect(rotatedRemote.passphraseKey, '远端必须真的换了槽，否则本用例不成立').not.toEqual(slotBefore!.passphraseKey)
+    const remoteAfterRotate = gitCli(['-C', server.bareDir, 'rev-parse', 'main']).trim()
+    expect(remoteAfterRotate).not.toBe(remoteBefore)
+
+    // B 快进：本地干净、无自有提交 → 走 fastForward + reload('sync-fast-forward')
+    const pulled = await b.sync.pull()
+    expect(pulled.state).toBe('idle')
+    expect(pulled.localCommit).toBe(pulled.remoteCommit)
+    expect(b.manager.listLibrary().hosts.map((host) => host.label)).toEqual(['shared'])
+
+    expectLocalSlotKept(b, 'B 机快进后')
+    // pull 只许改本机工作树，不许顺手改写远端（远端仍是 A 的新槽）
+    expect(gitCli(['-C', server.bareDir, 'rev-parse', 'main']).trim()).toBe(remoteAfterRotate)
+    expect(remoteVaultManifest().passphraseKey).toEqual(rotatedRemote.passphraseKey)
+  }, 90_000)
+
+  it('合并路径：远端换了槽 + 本机有新主机 → 自动合并后仍用本机槽，合并内容不丢', async () => {
+    const a = machine('ac21-merge-a')
+    const b = machine('ac21-merge-b')
+    a.manager.create(PASSPHRASE)
+    a.manager.createHost(hostInput({ label: 'shared', hostname: FIXTURE_HOSTNAMES[0] }))
+    expect((await a.sync.bootstrap({ remoteUrl: server.url, branch: 'main', auth: 'none' })).state).toBe('idle')
+    expect((await b.sync.bootstrap({ remoteUrl: server.url, branch: 'main', auth: 'none' })).state).toBe('idle')
+    b.manager.unlock(PASSPHRASE, false)
+    const slotBefore = b.manager.localSlot()
+    expect(slotBefore).not.toBeNull()
+
+    a.manager.rotate({ currentPassphrase: PASSPHRASE, newPassphrase: ROTATED_PASSPHRASE })
+    a.manager.createHost(hostInput({ label: 'from-a', hostname: FIXTURE_HOSTNAMES[1] }))
+    expect((await a.sync.push()).state).toBe('idle')
+
+    // B 侧也有改动 → 不能快进，必然走 mergeFlow 的无冲突分支（reload('sync-merge') + adoptRemotePayload）
+    b.manager.createHost(hostInput({ label: 'from-b', hostname: FIXTURE_HOSTNAMES[2] }))
+    const merged = await b.sync.push()
+    expect(merged.state).toBe('idle')
+    expect(merged.conflictCount).toBe(0)
+
+    const labels = b.manager
+      .listLibrary()
+      .hosts.map((host) => host.label)
+      .sort()
+    expect(labels, '合并不许丢任何一侧的主机').toEqual(['from-a', 'from-b', 'shared'])
+
+    expectLocalSlotKept(b, 'B 机合并后')
+  }, 90_000)
+
+  it('冲突解决路径：远端换槽 + 同字段冲突 → resolve 之后仓库仍用本机槽', async () => {
+    const a = machine('ac21-conf-a')
+    const b = machine('ac21-conf-b')
+    a.manager.create(PASSPHRASE)
+    const shared = a.manager.createHost(hostInput({ label: 'shared', hostname: FIXTURE_HOSTNAMES[0] }))
+    expect((await a.sync.bootstrap({ remoteUrl: server.url, branch: 'main', auth: 'none' })).state).toBe('idle')
+    expect((await b.sync.bootstrap({ remoteUrl: server.url, branch: 'main', auth: 'none' })).state).toBe('idle')
+    b.manager.unlock(PASSPHRASE, false)
+    const slotBefore = b.manager.localSlot()
+    expect(slotBefore).not.toBeNull()
+
+    a.manager.rotate({ currentPassphrase: PASSPHRASE, newPassphrase: ROTATED_PASSPHRASE })
+    const hostOnA = a.manager.listLibrary().hosts.find((host) => host.id === shared.id)!
+    a.manager.updateHost(hostOnA.id, { ...hostOnA, port: 2222 })
+    expect((await a.sync.push()).state).toBe('idle')
+
+    const hostOnB = b.manager.listLibrary().hosts.find((host) => host.id === shared.id)!
+    b.manager.updateHost(hostOnB.id, { ...hostOnB, port: 2200 })
+    const conflict = await expectIpcAsync(b.sync.push(), 'E_CONFLICT', 'conflict')
+    expect(conflict.code).toBe('E_CONFLICT')
+    expect(b.sync.status().state).toBe('diverged')
+
+    const conflicts = b.sync.conflicts()
+    expect(conflicts).toHaveLength(1)
+    const resolved = await b.sync.resolve({ conflictId: conflicts[0]!.id, strategy: 'remote' })
+    expect(resolved.state).toBe('idle')
+    expect(b.manager.listLibrary().hosts.find((host) => host.id === shared.id)?.port).toBe(2222)
+
+    expectLocalSlotKept(b, 'B 机冲突解决后')
+  }, 120_000)
 })

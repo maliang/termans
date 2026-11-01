@@ -25,31 +25,51 @@ export interface HostSpec {
   jumpHostLabel?: string
 }
 
-/** 第一次运行：创建加密包（含弱口令二次提交的重试逻辑），等到解锁屏消失 */
+/**
+ * 第一次运行：创建加密包，等到外壳可用。
+ *
+ * 建库这条路上有两道「只点一次就够不到外壳」的闸门，都是真实协议要求，不是夹具保守：
+ * 1. 口令被判弱时要「同口令再提交一次」才接受（冻结契约里没有 confirm 字段）；
+ * 2. **AC-16 恢复码强制确认**：建库成功后先展示恢复码，没点「我已保存」不离开。
+ *    第 2 条是 r3 新增，本夹具当时没跟上，实测 10 个 spec 一起卡满 60s 超时（T13 自检修复）。
+ */
 export async function createVault(page: Page, passphrase = VAULT_PASSPHRASE): Promise<void> {
   await expect(page.getByTestId('unlock-screen')).toBeVisible()
   await page.getByTestId('passphrase-input').fill(passphrase)
   await page.getByTestId('passphrase-repeat').fill(passphrase)
   await page.getByTestId('create-vault').click()
 
-  // 口令被判弱时协议要求「同口令再提交一次」才接受（冻结契约里没有 confirm 字段）。
-  // 写成重试循环而不是「判断一次」：弱口令提示与外壳渲染谁先到是竞态的（全量跑时实测到
-  // 「等到 15s 既没提示也没消失」的瞬间），用固定一次点击会偶发卡在解锁屏上。
+  // 三路竞态：弱口令提示 / 恢复码页 / 解锁屏自己消失。写成重试循环而不是「判断一次」：
+  // 弱口令提示与外壳渲染谁先到是竞态的（全量跑时实测到「等到 15s 既没提示也没消失」的瞬间）。
   const weak = page.getByTestId('weak-passphrase-warning')
   const screen = page.getByTestId('unlock-screen')
+  const recovery = page.getByTestId('unlock-recovery-code')
+  let recoveryShown = false
+
   for (let attempt = 0; attempt < 4; attempt += 1) {
     if ((await screen.count()) === 0) break
-    await Promise.race([
-      weak.waitFor({ timeout: 10_000 }).catch(() => null),
-      screen.waitFor({ state: 'detached', timeout: 10_000 }).catch(() => null)
+    const outcome = await Promise.race([
+      weak.waitFor({ timeout: 10_000 }).then(() => 'weak' as const).catch(() => null),
+      recovery.waitFor({ timeout: 10_000 }).then(() => 'recovery' as const).catch(() => null),
+      screen.waitFor({ state: 'detached', timeout: 10_000 }).then(() => 'gone' as const).catch(() => null)
     ])
-    if ((await screen.count()) === 0) break
-    if (await weak.isVisible().catch(() => false)) {
+    if (outcome === 'recovery') {
+      recoveryShown = true
+      break
+    }
+    if (outcome === 'gone' || (await screen.count()) === 0) break
+    if (outcome === 'weak') {
       // 提示已在：「同口令再提交一次」= 再点一次创建
       await page.getByTestId('create-vault').click()
+      continue
     }
+    break
   }
-  await expect(screen, '建库后解锁屏必须消失（口令判弱时要点两次创建）').toHaveCount(0, { timeout: 20_000 })
+
+  if (recoveryShown) await page.getByTestId('unlock-recovery-done').click()
+  await expect(screen, '建库后解锁屏必须消失（口令判弱要点两次创建，恢复码要点「我已保存」）').toHaveCount(0, {
+    timeout: 20_000
+  })
   // 解锁屏消失 = 外壳可用；再等一次主机库真的渲染出来
   await expect(page.getByTestId('host-sidebar')).toBeVisible()
 }

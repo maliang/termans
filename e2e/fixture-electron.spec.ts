@@ -34,6 +34,15 @@ test('tests/fixtures 夹具在 Electron 里保持连接 ≥5s，且 resize 不�
     if (await page.getByTestId('weak-passphrase-warning').isVisible().catch(() => false)) {
       await page.getByTestId('create-vault').click()
     }
+    // AC-16（r3）：建库成功后先展示恢复码，没点「我已保存」不离开解锁卡。
+    // 这段是本 spec 自带的建库流程（刻意不调 `createVault` 夹具：它要证明的是 raw 夹具能在
+    // Electron 里跑起来），所以恢复码闸门要在这里单独处理一次。
+    const recovery = page.getByTestId('unlock-recovery-code')
+    const recoveryShown = await recovery.waitFor({ timeout: 20_000 }).then(
+      () => true,
+      () => false
+    )
+    if (recoveryShown) await page.getByTestId('unlock-recovery-done').click()
     await expect(page.getByTestId('unlock-screen')).toHaveCount(0, { timeout: 20_000 })
 
     await page.getByTestId('host-new').click()

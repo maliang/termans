@@ -9,7 +9,9 @@ import { runMenuCommand, useTabStore } from '@renderer/features/tabs/tab-store'
 import { TerminalTabStrip } from '@renderer/features/tabs/TabStrip'
 import { TerminalWorkspace } from '@renderer/features/terminal/TerminalWorkspace'
 import { UnlockScreen } from '@renderer/features/unlock'
-import { initializeVaultFeature } from '@renderer/features/vault'
+// 深路径：`features/unlock/index.ts` 不在 t9 的可写清单里，直接引组件文件
+import { VaultNoticeBar } from '@renderer/features/unlock/VaultNoticeBar'
+import { initializeVaultFeature, useVaultStore } from '@renderer/features/vault'
 import { call, describeError, subscribe } from '../platform/ipc'
 import { useLocaleBootstrap } from '../i18n/useLocale'
 import { SettingsDialogHost, SettingsEntry } from '../theme/SettingsDialogHost'
@@ -182,7 +184,10 @@ export function App(): JSX.Element {
 
   // 「未初始化」= 首启还没建库：同样要铺解锁屏（那里提供「创建加密包」流程），
   // 否则用户会看到一个空壳界面却无从下手。
-  const locked = previewLocked || vault === 'locked' || vault === 'uninitialized'
+  // `recoveryPending`：建库成功后主进程已是 unlocked，但恢复码只显示这一次 ——
+  // 确认之前不许外壳接管，否则恢复码页会一闪而过（r3 AC-16）。
+  const recoveryPending = useVaultStore((state) => state.recoveryPending)
+  const locked = previewLocked || recoveryPending || vault === 'locked' || vault === 'uninitialized'
 
   // 锁定时必须收起设置对话框：`.ts-dialog` 在锁定态被抬到 z-index 70（高于解锁屏 60），
   // 对话框一旦开着，遮罩就会挡住解锁屏的「解锁」按钮，用户点不动、也看不出为什么。
@@ -239,6 +244,9 @@ export function App(): JSX.Element {
           sidebarVisible={sidebarVisible}
           onToggleSidebar={() => void persistUi({ showHostTree: !sidebarVisible })}
         />
+        {/* 口令变体命中的一次性告知条（r3 AC-7）：标题栏之下、主内容之上的流式元素，
+            所以挂在 `.ts-workspace` 里 —— `.ts-app` 是 5 列栅格，多一个直属子节点会破坏布局 */}
+        <VaultNoticeBar />
         <TerminalWorkspace transport={getCaptureTransport()} settings={terminalSettings} platform={platform} />
       </div>
       {aiPanelVisible ? (

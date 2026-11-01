@@ -638,6 +638,10 @@
   flex-direction: column;
   gap: 12px;
   width: min(420px, 92vw);
+  /* 最坏情况（四类归因 + 诊断展开 + 库列表展开）≈ 862px：不设上限时窗口压小后主按钮会被挤出可视区 */
+  max-height: min(760px, calc(100vh - 48px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px 22px;
   border: 1px solid var(--ts-border-strong);
   border-radius: var(--ts-radius-lg);
@@ -719,8 +723,382 @@
 
 .ts-unlock__foot {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
   padding-top: 4px;
+}
+
+/* 恢复码区：三段说明 + 一次性口令，纵向排列 */
+.ts-unlock__recovery {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ---- 多库：切换行 / 只读行 / 可折叠列表（r3 AC-13） ---- */
+
+.ts-unlock__library {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ts-unlock__library--static {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-elevated);
+}
+
+.ts-unlock__library-label {
+  flex: none;
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-xs);
+}
+
+.ts-unlock__library-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--ts-font-size-sm);
+}
+
+.ts-unlock__library-badge {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--ts-accent) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ts-accent) 12%, transparent);
+  color: var(--ts-accent);
+  font-size: var(--ts-font-size-xs);
+  line-height: 1.5;
+}
+
+.ts-unlock__library-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 2px;
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-xs);
+  cursor: pointer;
+  list-style: none;
+}
+
+.ts-unlock__library-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ts-unlock__library-summary:hover {
+  color: var(--ts-text-primary);
+}
+
+.ts-unlock__library-list {
+  display: flex;
+  flex-direction: column;
+  /* 展开上限 4×44 = 176px，超出滚动（DESIGN §2.1 的卡片高度倒逼） */
+  max-height: 176px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+}
+
+.ts-unlock__library-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 44px;
+  flex: none;
+  padding: 0 10px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--ts-text-primary);
+  font-family: inherit;
+  font-size: var(--ts-font-size-sm);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--ts-motion-fast) ease,
+    border-color var(--ts-motion-fast) ease;
+}
+
+.ts-unlock__library-row:hover {
+  background: var(--ts-bg-elevated);
+}
+
+.ts-unlock__library-row:active {
+  filter: brightness(0.96);
+}
+
+.ts-unlock__library-row[data-current='true'] {
+  border-left-color: var(--ts-accent);
+  cursor: default;
+}
+
+.ts-unlock__library-meta {
+  flex: none;
+  width: 78px;
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ---- 四类归因块（r3 AC-1）：红**只**给 corrupt ---- */
+
+.ts-unlock__attribution {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--ts-status-warn) 45%, transparent);
+  border-left: 3px solid var(--ts-status-warn);
+  border-radius: var(--ts-radius-sm);
+  background: color-mix(in srgb, var(--ts-status-warn) 10%, var(--ts-bg-surface));
+  /* 出现动效：120ms 淡入 + 4px 上移，不 shake（DESIGN §3 明令禁止） */
+  animation: ts-unlock-attribution-in var(--ts-motion-fast) ease-out;
+}
+
+.ts-unlock__attribution--notice {
+  border-color: color-mix(in srgb, var(--ts-accent) 45%, transparent);
+  border-left-color: var(--ts-accent);
+  background: color-mix(in srgb, var(--ts-accent) 10%, var(--ts-bg-surface));
+}
+
+.ts-unlock__attribution--error {
+  border-color: color-mix(in srgb, var(--ts-status-error) 45%, transparent);
+  border-left-color: var(--ts-status-error);
+  background: color-mix(in srgb, var(--ts-status-error) 10%, var(--ts-bg-surface));
+}
+
+@keyframes ts-unlock-attribution-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ts-unlock__attribution-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ts-unlock__attribution-body {
+  margin: 0;
+  color: var(--ts-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ts-unlock__checks {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ts-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ts-unlock__countdown {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ts-text-primary);
+}
+
+/* 读屏专用：视觉上不占位，但 aria-live 的播报仍然发生 */
+.ts-unlock__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.ts-unlock__progress {
+  margin: 0;
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-xs);
+  line-height: 1.45;
+}
+
+/* ---- 证据区（AC-2/AC-3）：固定六项，永不渲染路径 ---- */
+
+.ts-unlock__diag-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 44px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--ts-accent);
+  font-family: inherit;
+  font-size: var(--ts-font-size-xs);
+  cursor: pointer;
+}
+
+.ts-unlock__diag-toggle:hover {
+  text-decoration: underline;
+}
+
+.ts-unlock__chevron {
+  transition: transform var(--ts-motion-fast) ease;
+}
+
+.ts-unlock__chevron--open {
+  transform: rotate(180deg);
+}
+
+.ts-unlock__diag {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+}
+
+.ts-unlock__diag-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+}
+
+.ts-unlock__diag-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+
+.ts-unlock__diag-row dt {
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-xs);
+}
+
+.ts-unlock__diag-row dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ts-text-primary);
+  font-family: var(--ts-font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ts-unlock__diag-note {
+  margin: 0;
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-xs);
+  line-height: 1.45;
+}
+
+/* ---- 新建库的三句确认（AC-15）：顶边 3px 琥珀，标题用「新建」不用「改名」 ---- */
+
+.ts-unlock__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--ts-border);
+  border-top: 3px solid var(--ts-accent);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-elevated);
+}
+
+.ts-unlock__confirm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ts-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ts-unlock__inline-error {
+  margin: 0;
+  color: var(--ts-status-error);
+  font-size: var(--ts-font-size-xs);
+  line-height: 1.45;
+}
+
+/* ---- 变体告知条（AC-7）：标题栏之下、主内容之上的流式元素，不是 toast ---- */
+
+.ts-vault-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 32px;
+  padding: 0 8px 0 10px;
+  border-bottom: 1px solid var(--ts-border);
+  border-left: 3px solid var(--ts-accent);
+  background: var(--ts-bg-elevated);
+  color: var(--ts-text-secondary);
+  font-size: var(--ts-font-size-xs);
+}
+
+.ts-vault-notice__text {
+  flex: 1;
+  min-width: 0;
+  max-width: calc(100% - 96px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ts-vault-notice__close {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  margin-left: auto;
+  border: 0;
+  border-radius: var(--ts-radius-sm);
+  background: transparent;
+  color: var(--ts-text-muted);
+  cursor: pointer;
+  transition:
+    background var(--ts-motion-fast) ease,
+    color var(--ts-motion-fast) ease;
+}
+
+.ts-vault-notice__close:hover {
+  background: var(--ts-bg-surface);
+  color: var(--ts-text-primary);
+}
+
+.ts-vault-notice__close:active {
+  filter: brightness(0.96);
 }
 
 /* ---------- 弹窗外壳：head / body / footer 三段，度量对齐 settings 弹窗（t31/#12） ---------- */

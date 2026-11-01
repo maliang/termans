@@ -38,6 +38,9 @@ import type {
   SyncResolveRequest,
   SyncStatus,
   VaultCreateResult,
+  VaultLibraryCreateRequest,
+  VaultLibraryMeta,
+  VaultLibrarySwitchRequest,
   VaultRecoveryRequest,
   VaultRotateRequest,
   VaultStatus
@@ -123,7 +126,11 @@ export const IPC_CHANNELS = {
     unlock: 'vault:unlock',
     lock: 'vault:lock',
     rotate: 'vault:rotate',
-    recover: 'vault:recover'
+    recover: 'vault:recover',
+    /** 多库（r3）：列表 / 新建 / 切换 —— 一次只活一个 manager，切库即换 VaultHub 当前库 */
+    libraries: 'vault:libraries',
+    libraryCreate: 'vault:library-create',
+    librarySwitch: 'vault:library-switch'
   },
   sync: {
     status: 'sync:status',
@@ -222,6 +229,13 @@ export interface IpcInvokeContract {
   'vault:lock': { request: void; response: VaultStatus }
   'vault:rotate': { request: VaultRotateRequest; response: VaultCreateResult }
   'vault:recover': { request: VaultRecoveryRequest; response: VaultStatus }
+  /**
+   * 多库（r3，AC-10..AC-14）。三条通道只做「列表 / 新建 / 切换」，切换后统一回 `VaultStatus`：
+   * 渲染层的库徽标、诊断区、归因块都从同一份状态读，避免切库后各面板各拿一个副本。
+   */
+  'vault:libraries': { request: void; response: { libraries: VaultLibraryMeta[] } }
+  'vault:library-create': { request: VaultLibraryCreateRequest; response: VaultCreateResult }
+  'vault:library-switch': { request: VaultLibrarySwitchRequest; response: VaultStatus }
 
   /* sync（Git 同步） */
   'sync:status': { request: void; response: SyncStatus }

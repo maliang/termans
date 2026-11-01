@@ -260,6 +260,48 @@ export function openBox(key: Buffer, box: SealedBox, aad: string, failure: Vault
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* 槽-盐同源：唯一封装入口（I1 / I2）                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * 口令槽的**唯一**封装入口：salt 由调用方给出（只在 createVault / rewrapVault /
+ * resealPassphraseSlot 三处生成），KEK 派生与 AAD 绑定都收在这里。
+ *
+ * 为什么必须收成一个函数：D1 的成因就是「槽」与「盐」可以分别来源。只要还存在第二处
+ * `deriveKek(passphrase, cost, salt)` + `sealBox(kek, …)` 的临时拼装点，就又有机会拼出
+ * 「A 机的槽 + B 机的盐」—— 那种组合能通过全部摘要，只在 AES-GCM 上失败，症状与
+ * 「口令真的错了」不可区分（bad-passphrase）。
+ */
+function sealPassphraseKey(vaultKey: Buffer, passphrase: string, cost: ScryptCost, saltBase64: string): SealedBox {
+  const kek = deriveKek(passphrase, cost, Buffer.from(saltBase64, 'base64'))
+  try {
+    return sealBox(kek, vaultKey, passphraseAad(cost, saltBase64))
+  } finally {
+    zeroize(kek)
+  }
+}
+
+/**
+ * payload 信封的**唯一**封装入口：盐必须装在信封里（I2：盐只有一个来源）。
+ * AAD、摘要、落盘字节都从这里派生，调用方拿不到「绕过盐」的路径。
+ */
+function sealEnvelope(
+  vaultKey: Buffer,
+  payloadBytes: Buffer,
+  cost: ScryptCost,
+  saltBase64: string
+): { envelope: VaultEnvelope; encBytes: Buffer } {
+  const envelope: VaultEnvelope = {
+    format: MANIFEST_FORMAT,
+    version: MANIFEST_VERSION,
+    cipher: ENVELOPE_CIPHER,
+    kdf: { name: 'scrypt', N: cost.N, r: cost.r, p: cost.p, salt: saltBase64 },
+    ...sealBox(vaultKey, payloadBytes, payloadAad())
+  }
+  return { envelope, encBytes: serializeEnvelope(envelope) }
+}
+
 /**
  * scrypt 派生 KEK。必须显式给 maxmem：N=2^17 时默认 32MB 上限会直接失败。
  * 参数闸门（`assertCostWithinBounds`）在这里再跑一次——即使调用方跳过了
@@ -346,6 +388,38 @@ export function payloadDigest(encBytes: Buffer): string {
 }
 
 /**
+ * AC-2 口径的**唯一**实现：`sha256(Buffer.from(passphraseKey.ciphertext,'base64'))` 的前 8 位小写 hex。
+ *
+ * 指纹回答的是「本机上次能开的那只口令槽，是不是眼前这只」——它刻意只看槽密文
+ * （不解密、不需要口令、不需要 VMK），所以锁定时也能自证；也刻意不掺 salt：
+ * 槽密文本身已经与 salt 绑定（AAD 覆盖 salt），掺进去只会让两个实现分别漂移。
+ * 归因层（attribution.ts）与渲染层只消费这个结果，**禁止**各自重算一遍。
+ */
+export function slotFingerprint(manifest: Pick<VaultManifest, 'passphraseKey'>): string {
+  const ciphertext = decodeBase64(manifest.passphraseKey.ciphertext, 'corrupt', 'passphraseKey.ciphertext')
+  return sha256Hex(ciphertext).slice(0, 8)
+}
+
+/**
+ * AC-22 硬断言：调用方声明「我以为现在用的是这只盐」，与信封实际携带的盐不等即抛。
+ *
+ * 盐的**唯一来源永远是 envelope**：调用方只能声明期望值，不能提供新值。把「自由传盐」
+ * 换成「声明期望值 + 目前信封」之后，槽盐错配在函数入口就被拒，而不是等到下游
+ * AES-GCM 失败再被误报成 bad-passphrase（AC-20 的症状）。
+ */
+export function assertKdfSalt(expected: string, envelope: VaultEnvelope): void {
+  const expectedBytes = decodeFixed(expected, SALT_BYTES, 'corrupt', 'expectedKdfSalt')
+  const actualBytes = decodeFixed(envelope.kdf.salt, SALT_BYTES, 'corrupt', 'envelope.kdf.salt')
+  if (!timingSafeEqual(expectedBytes, actualBytes)) {
+    // 不把任何一侧的盐写进消息：错误文案会进日志与诊断区
+    throw new VaultCryptoError(
+      'corrupt',
+      'kdf salt mismatch: slot and envelope do not belong to the same vault (槽盐错配，拒绝按这只盐重封)'
+    )
+  }
+}
+
+/**
  * 结构/摘要校验：任何一条不符都归因为「数据损坏」，绝不继续尝试解密。
  * 顺序很重要——先校验摘要再派生密钥，能省掉一次 300ms 的 scrypt。
  */
@@ -388,6 +462,23 @@ export function assertIntegrity(manifest: VaultManifest, encBytes: Buffer, envel
   return parsedEnvelope
 }
 
+/**
+ * 结构一致性自检（写盘前用）：manifest.kdf 与 envelope.kdf 必须同参，且 keywrap 摘要必须可重算。
+ *
+ * 边界必须说清：它**发现不了**「槽与盐来自不同库」——那两者的 kdf 参数往往一模一样、
+ * keywrap 摘要也自洽，唯一能把它们对上的是本机权威指纹（`LocalSlotRecord.slot.fingerprint`
+ * 与 `slotFingerprint()` 对账，由归因层判定）。所以这道检查挡的是结构性漂移（半写/改参/改槽），
+ * 不是身份错配；两者都要有，缺一都不是完整的守卫。
+ */
+export function assertSlotBinding(manifest: VaultManifest, envelope: VaultEnvelope): void {
+  if (manifest.kdf.N !== envelope.kdf.N || manifest.kdf.r !== envelope.kdf.r || manifest.kdf.p !== envelope.kdf.p) {
+    throw new VaultCryptoError('corrupt', 'manifest.kdf and vault.enc kdf disagree (slot binding broken)')
+  }
+  if (!safeEqualHex(keywrapDigest(manifest), manifest.keywrap_sha256)) {
+    throw new VaultCryptoError('corrupt', 'manifest key slots were modified (keywrap_sha256 mismatch)')
+  }
+}
+
 function safeEqualHex(a: string, b: string): boolean {
   const left = Buffer.from(a, 'utf8')
   const right = Buffer.from(b, 'utf8')
@@ -423,24 +514,15 @@ export function createVault(input: CreateVaultInput): CreatedVault {
   const payloadBytes = Buffer.from(input.payload, 'utf8')
   const vaultKey = randomBytes(KEY_BYTES)
 
-  const passSalt = randomBytes(SALT_BYTES)
-  const passKek = deriveKek(input.passphrase, cost, passSalt)
-  const passphraseBox = sealBox(passKek, vaultKey, passphraseAad(cost, passSalt.toString('base64')))
-  zeroize(passKek)
+  const passSalt = randomBytes(SALT_BYTES).toString('base64')
+  const passphraseBox = sealPassphraseKey(vaultKey, input.passphrase, cost, passSalt)
 
   const recoverySalt = randomBytes(SALT_BYTES)
   const recoveryKek = deriveKek(normalizeRecoveryCode(input.recoveryCode) ?? input.recoveryCode, cost, recoverySalt)
   const recoveryBox = sealBox(recoveryKek, vaultKey, recoveryAad(recoverySalt.toString('base64')))
   zeroize(recoveryKek)
 
-  const envelope: VaultEnvelope = {
-    format: MANIFEST_FORMAT,
-    version: MANIFEST_VERSION,
-    cipher: ENVELOPE_CIPHER,
-    kdf: { name: 'scrypt', N: cost.N, r: cost.r, p: cost.p, salt: passSalt.toString('base64') },
-    ...sealBox(vaultKey, payloadBytes, payloadAad())
-  }
-  const encBytes = serializeEnvelope(envelope)
+  const { encBytes } = sealEnvelope(vaultKey, payloadBytes, cost, passSalt)
   const manifest: VaultManifest = {
     format: MANIFEST_FORMAT,
     version: MANIFEST_VERSION,
@@ -464,6 +546,11 @@ export interface OpenVaultInput {
   encBytes: Buffer
   credential: UnlockCredential
   envelope?: VaultEnvelope
+  /**
+   * AC-9 计数钩子：**每次口令 KEK 派生**回调一次（口令分支恰好一次；recovery/keychain 分支不调）。
+   * 只用于测试与诊断（数「这一次解锁一共派生了几个 KEK」），不改变任何行为、不影响返回值。
+   */
+  onKekDerived?: () => void
 }
 
 export interface OpenedVault {
@@ -478,7 +565,7 @@ export interface OpenedVault {
  */
 export function openVault(input: OpenVaultInput): OpenedVault {
   const envelope = assertIntegrity(input.manifest, input.encBytes, input.envelope)
-  const payloadBytes = openPayloadBytes(input.manifest, envelope, input.credential)
+  const payloadBytes = openPayloadBytes(input.manifest, envelope, input.credential, input.onKekDerived)
   const vaultKey = payloadBytes.vaultKey
   try {
     return { payload: payloadBytes.payload.toString('utf8'), vaultKey, slot: payloadBytes.slot }
@@ -490,7 +577,8 @@ export function openVault(input: OpenVaultInput): OpenedVault {
 function openPayloadBytes(
   manifest: VaultManifest,
   envelope: VaultEnvelope,
-  credential: UnlockCredential
+  credential: UnlockCredential,
+  onKekDerived?: () => void
 ): { payload: Buffer; vaultKey: Buffer; slot: 'passphrase' | 'recovery' | 'keychain' } {
   let vaultKey: Buffer
   let slot: 'passphrase' | 'recovery' | 'keychain'
@@ -501,6 +589,9 @@ function openPayloadBytes(
   } else if ('passphrase' in credential) {
     const salt = decodeFixed(envelope.kdf.salt, SALT_BYTES, 'corrupt', 'kdf.salt')
     const kek = deriveKek(credential.passphrase, { N: envelope.kdf.N, r: envelope.kdf.r, p: envelope.kdf.p }, salt)
+    // AC-9：每次口令派生回调一次（放在 deriveKek 之后、GCM 之前——口令错了也如实计数，
+    // 否则「≤4 次派生」的判据会被失败路径拉高却不自知）
+    onKekDerived?.()
     try {
       vaultKey = openBox(kek, manifest.passphraseKey, passphraseAad(manifest.kdf, envelope.kdf.salt), 'bad-passphrase')
     } finally {
@@ -530,25 +621,29 @@ function openPayloadBytes(
 
 export interface RawSealInput {
   manifest: VaultManifest
+  /** 当前 `vault.enc` 的信封：**盐的唯一来源**（I2）。调用方不能再自己捏一只盐进来 */
+  envelope: VaultEnvelope
+  /** AC-22 硬断言：调用方「以为」现在用的是这只盐；与 `envelope.kdf.salt` 不等即抛 */
+  expectedKdfSalt: string
   vaultKey: Buffer
   payload: string
   revision: number
-  /** 远端/旧 vault.enc 的 kdf.salt：换 payload 时必须沿用，否则口令槽解不开（AAD 绑定 salt） */
-  kdfSalt: string
   now?: Date
 }
 
-/** 只重封 payload（改数据时用）：密钥槽、kdf 参数、salt 全部保持不变 */
-export function resealPayload(input: RawSealInput): { manifest: VaultManifest; encBytes: Buffer } {
+/**
+ * 只重封 payload（改数据时用）：密钥槽、kdf 参数、盐全部保持不变。
+ *
+ * 与旧签名（自由 `kdfSalt`）的区别不是风格，而是缺陷边界：旧写法允许「槽来自 A 机、
+ * 盐来自 B 机」这种组合通过全部摘要，只在 AES-GCM 上以 `bad-passphrase` 现形——
+ * 与「口令真的错了」不可区分。现在盐只能取自传入的信封，调用方只能声明期望值。
+ */
+export function resealPayload(input: RawSealInput): { manifest: VaultManifest; envelope: VaultEnvelope; encBytes: Buffer } {
   const now = input.now ?? new Date()
-  const envelope: VaultEnvelope = {
-    format: MANIFEST_FORMAT,
-    version: MANIFEST_VERSION,
-    cipher: ENVELOPE_CIPHER,
-    kdf: { name: 'scrypt', N: input.manifest.kdf.N, r: input.manifest.kdf.r, p: input.manifest.kdf.p, salt: input.kdfSalt },
-    ...sealBox(input.vaultKey, Buffer.from(input.payload, 'utf8'), payloadAad())
-  }
-  const encBytes = serializeEnvelope(envelope)
+  // AC-22：入口即拒（回退点 = 删掉这一行，错配用例立刻由「抛」变「不抛」）
+  assertKdfSalt(input.expectedKdfSalt, input.envelope)
+  const cost: ScryptCost = { N: input.manifest.kdf.N, r: input.manifest.kdf.r, p: input.manifest.kdf.p }
+  const { envelope, encBytes } = sealEnvelope(input.vaultKey, Buffer.from(input.payload, 'utf8'), cost, input.envelope.kdf.salt)
   const manifest: VaultManifest = {
     ...input.manifest,
     revision: input.revision,
@@ -556,7 +651,71 @@ export function resealPayload(input: RawSealInput): { manifest: VaultManifest; e
     updated_at: now.toISOString()
   }
   manifest.keywrap_sha256 = keywrapDigest(manifest)
-  return { manifest, encBytes }
+  return { manifest, envelope, encBytes }
+}
+
+export interface ResealPassphraseSlotInput {
+  manifest: VaultManifest
+  /** 当前 `vault.enc`：既是旧盐来源，也是「payload 用哪把 VMK 加密」的判据 */
+  envelope: VaultEnvelope
+  vaultKey: Buffer
+  /** 已规范化的口令（AC-7 的规范形由 `passphrase.ts:canonicalPassphrase` 给出，本层不重复实现） */
+  passphrase: string
+  cost?: ScryptCost
+  revision: number
+  now?: Date
+}
+
+/**
+ * AC-7：非原样变体命中后，用**规范形口令 + 新 salt + 新 nonce** 重封口令槽（VMK 不变）。
+ *
+ * 这是全仓**唯一**的「换盐」入口（`rewrapVault` 是 rotate/recover 的另一个语义入口，
+ * 二者共用 `sealPassphraseKey` 的单点实现）。任何第三处「新 salt + sealBox」的拼装
+ * 都会把 D1（槽盐可分离）重新打开。
+ *
+ * 返回的是**成对**结果（manifest + envelope + 字节）并当场 `assertSlotBinding` 自检；
+ * `fingerprint` 回传给 manager 记进 `LocalSlotRecord`，锁定时才能自证「上次能开的是哪只槽」。
+ */
+export function resealPassphraseSlot(input: ResealPassphraseSlotInput): {
+  manifest: VaultManifest
+  envelope: VaultEnvelope
+  encBytes: Buffer
+  fingerprint: string
+} {
+  const now = input.now ?? new Date()
+  const current: ScryptCost = { N: input.manifest.kdf.N, r: input.manifest.kdf.r, p: input.manifest.kdf.p }
+  const cost: ScryptCost = input.cost ?? current
+  // 恢复码槽的 KEK 是用 manifest.kdf 派生的（recovery 的 AAD 只绑自己的 salt，但参数来自 manifest.kdf）。
+  // 换放 kdf 参数会让「口令能开、恢复码开不了」，而这里拿不到恢复码、无法同步重封 —— 所以直接拒，不做半套。
+  if (cost.N !== current.N || cost.r !== current.r || cost.p !== current.p) {
+    throw new VaultCryptoError(
+      'bad-params',
+      'resealPassphraseSlot cannot change scrypt cost: the recovery slot still binds the old cost (rotate instead)'
+    )
+  }
+
+  // 先把 payload 解出来：VMK 与这只信封不配套时立刻 corrupt（绝不产出「新槽包着旧 payload」的半成品）
+  const payloadBytes = openBox(input.vaultKey, input.envelope, payloadAad(), 'corrupt')
+  try {
+    const salt = randomBytes(SALT_BYTES).toString('base64')
+    const passphraseKey = sealPassphraseKey(input.vaultKey, input.passphrase, cost, salt)
+    const { envelope, encBytes } = sealEnvelope(input.vaultKey, payloadBytes, cost, salt)
+    const manifest: VaultManifest = {
+      ...input.manifest,
+      kdf: { name: 'scrypt', N: cost.N, r: cost.r, p: cost.p },
+      passphraseKey,
+      // 恢复码槽原样保留：它的 salt/AAD 自成一体，不受口令槽换盐影响
+      recoveryKey: input.manifest.recoveryKey,
+      revision: input.revision,
+      payload_sha256: payloadDigest(encBytes),
+      updated_at: now.toISOString()
+    }
+    manifest.keywrap_sha256 = keywrapDigest(manifest)
+    assertSlotBinding(manifest, envelope)
+    return { manifest, envelope, encBytes, fingerprint: slotFingerprint(manifest) }
+  } finally {
+    zeroize(payloadBytes)
+  }
 }
 
 export interface RewrapInput {
@@ -587,12 +746,7 @@ export function rewrapVault(input: RewrapInput): { manifest: VaultManifest; encB
   let passphraseSalt = envelope.kdf.salt
   if (input.passphrase !== undefined) {
     passphraseSalt = randomBytes(SALT_BYTES).toString('base64')
-    const kek = deriveKek(input.passphrase, cost, Buffer.from(passphraseSalt, 'base64'))
-    try {
-      passphraseKey = sealBox(kek, input.vaultKey, passphraseAad(cost, passphraseSalt))
-    } finally {
-      zeroize(kek)
-    }
+    passphraseKey = sealPassphraseKey(input.vaultKey, input.passphrase, cost, passphraseSalt)
   }
 
   let recoveryKey = input.manifest.recoveryKey
@@ -609,14 +763,7 @@ export function rewrapVault(input: RewrapInput): { manifest: VaultManifest; encB
   // payload 用同一把 VMK 重新加密（新 nonce），顺带把 kdf.salt 换成新的口令槽 salt
   const payloadBytes = openBox(input.vaultKey, envelope, payloadAad(), 'corrupt')
   try {
-    const nextEnvelope: VaultEnvelope = {
-      format: MANIFEST_FORMAT,
-      version: MANIFEST_VERSION,
-      cipher: ENVELOPE_CIPHER,
-      kdf: { name: 'scrypt', N: cost.N, r: cost.r, p: cost.p, salt: passphraseSalt },
-      ...sealBox(input.vaultKey, payloadBytes, payloadAad())
-    }
-    const encBytes = serializeEnvelope(nextEnvelope)
+    const { encBytes } = sealEnvelope(input.vaultKey, payloadBytes, cost, passphraseSalt)
     const manifest: VaultManifest = {
       format: MANIFEST_FORMAT,
       version: MANIFEST_VERSION,

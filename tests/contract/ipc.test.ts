@@ -65,6 +65,10 @@ describe('IPC 通道清单', () => {
       'vault:lock',
       'vault:rotate',
       'vault:recover',
+      // 多库（r3）：列表 / 新建 / 切换
+      'vault:libraries',
+      'vault:library-create',
+      'vault:library-switch',
       // 同步状态与冲突选择 + 双机迁移
       'sync:status',
       'sync:bootstrap',
@@ -86,6 +90,23 @@ describe('IPC 通道清单', () => {
     for (const channel of required) {
       expect(IPC_INVOKE_CHANNELS).toContain(channel)
     }
+  })
+
+  it('多库通道与嵌套常量一一对应（改名要在这里显式改断言）', () => {
+    // 三条通道必须同时出现在：嵌套常量 → 扁平白名单（preload 由它派生）→ 命名规范
+    expect(IPC_CHANNELS.vault.libraries).toBe('vault:libraries')
+    expect(IPC_CHANNELS.vault.libraryCreate).toBe('vault:library-create')
+    expect(IPC_CHANNELS.vault.librarySwitch).toBe('vault:library-switch')
+    for (const channel of [
+      IPC_CHANNELS.vault.libraries,
+      IPC_CHANNELS.vault.libraryCreate,
+      IPC_CHANNELS.vault.librarySwitch
+    ]) {
+      expect(IPC_INVOKE_CHANNELS).toContain(channel)
+      expect(channel.startsWith('vault:')).toBe(true)
+    }
+    // 多库不新增事件通道：一次性告知条走 VaultStatus.variantNotice（少一条状态分裂的路径）
+    expect(IPC_EVENTS).not.toHaveProperty('vaultSlotNotice')
   })
 
   it('事件名不重复且与通道命名空间不冲突', () => {

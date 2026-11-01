@@ -233,9 +233,14 @@ test('S-11 双机迁移：拿错主口令的新机必须看不到任何主机（
       expect(existsSync(join(dirC, 'vault', 'vault.enc'))).toBe(true)
       await expect(c.window.getByTestId('unlock-screen')).toBeVisible({ timeout: 60_000 })
 
-      // 用错口令再解锁：必须明确报错，而不是「解开了但空库」
+      // 用错口令再解锁：必须明确报错，而不是「解开了但空库」。
+      // r3 起「明确报错」的载体是四类归因块（`unlock-attribution`，DESIGN §4.5）；旧版的
+      // 一行 `.ts-unlock__error` 在归因块存在时**不再叠加渲染**（两套词表同屏会让人猜哪个是结论），
+      // 所以这里两种形态都接受 —— 断言的是「有明确失败提示」，不是「某个 class 名还在」。
       await unlockVault(c.window, `${PASSPHRASE}-wrong`)
-      await expect(c.window.locator('.ts-unlock__error')).toBeVisible({ timeout: 20_000 })
+      await expect(
+        c.window.locator('.ts-unlock__error, [data-testid="unlock-attribution"]').first()
+      ).toBeVisible({ timeout: 20_000 })
 
       // 无论界面停在哪，主机数据都必须读不到。
       // 这里用 invokeInPageRaw：期望失败的调用若走 invokeInPage，helper 会把「断言通过」抛成「测试红」。

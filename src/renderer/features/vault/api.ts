@@ -21,6 +21,8 @@ import {
   type SyncResolveRequest,
   type SyncStatus,
   type VaultCreateResult,
+  type VaultLibraryCreateRequest,
+  type VaultLibraryMeta,
   type VaultStatus
 } from '@shared'
 import { call, describeError } from '../../platform/ipc'
@@ -68,6 +70,20 @@ export function recoverVault(recoveryCode: string, newPassphrase: string): Promi
 
 export function lockVault(): Promise<VaultStatus> {
   return call('vault:lock')
+}
+
+/* 多库（r3 AC-10..AC-14）------------------------------------------------ */
+
+export function listVaultLibraries(): Promise<{ libraries: VaultLibraryMeta[] }> {
+  return call('vault:libraries')
+}
+
+export function createVaultLibrary(input: VaultLibraryCreateRequest): Promise<VaultCreateResult> {
+  return call('vault:library-create', input)
+}
+
+export function switchVaultLibrary(id: string): Promise<VaultStatus> {
+  return call('vault:library-switch', { id })
 }
 
 /* hosts / groups ------------------------------------------------------- */

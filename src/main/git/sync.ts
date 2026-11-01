@@ -13,7 +13,7 @@ import {
 } from '@shared'
 import { openVault, sha256Hex, vaultManifestSchema, type VaultManifest } from '../crypto'
 import { vaultFail, lockedError } from '../vault/errors'
-import { parsePayload, type VaultPayload } from '../vault/model'
+import { parsePayload, serializePayload, type VaultPayload } from '../vault/model'
 import type { VaultManager } from '../vault/manager'
 import { ENVELOPE_FILE, MANIFEST_FILE, THEMES_DIR, readRepo } from '../vault/repo'
 import { writePrivateFile, type SecretBox } from '../vault/secret-box'
@@ -194,6 +194,18 @@ export class SyncCoordinator {
     return repo
   }
 
+  /**
+   * AC-21 前置：让 manager 重读仓库之前必须先解锁。
+   *
+   * 为什么：锁定态下 manager 没有 VMK，`reload()` 保不住本机口令槽（只能记一条 `slotDrift`），
+   * 远端换过的槽会**静默留下** —— 用户下次用自己那把口令就开不了库，症状正是 r3 要消灭的
+   * 「口令不对了」。所以无法保槽时宁可返回 `E_VAULT_LOCKED`，让用户先解锁再同步。
+   * 唯一豁免是 `alignFreshFromRemote`（本机无槽的 B 机 bootstrap，见该方法的注释）。
+   */
+  private requireUnlocked(): void {
+    if (!this.manager.isUnlocked()) throw lockedError()
+  }
+
   private async auth(repo: SyncRepo): Promise<RemoteAuth> {
     if (repo.auth === 'none') return { token: null }
     const fromVault = this.manager.isUnlocked() ? this.manager.payloadForSync().integrations.gitToken : null
@@ -318,14 +330,16 @@ export class SyncCoordinator {
       const localRepo = readRepo(this.options.repoDir)
 
       if (st.clean && localRepo !== null && remote.manifest.revision <= localRepo.manifest.revision && (await this.canFastForward(localHead, remoteHead))) {
-        await this.fastForward(repo.branch)
+        // 快进会让 manager 重读仓库（可能被远端换过口令槽）→ 没有 VMK 就保不住本机槽，宁可先要解锁
+        this.requireUnlocked()
+        await this.fastForward(repo.branch, 'sync-fast-forward')
         await this.finishSync('idle')
         return this.status()
       }
 
       if (st.clean && localHead !== null && (await this.canFastForward(localHead, remoteHead))) {
-        await this.fastForward(repo.branch)
-        await this.manager.reload()
+        this.requireUnlocked()
+        await this.fastForward(repo.branch, 'sync-fast-forward')
         await this.finishSync('idle')
         return this.status()
       }
@@ -363,8 +377,9 @@ export class SyncCoordinator {
 
       if (remoteHead !== null && remoteHead !== localHead) {
         if (await this.canFastForward(localHead, remoteHead)) {
-          await this.fastForward(repo.branch)
-          await this.manager.reload()
+          // 与 pull 快进同源：重读仓库前必须能保槽，否则远端换过的槽会静默留下
+          this.requireUnlocked()
+          await this.fastForward(repo.branch, 'sync-push')
         } else {
           const merged = await this.mergeFlow(repo, remoteHead, auth)
           if (merged.state === 'diverged') {
@@ -419,7 +434,13 @@ export class SyncCoordinator {
     // 全部解决完：写回密文、提交、推到远端（rebase 过远端，所以是快进）
     const repo = this.requireRepo()
     const merged = this.pending.merged
-    this.manager.applyMergedPayload(merged)
+    // AC-21：换槽权限只在 manager。冲突解决后的写回也必须走同一条 adopt 通道，
+    // 否则远端那份槽会被原样留下来，本地口令在下次上锁后失效。
+    this.manager.adoptRemotePayload({
+      payload: serializePayload(merged),
+      revision: this.manager.manifestForSync()?.revision ?? 0,
+      source: 'sync-push'
+    })
     await this.engine.commitAll('termans: resolve sync conflicts', repo.branch)
     const auth = await this.auth(repo)
     try {
@@ -531,6 +552,12 @@ export class SyncCoordinator {
     rmSync(join(this.options.repoDir, '.git'), { recursive: true, force: true })
 
     await this.engine.clone(repo.remoteUrl, repo.branch, auth)
+    // 【AC-21 的唯一例外 · I3】这里是全同步链里唯一允许「接受远端口令槽」的路径，且不是遗漏：
+    // 走到这里的前提是 localHead === null（本机从未提交过）+ 本地无任何数据可丢，也就是
+    // 「新机器第一次把别人的库搬过来」。这台机器此刻没有属于本机权威槽（没有 VMK、没有
+    // local.json.slot），远端那份槽就是它未来唯一能用的锁 —— 保槽在这里没有对象可保。
+    // 其它三条路径（快进 / 无冲突合并 / 冲突后推送）一律走 manager.adoptRemotePayload()，
+    // 不要往这里加 requireUnlocked：上面几行刚主动 lock()，加了会把 bootstrap 路径打死。
     this.manager.reload()
     this.localCommit = await this.engine.head()
     this.remoteCommit = remoteHead
@@ -579,9 +606,15 @@ export class SyncCoordinator {
     }
   }
 
-  private async fastForward(branch: string): Promise<void> {
+  /**
+   * 快进到远端提交后重读仓库。
+   *
+   * AC-21：`source` 一路传进 `manager.reload(source)` —— 它是 manager 在锁定态记 `slotDrift`
+   * 时的归因字段。调用方必须先 `requireUnlocked()`：只有解锁态才能把本机槽写回去。
+   */
+  private async fastForward(branch: string, source: 'sync-fast-forward' | 'sync-push'): Promise<void> {
     await this.engine.fastForward(branch)
-    await this.manager.reload()
+    await this.manager.reload(source)
   }
 
   private async readRemoteVault(oid: string): Promise<{ manifest: VaultManifest; encBytes: Buffer }> {
@@ -633,7 +666,7 @@ export class SyncCoordinator {
       saveConflictState(this.options.localDir, this.box, state)
       // 工作区对齐远端（本地那份已在快照里），这样解决完后推送一定是快进
       await this.engine.resetTo(repo.branch, remoteHead)
-      await this.manager.reload()
+      await this.manager.reload('sync-merge')
       this.pending = state
       this.state = 'diverged'
       this.error = null
@@ -643,8 +676,14 @@ export class SyncCoordinator {
 
     // 无冲突：rebase 到远端之上，再把合并结果写成一个新提交
     await this.engine.resetTo(repo.branch, remoteHead)
-    await this.manager.reload()
-    this.manager.applyMergedPayload(merged)
+    // AC-21：合并结果也必须走 adopt 通道 —— 只把 payload/revision 交进去，
+    // 「用谁的锁」由 manager 决定（远端换过槽时它会用本机槽把合并结果重新封回去）。
+    await this.manager.reload('sync-merge')
+    this.manager.adoptRemotePayload({
+      payload: serializePayload(merged),
+      revision: remote.manifest.revision,
+      source: 'sync-merge'
+    })
     await this.engine.commitAll(`termans: merge remote revision ${remote.manifest.revision}`, repo.branch)
     await this.pushWithRetry(repo.remoteUrl, repo.branch, auth)
     void autoApplied

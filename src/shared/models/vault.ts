@@ -70,6 +70,64 @@ export const vaultContentPolicySchema = z.object({
 })
 export type VaultContentPolicy = z.infer<typeof vaultContentPolicySchema>
 
+/**
+ * 解锁失败的**四分类**（r3，AC-1/AC-2）。
+ *
+ * 这是「口令不对」与「本机记录对不上」在进程边界的唯一词表：渲染层只认 `class`，
+ * **不许**用 `details.reason` 反推（errors.ts 的 reason 是给主进程归因用的内部词表，
+ * 两套词表各管一段，混用会让四分类出现第二个实现）。
+ *
+ * - `bad-passphrase`：口令本身不对（用户可重试）
+ * - `throttled`：连错次数触顶，`retryAfterSeconds` 告诉 UI 还要等多久
+ * - `slot-record-mismatch`：口令槽密文与本机 `local.json` 记录不一致（同步换过槽 / 本机记录陈旧）
+ * - `corrupt`：数据真的坏了（重试没有意义）
+ */
+export const unlockFailureClassSchema = z.enum(['bad-passphrase', 'throttled', 'slot-record-mismatch', 'corrupt'])
+export type UnlockFailureClass = z.infer<typeof unlockFailureClassSchema>
+
+export const vaultUnlockFailureSchema = z.object({
+  class: unlockFailureClassSchema,
+  /** 仅 `throttled` 有值：还需等待的整秒数（主进程按剩余毫秒向上取整） */
+  retryAfterSeconds: z.number().int().min(0).optional()
+})
+export type VaultUnlockFailure = z.infer<typeof vaultUnlockFailureSchema>
+
+/**
+ * 库列表条目（r3 多库，AC-10..AC-14）。
+ *
+ * **不含路径**：DESIGN §4.4 明确诊断区/库列表不显示任何文件路径（`/Users/<用户名>/…`
+ * 本身就是用户名泄露）；路径解析留在主进程 `library-index.ts` 里。
+ */
+export const vaultLibraryMetaSchema = z.object({
+  id: z.string().min(1),
+  /** 用户起的库名；默认库没起名 → null（渲染层显示「默认库」） */
+  name: z.string().min(1).nullable(),
+  createdAt: isoTimestampSchema.nullable(),
+  lastUnlockedAt: isoTimestampSchema.nullable(),
+  isCurrent: z.boolean()
+})
+export type VaultLibraryMeta = z.infer<typeof vaultLibraryMetaSchema>
+
+export const vaultLibraryCreateRequestSchema = z
+  .object({ name: z.string().min(1).max(64), rememberWithKeychain: z.boolean() })
+  .strict()
+export type VaultLibraryCreateRequest = z.infer<typeof vaultLibraryCreateRequestSchema>
+
+export const vaultLibrarySwitchRequestSchema = z.object({ id: z.string().min(1) }).strict()
+export type VaultLibrarySwitchRequest = z.infer<typeof vaultLibrarySwitchRequestSchema>
+
+/**
+ * AC-7 的一次性告知条载体：口令命中了「受控输入变体」（全角/首尾空格/零宽字符），
+ * 主进程已用规范形重封了口令槽，用户在顶部看到一次、关掉后不再出现。
+ * 挂在 `VaultStatus` 上而不是新增事件通道：命中那一刻已经解锁，解锁卡已卸载，
+ * 收到的是 `vault:state-changed` 推来的状态 —— 多一条通道会让"关掉没关掉"分裂成两处状态。
+ */
+export const vaultVariantNoticeSchema = z.object({
+  variant: z.enum(['nfkc', 'trim', 'strip-zero-width']),
+  at: isoTimestampSchema
+})
+export type VaultVariantNotice = z.infer<typeof vaultVariantNoticeSchema>
+
 export const vaultStatusSchema = z.object({
   state: vaultStateSchema,
   cipher: z.literal('aes-256-gcm').nullable(),
@@ -90,7 +148,20 @@ export const vaultStatusSchema = z.object({
     .nullable(),
   createdAt: isoTimestampSchema.nullable(),
   lastUnlockedAt: isoTimestampSchema.nullable(),
-  lastSyncedAt: isoTimestampSchema.nullable()
+  lastSyncedAt: isoTimestampSchema.nullable(),
+  /** payload 版本号（每次写操作 +1）：诊断区「证据六项」之一 */
+  revision: z.number().int().min(0),
+  /**
+   * 本机口令槽密文的 8 位小写 hex 指纹（`envelope.ts:slotFingerprint` 单点算出）。
+   * 无记录（旧版本库 / 从未成功解锁）时为 null —— 诊断区显示「未知」，**不填 0、不填当前时间**。
+   */
+  slotFingerprint: z.string().regex(/^[0-9a-f]{8}$/).nullable(),
+  /** 本机已知的库（一次只活一个 manager，`isCurrent` 标出当前库） */
+  libraries: z.array(vaultLibraryMetaSchema),
+  /** 上一次解锁失败的分类；成功解锁 / 关闭诊断后清空 */
+  unlockFailure: vaultUnlockFailureSchema.nullable(),
+  /** AC-7 变体命中后的一次性告知条；关闭后为 null */
+  variantNotice: vaultVariantNoticeSchema.nullable()
 })
 export type VaultStatus = z.infer<typeof vaultStatusSchema>
 

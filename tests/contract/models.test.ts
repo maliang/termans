@@ -11,7 +11,13 @@ import {
   settingsSchema,
   sshConfigFieldUpdateSchema,
   terminalSizeSchema,
+  unlockFailureClassSchema,
   vaultContentPolicySchema,
+  vaultLibraryCreateRequestSchema,
+  vaultLibraryMetaSchema,
+  vaultLibrarySwitchRequestSchema,
+  vaultStatusSchema,
+  vaultUnlockFailureSchema,
   withDefaults
 } from '@shared'
 
@@ -153,6 +159,110 @@ describe('AI 思考强度与模型清单契约', () => {
     expect(() =>
       aiListModelsResultSchema.parse({ models: [], error: null, failure: { kind: 'unknown', status: null, message: '' } })
     ).toThrow()
+  })
+})
+
+describe('加密包解锁归因与多库契约（r3）', () => {
+  /** 一份形状合法的 VaultStatus：用来逐字段证明「五个新字段必填」 */
+  const validStatus = {
+    state: 'locked' as const,
+    cipher: 'aes-256-gcm' as const,
+    kdf: { name: 'scrypt' as const, N: 16384, r: 8, p: 1 },
+    recoveryAvailable: true,
+    keychainBacked: false,
+    repo: null,
+    policy: { secretsExcluded: true as const, privateKeysExcluded: true as const, plaintextHostnamesInRepo: false as const },
+    itemCounts: null,
+    createdAt: '2026-11-01T09:00:00.000Z',
+    lastUnlockedAt: null,
+    lastSyncedAt: null,
+    revision: 3,
+    slotFingerprint: 'a1b2c3d4',
+    libraries: [{ id: 'default', name: null, createdAt: '2026-11-01T09:00:00.000Z', lastUnlockedAt: null, isCurrent: true }],
+    unlockFailure: { class: 'bad-passphrase' as const },
+    variantNotice: null
+  }
+
+  it('四分类只认四个词（渲染层靠 class 归因，不靠 reason 反推）', () => {
+    for (const cls of ['bad-passphrase', 'throttled', 'slot-record-mismatch', 'corrupt']) {
+      expect(unlockFailureClassSchema.parse(cls)).toBe(cls)
+    }
+    // 词表外的任何值都必须拒绝：多一个词就等于多一套没人写文案的失败态
+    expect(() => unlockFailureClassSchema.parse('password-wrong')).toThrow()
+    expect(() => unlockFailureClassSchema.parse('')).toThrow()
+    expect(unlockFailureClassSchema.options).toHaveLength(4)
+  })
+
+  it('retryAfterSeconds 只在 throttled 有意义，且必须是整秒非负', () => {
+    expect(vaultUnlockFailureSchema.parse({ class: 'throttled', retryAfterSeconds: 30 }).retryAfterSeconds).toBe(30)
+    // 非限流失败不带倒计时（UI 那行 mono 倒计时只在 throttled 出现）
+    expect(vaultUnlockFailureSchema.parse({ class: 'bad-passphrase' }).retryAfterSeconds).toBeUndefined()
+    expect(() => vaultUnlockFailureSchema.parse({ class: 'throttled', retryAfterSeconds: -1 })).toThrow()
+    expect(() => vaultUnlockFailureSchema.parse({ class: 'throttled', retryAfterSeconds: 1.5 })).toThrow()
+  })
+
+  it('库列表条目：name 可空、isCurrent 必填，且不携带任何路径', () => {
+    const meta = vaultLibraryMetaSchema.parse({
+      id: 'lib-1',
+      name: null,
+      createdAt: null,
+      lastUnlockedAt: '2026-11-01T09:00:00.000Z',
+      isCurrent: false,
+      // 主进程就算手滑把路径塞进来，契约层也必须把它剔掉（扩香不出去：路径=用户名泄露）
+      repoDir: '/Users/me/Library/Application Support/termans/vaults/lib-1/repo'
+    }) as Record<string, unknown>
+    expect('repoDir' in meta).toBe(false)
+    expect(meta.name).toBeNull()
+    expect(() => vaultLibraryMetaSchema.parse({ id: 'lib-1', name: null, createdAt: null, lastUnlockedAt: null })).toThrow()
+  })
+
+  it('新建/切换库请求是 strict：多一个字段就拒（AC-14 判重前应先过契约）', () => {
+    expect(vaultLibraryCreateRequestSchema.parse({ name: '工作库', rememberWithKeychain: false })).toEqual({
+      name: '工作库',
+      rememberWithKeychain: false
+    })
+    expect(() => vaultLibraryCreateRequestSchema.parse({ name: '', rememberWithKeychain: false })).toThrow()
+    expect(() => vaultLibraryCreateRequestSchema.parse({ name: 'x'.repeat(65), rememberWithKeychain: false })).toThrow()
+    expect(() => vaultLibraryCreateRequestSchema.parse({ name: '工作库' })).toThrow()
+    expect(() => vaultLibraryCreateRequestSchema.parse({ name: '工作库', rememberWithKeychain: false, path: '/tmp/x' })).toThrow()
+    expect(vaultLibrarySwitchRequestSchema.parse({ id: 'default' }).id).toBe('default')
+    expect(() => vaultLibrarySwitchRequestSchema.parse({})).toThrow()
+    expect(() => vaultLibrarySwitchRequestSchema.parse({ id: 'default', force: true })).toThrow()
+  })
+
+  it('VaultStatus 的五个新字段都是必填（漏一个就等于诊断区少一项证据）', () => {
+    const parsed = vaultStatusSchema.parse(validStatus)
+    expect(parsed.revision).toBe(3)
+    expect(parsed.slotFingerprint).toBe('a1b2c3d4')
+    expect(parsed.libraries).toHaveLength(1)
+    expect(parsed.unlockFailure?.class).toBe('bad-passphrase')
+    expect(parsed.variantNotice).toBeNull()
+
+    for (const key of ['revision', 'slotFingerprint', 'libraries', 'unlockFailure', 'variantNotice']) {
+      const without = { ...validStatus } as Record<string, unknown>
+      delete without[key]
+      expect(() => vaultStatusSchema.parse(without), `缺 ${key} 必须判不合格`).toThrow()
+    }
+  })
+
+  it('slotFingerprint 只认 8 位小写 hex；无记录用 null（不填 0、不填当前时间）', () => {
+    expect(vaultStatusSchema.parse({ ...validStatus, slotFingerprint: null }).slotFingerprint).toBeNull()
+    expect(() => vaultStatusSchema.parse({ ...validStatus, slotFingerprint: 'A1B2C3D4' })).toThrow()
+    expect(() => vaultStatusSchema.parse({ ...validStatus, slotFingerprint: 'a1b2c3d' })).toThrow()
+    expect(() => vaultStatusSchema.parse({ ...validStatus, slotFingerprint: 'a1b2c3d4e5' })).toThrow()
+    expect(() => vaultStatusSchema.parse({ ...validStatus, slotFingerprint: 0 })).toThrow()
+  })
+
+  it('AC-7 告知条只认三种受控变体，且必须带时间戳', () => {
+    for (const variant of ['nfkc', 'trim', 'strip-zero-width'] as const) {
+      const notice = vaultStatusSchema.parse({
+        ...validStatus,
+        variantNotice: { variant, at: '2026-11-01T09:00:00.000Z' }
+      }).variantNotice
+      expect(notice?.variant).toBe(variant)
+    }
+    expect(() => vaultStatusSchema.parse({ ...validStatus, variantNotice: { variant: 'latin', at: '2026-11-01T09:00:00.000Z' } })).toThrow()
+    expect(() => vaultStatusSchema.parse({ ...validStatus, variantNotice: { variant: 'nfkc' } })).toThrow()
   })
 })
 

@@ -6,16 +6,20 @@ import {
   VaultCryptoError,
   assertCostWithinBounds,
   assertIntegrity,
+  assertKdfSalt,
+  assertSlotBinding,
   createVault,
   estimateKdfMemoryBytes,
   keywrapDigest,
   openVault,
   parseEnvelope,
   payloadDigest,
+  resealPassphraseSlot,
   resealPayload,
   rewrapVault,
   serializeEnvelope,
   sha256Hex,
+  slotFingerprint,
   zeroize,
   type ScryptCost,
   type VaultManifest
@@ -263,12 +267,23 @@ describe('envelope / 篡改与损坏必须失败', () => {
 describe('envelope / 改数据与轮换', () => {
   it('resealPayload 换 payload 不动密钥槽与 salt（B 机旧口令照样能解）', () => {
     const { manifest, encBytes, vaultKey } = newVault()
-    const salt = parseEnvelope(encBytes).kdf.salt
+    const envelope = parseEnvelope(encBytes)
+    const salt = envelope.kdf.salt
     const next = JSON.stringify({ schemaVersion: 1, hosts: [], revision: 'second' })
-    const resealed = resealPayload({ manifest, vaultKey, payload: next, revision: manifest.revision + 1, kdfSalt: salt })
+    const resealed = resealPayload({
+      manifest,
+      envelope,
+      expectedKdfSalt: salt,
+      vaultKey,
+      payload: next,
+      revision: manifest.revision + 1
+    })
     expect(resealed.manifest.revision).toBe(1)
     expect(resealed.manifest.passphraseKey).toEqual(manifest.passphraseKey)
+    expect(resealed.envelope.kdf.salt).toBe(salt)
     expect(parseEnvelope(resealed.encBytes).kdf.salt).toBe(salt)
+    // 只有一个真相：返回的信封必须就是落盘字节解析出来的那只
+    expect(resealed.envelope).toEqual(parseEnvelope(resealed.encBytes))
     const opened = openVault({ manifest: resealed.manifest, encBytes: resealed.encBytes, credential: { passphrase: PASSPHRASE } })
     expect(opened.payload).toBe(next)
     // 旧密文也还在（快照语义）
@@ -327,6 +342,211 @@ describe('envelope / 改数据与轮换', () => {
     expect(
       openVault({ manifest: rewrapped.manifest, encBytes: rewrapped.encBytes, credential: { recoveryCode } }).payload
     ).toBe(PAYLOAD)
+    zeroize(vaultKey)
+  })
+})
+
+describe('envelope / 槽盐绑定与重封（AC-22 / AC-2 / AC-7）', () => {
+  it('AC-22 盐与信封错配必须拒绝重封（另一只库的 salt → corrupt，绝不产出 AAD 失配的库）', () => {
+    // 回退点：src/main/crypto/envelope.ts:644 `assertKdfSalt(input.expectedKdfSalt, input.envelope)` 删掉
+    // → 本例必红（不抛，静默产出一只「槽是 A 机、盐是 B 机」的库，症状 = bad-passphrase）
+    const local = newVault()
+    const other = newVault()
+    const localEnvelope = parseEnvelope(local.encBytes)
+    const otherSalt = parseEnvelope(other.encBytes).kdf.salt
+    expect(otherSalt).not.toBe(localEnvelope.kdf.salt)
+    const before = Buffer.from(local.encBytes)
+
+    // 旧 API 完全允许的误用：拿 B 机的 salt 配本机的口令槽
+    expectCryptoError(
+      () =>
+        resealPayload({
+          manifest: local.manifest,
+          envelope: localEnvelope,
+          expectedKdfSalt: otherSalt,
+          vaultKey: local.vaultKey,
+          payload: PAYLOAD,
+          revision: local.manifest.revision + 1
+        }),
+      'corrupt'
+    )
+    // 同一条硬断言单独可判：不等即抛，相等放行（错误码固定 corrupt，不掺 bad-passphrase）
+    expectCryptoError(() => assertKdfSalt(otherSalt, localEnvelope), 'corrupt')
+    expect(() => assertKdfSalt(localEnvelope.kdf.salt, localEnvelope)).not.toThrow()
+    // 抛错前不得改动任何入参（落盘方的 writeRepo 因此永远拿不到半成品）
+    expect(local.encBytes.equals(before)).toBe(true)
+    expect(parseEnvelope(local.encBytes).kdf.salt).toBe(localEnvelope.kdf.salt)
+    zeroize(local.vaultKey)
+    zeroize(other.vaultKey)
+  })
+
+  it('AC-2 slotFingerprint 口径：sha256(槽密文原始字节) 前 8 位小写 hex，只认这一种算法', () => {
+    // 回退点：src/main/crypto/envelope.ts:398-402 把实现改成 `sha256Hex(manifest.passphraseKey.ciphertext)`
+    // （对 base64 串而不是解码后的字节取摘要）或改成 64 位全长 → 第 1、2 条断言必红
+    const { manifest } = newVault()
+    const expected = sha256Hex(Buffer.from(manifest.passphraseKey.ciphertext, 'base64')).slice(0, 8)
+    expect(slotFingerprint(manifest)).toBe(expected)
+    expect(slotFingerprint(manifest)).toMatch(/^[0-9a-f]{8}$/)
+    // 同一口令 + 不同 salt ⇒ 不同槽密文 ⇒ 不同指纹（否则「两台机器的库」无法区分）
+    const other = newVault()
+    expect(slotFingerprint(other.manifest)).not.toBe(slotFingerprint(manifest))
+    // 指纹是内容摘要，不是「有槽/无槽」的布尔值
+    const forged: VaultManifest = {
+      ...manifest,
+      passphraseKey: { ...manifest.passphraseKey, ciphertext: randomBytes(48).toString('base64') }
+    }
+    expect(slotFingerprint(forged)).not.toBe(slotFingerprint(manifest))
+  })
+
+  it('AC-7 resealPassphraseSlot 产出成对结果：新 salt + 新槽，新口令可开、旧口令失效、恢复码照旧可用', () => {
+    // 回退点：src/main/crypto/envelope.ts:700 把 `randomBytes(SALT_BYTES)` 换成复用 `input.envelope.kdf.salt`
+    // → `expect(resealed.envelope.kdf.salt).not.toBe(oldSalt)` 必红（AC-7 要的正是「换盐重封」）
+    const { manifest, encBytes, vaultKey, recoveryCode } = newVault()
+    const envelope = parseEnvelope(encBytes)
+    const oldSalt = envelope.kdf.salt
+    const oldFingerprint = slotFingerprint(manifest)
+
+    const resealed = resealPassphraseSlot({
+      manifest,
+      envelope,
+      vaultKey,
+      passphrase: NEXT_PASSPHRASE,
+      revision: manifest.revision + 1
+    })
+
+    // 成对 + 换盐
+    expect(resealed.envelope).toEqual(parseEnvelope(resealed.encBytes))
+    expect(resealed.envelope.kdf.salt).not.toBe(oldSalt)
+    // 指纹跟着变，且等于单点实现的结果（manager 把它记进 LocalSlotRecord）
+    expect(resealed.fingerprint).toBe(slotFingerprint(resealed.manifest))
+    expect(resealed.fingerprint).not.toBe(oldFingerprint)
+
+    const openedNew = openVault({
+      manifest: resealed.manifest,
+      encBytes: resealed.encBytes,
+      credential: { passphrase: NEXT_PASSPHRASE }
+    })
+    expect(openedNew.payload).toBe(PAYLOAD)
+    expect(openedNew.vaultKey.equals(vaultKey)).toBe(true)
+
+    expectCryptoError(
+      () =>
+        openVault({
+          manifest: resealed.manifest,
+          encBytes: resealed.encBytes,
+          credential: { passphrase: PASSPHRASE }
+        }),
+      'bad-passphrase'
+    )
+
+    // 恢复码槽原样保留：换口令盐不许把恢复码一起弄坏
+    expect(resealed.manifest.recoveryKey).toEqual(manifest.recoveryKey)
+    expect(openVault({ manifest: resealed.manifest, encBytes: resealed.encBytes, credential: { recoveryCode } }).payload).toBe(
+      PAYLOAD
+    )
+
+    // 换 scrypt 参数会让恢复码槽解不开（这里拿不到恢复码、无法同步重封）→ 明确拒，不做半套
+    expectCryptoError(
+      () =>
+        resealPassphraseSlot({
+          manifest,
+          envelope,
+          vaultKey,
+          passphrase: NEXT_PASSPHRASE,
+          cost: { ...SCRYPT_TEST, N: SCRYPT_TEST.N * 2 },
+          revision: 1
+        }),
+      'bad-params'
+    )
+
+    zeroize(vaultKey)
+    zeroize(openedNew.vaultKey)
+  })
+
+  it('assertSlotBinding 挡结构性漂移（参数不一致 / 槽被改）但辨认不出身份错配 —— 后者交给指纹', () => {
+    // 回退点：src/main/crypto/envelope.ts:473-479 删掉 `assertSlotBinding` 里任一条检查
+    // → 对应的 expectCryptoError 必红
+    const { manifest, encBytes } = newVault()
+    const envelope = parseEnvelope(encBytes)
+    expect(() => assertSlotBinding(manifest, envelope)).not.toThrow()
+
+    // 1) kdf 参数漂移
+    expectCryptoError(
+      () => assertSlotBinding(manifest, { ...envelope, kdf: { ...envelope.kdf, r: envelope.kdf.r + 1 } }),
+      'corrupt'
+    )
+    // 2) 槽被改却假装摘要没变
+    const tampered: VaultManifest = {
+      ...manifest,
+      passphraseKey: { ...manifest.passphraseKey, ciphertext: randomBytes(48).toString('base64') }
+    }
+    expectCryptoError(() => assertSlotBinding(tampered, envelope), 'corrupt')
+
+    // 3) 边界（这条断言本身就是文档）：把另一只库的槽 + 重算后的摘要放进来，结构检查**照样放行** ——
+    //    所以「槽盐来自不同库」只能由 LocalSlotRecord 的指纹对账发现（AC-2），这正是指纹存在的理由。
+    const other = newVault()
+    const swapped: VaultManifest = { ...manifest, passphraseKey: other.manifest.passphraseKey }
+    swapped.keywrap_sha256 = keywrapDigest(swapped)
+    expect(() => assertSlotBinding(swapped, envelope)).not.toThrow()
+    expect(slotFingerprint(swapped)).not.toBe(slotFingerprint(manifest))
+  })
+
+  it('AC-9 onKekDerived 只在口令派生时回调一次（recovery / keychain 分支不回调）', () => {
+    // 回退点：src/main/crypto/envelope.ts:594 把 `onKekDerived?.()` 从口令分支挪到 `openPayloadBytes` 开头
+    // （覆盖三个分支）→ 最后一条 `expect(derived).toBe(0)` 必红
+    const { manifest, encBytes, vaultKey, recoveryCode } = newVault()
+
+    let derived = 0
+    const opened = openVault({
+      manifest,
+      encBytes,
+      credential: { passphrase: PASSPHRASE },
+      onKekDerived: () => {
+        derived += 1
+      }
+    })
+    expect(derived).toBe(1)
+    zeroize(opened.vaultKey)
+
+    // 口令错也如实计数：失败路径不能被「看起来 0 次」掩盖
+    derived = 0
+    expectCryptoError(
+      () =>
+        openVault({
+          manifest,
+          encBytes,
+          credential: { passphrase: 'wrong passphrase' },
+          onKekDerived: () => {
+            derived += 1
+          }
+        }),
+      'bad-passphrase'
+    )
+    expect(derived).toBe(1)
+
+    // 恢复码 / keychain 不派生口令 KEK（把计数算进来会让 AC-9 的「≤4 次」判据失真）
+    derived = 0
+    const viaRecovery = openVault({
+      manifest,
+      encBytes,
+      credential: { recoveryCode },
+      onKekDerived: () => {
+        derived += 1
+      }
+    })
+    const viaKeychain = openVault({
+      manifest,
+      encBytes,
+      credential: { vaultKey },
+      onKekDerived: () => {
+        derived += 1
+      }
+    })
+    expect(derived).toBe(0)
+    expect(viaRecovery.slot).toBe('recovery')
+    expect(viaKeychain.slot).toBe('keychain')
+    zeroize(viaRecovery.vaultKey)
+    zeroize(viaKeychain.vaultKey)
     zeroize(vaultKey)
   })
 })

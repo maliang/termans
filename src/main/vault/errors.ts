@@ -29,6 +29,12 @@ export type VaultFailureReason =
   | 'not-found'
   | 'conflict'
   | 'git'
+  /** r3：口令槽密文与 local.json 记录里的 8 位指纹对不上（AC-2 的归因原料） */
+  | 'slot-record-mismatch'
+  /** r3：同步换过槽（本机记录与远端槽不同源，manager 已保本地槽重封） */
+  | 'slot-drift'
+  /** r3：新建库时库名已被占用（AC-14 判重的第二个字段） */
+  | 'name-taken'
 
 /**
  * 把加密层的 `VaultCryptoError` 翻译成 IPC 错误。

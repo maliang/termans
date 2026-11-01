@@ -1,9 +1,10 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { IpcCallError } from '@shared'
-import { SCRYPT_TEST, openVault, resealPayload } from '../crypto'
+import { SCRYPT_TEST, openVault, resealPassphraseSlot, resealPayload, slotFingerprint } from '../crypto'
+import { passphraseVariants } from '../crypto/passphrase'
 import { VaultManager } from './manager'
 import { createFileSecretBox } from './secret-box'
 import * as modelModule from './model'
@@ -39,6 +40,8 @@ interface ManagerOptions {
   clock?: () => number
   autoLockMinutes?: number
   requirePassphraseOnLaunch?: boolean
+  passphraseVariants?: boolean
+  onKekDerived?: () => void
 }
 
 function makeManager(options: ManagerOptions = {}): VaultManager {
@@ -49,7 +52,9 @@ function makeManager(options: ManagerOptions = {}): VaultManager {
     cost: SCRYPT_TEST,
     autoLockMinutes: options.autoLockMinutes ?? 0,
     requirePassphraseOnLaunch: options.requirePassphraseOnLaunch ?? true,
-    clock: options.clock
+    clock: options.clock,
+    passphraseVariants: options.passphraseVariants,
+    onKekDerived: options.onKekDerived
   })
 }
 
@@ -437,12 +442,13 @@ describe('VaultManager：AI 供应商配置（t5 写入）', () => {
     delete legacyPayload.integrations.aiProvidersConfig
     const resealed = resealPayload({
       manifest: snapshot!.manifest,
+      envelope: snapshot!.envelope,
+      expectedKdfSalt: snapshot!.envelope.kdf.salt,
       vaultKey: opened.vaultKey,
       payload: JSON.stringify(legacyPayload),
-      revision: snapshot!.manifest.revision + 1,
-      kdfSalt: snapshot!.envelope.kdf.salt
+      revision: snapshot!.manifest.revision + 1
     })
-    writeRepo(repoDir, { manifest: resealed.manifest, encBytes: resealed.encBytes, themes: [] })
+    writeRepo(repoDir, { manifest: resealed.manifest, envelope: resealed.envelope, encBytes: resealed.encBytes, themes: [] }, localDir)
 
     const reopened = makeManager()
     reopened.init()
@@ -538,5 +544,282 @@ describe('VaultManager：ssh_config 与 themes', () => {
     expect(listRepoFiles(repoDir)).toEqual(['manifest.json', 'vault.enc'])
     expect(readFileSync(join(repoDir, 'themes', 'my-theme.json'), 'utf8')).toContain('#ff0000')
     expect(statSync(join(repoDir, 'vault.enc')).mode & 0o777).toBe(0o600)
+  })
+})
+
+const FULLWIDTH_PASSPHRASE = PASSPHRASE.replace(/[a-z]/g, (char) =>
+  String.fromCharCode(char.charCodeAt(0) + 0xfee0)
+)
+
+function makeManagerAt(repo: string, local: string): VaultManager {
+  return new VaultManager({
+    repoDir: repo,
+    localDir: local,
+    box: createFileSecretBox(local),
+    cost: SCRYPT_TEST,
+    autoLockMinutes: 0,
+    requirePassphraseOnLaunch: true
+  })
+}
+
+describe('本机权威槽、变体解锁与归因（r3 · AC-1/2/7/8/9/18/21/22/24）', () => {
+  it('创建后把口令槽连同盐一起落到 local.json，锁定时仍能自证（回退点：manager.ts rememberSlot()），删掉槽写入即 state.slotFingerprint 回 null', () => {
+    const manager = makeManager()
+    manager.create(PASSPHRASE)
+    const slot = manager.localSlot()
+    expect(slot).not.toBeNull()
+    expect(slot!.fingerprint).toMatch(/^[0-9a-f]{8}$/)
+    expect(slot!.salt.length).toBeGreaterThan(15)
+    expect(manager.status().slotFingerprint).toBe(slot!.fingerprint)
+    manager.lock()
+    expect(manager.status().slotFingerprint).toBe(slot!.fingerprint)
+    const local = JSON.parse(readFileSync(join(localDir, 'local.json'), 'utf8')) as {
+      version: number
+      slot: { salt: string; fingerprint: string } | null
+    }
+    expect(local.version).toBe(2)
+    expect(local.slot?.salt).toBe(slot!.salt)
+  })
+
+  it('仓库被另一台机器的整份仓库覆盖后，解锁归因为 slot-record-mismatch（回退点：manager.ts recordUnlockFailure() 传入的 recordedFingerprint），且本机槽不被覆盖', () => {
+    const manager = makeManager()
+    manager.create(PASSPHRASE)
+    const recorded = manager.localSlot()!.fingerprint
+    manager.lock()
+    const otherRepo = join(root, 'vault-other')
+    const otherLocal = join(root, 'vault-local-other')
+    const other = makeManagerAt(otherRepo, otherLocal)
+    other.create(NEW_PASSPHRASE)
+    copyFileSync(join(otherRepo, 'manifest.json'), join(repoDir, 'manifest.json'))
+    copyFileSync(join(otherRepo, 'vault.enc'), join(repoDir, 'vault.enc'))
+    expect(slotFingerprint(readRepo(repoDir, localDir)!.manifest)).not.toBe(recorded)
+    expect(() => manager.unlock(PASSPHRASE, false)).toThrow()
+    expect(manager.status().unlockFailure?.class).toBe('slot-record-mismatch')
+    expect(manager.localSlot()!.fingerprint).toBe(recorded)
+  })
+
+  it('仓储字节坏了（payload 摘要对不上）→ 归因为 corrupt，且启动即可见（AC-1；回退点：manager.ts init()/unlock() 里读仓储失败的两处 recordUnlockFailure）', () => {
+    const manager = makeManager()
+    manager.create(PASSPHRASE)
+    manager.lock()
+    const encPath = join(repoDir, 'vault.enc')
+    const bytes = readFileSync(encPath)
+    bytes[bytes.length - 1] ^= 0xff
+    writeFileSync(encPath, bytes)
+
+    // 读仓储就失败 ⇒ 启动时（还没输过口令）status 里就该带归因，用户不必先白输一次
+    const booted = makeManager().init()
+    expect(booted.state).toBe('locked')
+    expect(booted.unlockFailure?.class).toBe('corrupt')
+
+    // 真去解锁也必须仍是 corrupt，绝不能被 GCM 失败糊成 bad-passphrase
+    expect(() => manager.unlock(PASSPHRASE, false)).toThrow()
+    expect(manager.status().unlockFailure?.class).toBe('corrupt')
+  })
+
+  it('本机槽盐与仓库信封盐不一致时拒绝重封、盘上零写入（AC-22；回退点：manager.ts afterMutation() 里 envelope.kdf.salt !== slot.salt 那段守卫）', () => {
+    const manager = makeManager()
+    manager.create(PASSPHRASE)
+    const slot = manager.localSlot()!
+    const beforeEnc = readFileSync(join(repoDir, 'vault.enc'))
+    const beforeManifest = readFileSync(join(repoDir, 'manifest.json'))
+    // 直接把这个「任何写路径都产生不了」的状态注入内存：信封盐换成另一只
+    const internals = manager as unknown as { local: { slot: { salt: string } } }
+    internals.local.slot = { ...slot, salt: Buffer.alloc(16, 0).toString('base64') }
+    expectIpc(() => manager.setThemes([]), 'E_IO', 'slot-record-mismatch')
+    expect(readFileSync(join(repoDir, 'vault.enc')).equals(beforeEnc)).toBe(true)
+    expect(readFileSync(join(repoDir, 'manifest.json')).equals(beforeManifest)).toBe(true)
+  })
+
+  it('变体命中后换成规范形槽并留一次性告知（AC-7/AC-8；回退点：manager.ts unlock() 的 candidates 循环与 resealToCanonical()）；全角口令因 deriveKek 自带 NFKC 归一而在 identity 即命中，属已知边界', () => {
+    const manager = makeManager()
+    manager.create(PASSPHRASE)
+    manager.createHost(hostInput({ label: 'survives-variant' }))
+    const before = manager.localSlot()!
+    manager.lock()
+    // deriveKek() 内部 secret.normalize('NFKC')（envelope.ts:314，r3 之前既有行为）⇒ 全角输入
+    // 与原样输入派生出同一只 KEK，identity 直接命中、不会进入变体分支、也不弹告知条。
+    const fullwidth = manager.unlock(FULLWIDTH_PASSPHRASE, false)
+    expect(fullwidth.state).toBe('unlocked')
+    expect(fullwidth.variantNotice).toBeNull()
+    expect(manager.localSlot()!.fingerprint).toBe(before.fingerprint)
+    manager.lock()
+    // 能真正命中变体的是「首尾空格」这类不被 NFKC 归一的输入
+    const status = manager.unlock(` ${PASSPHRASE} `, false)
+    expect(status.state).toBe('unlocked')
+    expect(status.variantNotice?.variant).toBe('trim')
+    expect(manager.listLibrary().hosts.map((host) => host.label)).toEqual(['survives-variant'])
+    const after = manager.localSlot()!
+    expect(after.fingerprint).not.toBe(before.fingerprint)
+    expect(after.salt).not.toBe(before.salt)
+    manager.lock()
+    expect(manager.unlock(PASSPHRASE, false).state).toBe('unlocked')
+    expect(manager.dismissVariantNotice().variantNotice).toBeNull()
+    const local = JSON.parse(readFileSync(join(localDir, 'local.json'), 'utf8')) as { variantNotice: unknown }
+    expect(local.variantNotice).toBeNull()
+  })
+
+  it('告知条是一次性提示：首次投递后持久记录即作废，重启不再复发（AC-7；回退点：manager.ts status() 里首次投递即清 local.variantNotice 的那三行）', () => {
+    const manager = makeManager()
+    manager.create(PASSPHRASE)
+    manager.lock()
+    expect(manager.unlock(` ${PASSPHRASE} `, false).variantNotice?.variant).toBe('trim')
+    // 同一次运行内再查状态也必须仍看得到（否则界面上的条会在下一次状态推送时闪没）
+    expect(manager.status().variantNotice?.variant).toBe('trim')
+    // 「一次性」的判据在盘上：投递过一次后 local.json 就不许再留着这条过期事实
+    const persisted = JSON.parse(readFileSync(join(localDir, 'local.json'), 'utf8')) as { variantNotice: unknown }
+    expect(persisted.variantNotice).toBeNull()
+    // 重启（同一 localDir 新建 manager）：不得再冒出「已按…修正输入编码差异」
+    const restarted = makeManager()
+    expect(restarted.unlock(PASSPHRASE, false).state).toBe('unlocked')
+    expect(restarted.status().variantNotice).toBeNull()
+  })
+
+  it('变体循环：identity 命中只派生 1 次，trim 命中派生 N+1 次（命中位置+重封自证），全变体失败只计 1 次失败（AC-9；回退点：manager.ts unlock() 循环外的那一次 registerFailure）', () => {
+    const counter = { derived: 0 }
+    const manager = makeManager({ onKekDerived: () => (counter.derived += 1) })
+    manager.create(PASSPHRASE)
+    manager.lock()
+    counter.derived = 0
+    expect(manager.unlock(PASSPHRASE, false).state).toBe('unlocked')
+    expect(counter.derived).toBe(1)
+    manager.lock()
+    counter.derived = 0
+    const trimmed = ` ${PASSPHRASE} `
+    const trimIndex = passphraseVariants(trimmed).findIndex((candidate) => candidate.variant === 'trim')
+    expect(manager.unlock(trimmed, false).state).toBe('unlocked')
+    // 前 trimIndex 个候选各失败一次 + 命中一次 + 重封后用规范形自证一次
+    expect(counter.derived).toBe(trimIndex + 2)
+    manager.lock()
+    const wrong = `${PASSPHRASE.replace('correct', 'wrong')} `
+    counter.derived = 0
+    expect(() => manager.unlock(wrong, false)).toThrow()
+    expect(counter.derived).toBe(passphraseVariants(wrong).length)
+    expect(manager.status().unlockFailure?.class).toBe('bad-passphrase')
+    // 一次错口令尝试 = 一次失败计数：再两次才进节流
+    expectIpc(() => manager.unlock(wrong, false), 'E_UNAUTHORIZED', 'bad-passphrase')
+    expectIpc(() => manager.unlock(wrong, false), 'E_UNAUTHORIZED', 'bad-passphrase')
+    // 第 4 次在入口就被限流拒掉，且归因随之翻成 throttled（带剩余秒数）
+    const throttledIpc = expectIpc(() => manager.unlock(wrong, false), 'E_UNAUTHORIZED', 'throttled')
+    expect((throttledIpc.details as { retryAfterMs?: number }).retryAfterMs).toBeGreaterThan(0)
+    const throttled = manager.status().unlockFailure
+    expect(throttled?.class).toBe('throttled')
+    expect(throttled?.retryAfterSeconds).toBeGreaterThan(0)
+  })
+
+  it('同步后 reload 保住本机槽：远端换过的槽被本机覆盖回写，本机口令仍可解锁（AC-21；回退点：manager.ts reload() 里 slotNeedsRebase() 分支）', () => {
+    const manager = makeManager()
+    manager.create(PASSPHRASE)
+    manager.createHost(hostInput({ label: 'keep-me' }))
+    const before = manager.localSlot()!
+    const snapshot = readRepo(repoDir, localDir)!
+    const opened = openVault({
+      manifest: snapshot.manifest,
+      encBytes: snapshot.encBytes,
+      credential: { passphrase: PASSPHRASE },
+      envelope: snapshot.envelope
+    })
+    const remote = resealPassphraseSlot({
+      manifest: snapshot.manifest,
+      envelope: snapshot.envelope,
+      vaultKey: opened.vaultKey,
+      passphrase: NEW_PASSPHRASE,
+      revision: snapshot.manifest.revision + 1
+    })
+    writeRepo(
+      repoDir,
+      { manifest: remote.manifest, envelope: remote.envelope, encBytes: remote.encBytes, themes: [] },
+      localDir
+    )
+    expect(slotFingerprint(remote.manifest)).not.toBe(before.fingerprint)
+    const status = manager.reload('sync-fast-forward')
+    expect(status.state).toBe('unlocked')
+    expect(manager.localSlot()!.fingerprint).toBe(before.fingerprint)
+    const after = readRepo(repoDir, localDir)!
+    expect(slotFingerprint(after.manifest)).toBe(before.fingerprint)
+    expect(after.envelope.kdf.salt).toBe(before.salt)
+    manager.lock()
+    expect(manager.unlock(PASSPHRASE, false).state).toBe('unlocked')
+    expect(manager.listLibrary().hosts.map((host) => host.label)).toEqual(['keep-me'])
+  })
+
+  it('锁定态同步：只记 slotDrift 绝不写盘，随后的解锁失败归因为 slot-record-mismatch（AC-2/AC-3；回退点：manager.ts reload() 的锁定态分支）', () => {
+    const manager = makeManager()
+    manager.create(PASSPHRASE)
+    const recorded = manager.localSlot()!.fingerprint
+    manager.lock()
+    const otherRepo = join(root, 'vault-other2')
+    const otherLocal = join(root, 'vault-local-other2')
+    makeManagerAt(otherRepo, otherLocal).create(NEW_PASSPHRASE)
+    copyFileSync(join(otherRepo, 'manifest.json'), join(repoDir, 'manifest.json'))
+    copyFileSync(join(otherRepo, 'vault.enc'), join(repoDir, 'vault.enc'))
+    const remoteManifest = readFileSync(join(repoDir, 'manifest.json'))
+    manager.reload('sync-merge')
+    expect(readFileSync(join(repoDir, 'manifest.json')).equals(remoteManifest)).toBe(true)
+    const local = JSON.parse(readFileSync(join(localDir, 'local.json'), 'utf8')) as {
+      slotDrift: { source: string; remoteFingerprint: string; recordedFingerprint: string | null } | null
+    }
+    expect(local.slotDrift?.source).toBe('sync-merge')
+    expect(local.slotDrift?.recordedFingerprint).toBe(recorded)
+    expect(local.slotDrift?.remoteFingerprint).not.toBe(recorded)
+    expect(() => manager.unlock(PASSPHRASE, false)).toThrow()
+    expect(manager.status().unlockFailure?.class).toBe('slot-record-mismatch')
+  })
+
+  it('记住本机后的会话恢复不写仓库（AC-24；回退点：manager.ts tryRestoreSession() 里只调 rememberSlot 不调 writeRepo）', () => {
+    const writer = makeManager()
+    writer.create(PASSPHRASE)
+    writer.createHost(hostInput({ label: 'restored' }))
+    writer.lock()
+    writer.unlock(PASSPHRASE, true)
+    const watched = ['manifest.json', 'vault.enc'].map((name) => ({
+      name,
+      bytes: readFileSync(join(repoDir, name)),
+      mtime: statSync(join(repoDir, name)).mtimeMs
+    }))
+    const restored = makeManager({ requirePassphraseOnLaunch: false })
+    restored.init()
+    expect(restored.status().state).toBe('unlocked')
+    expect(restored.listLibrary().hosts.map((host) => host.label)).toEqual(['restored'])
+    expect(restored.localSlot()).not.toBeNull()
+    for (const item of watched) {
+      expect(readFileSync(join(repoDir, item.name)).equals(item.bytes)).toBe(true)
+      expect(statSync(join(repoDir, item.name)).mtimeMs).toBe(item.mtime)
+    }
+  })
+
+  it('老安装的 local.json v1 就地升级到 v2：不隔离成 .corrupt，既有字段不变，解锁后补上本机槽（AC-18；回退点：manager.ts loadLocal() 里的 v1→v2 默认值补齐）', () => {
+    const seed = makeManager()
+    seed.create(PASSPHRASE)
+    const seededFingerprint = seed.localSlot()!.fingerprint
+    const createdAt = '2026-01-01T00:00:00.000Z'
+    rmSync(join(localDir, 'local.json'))
+    writeFileSync(
+      join(localDir, 'local.json'),
+      `${JSON.stringify({
+        version: 1,
+        createdAt,
+        lastUnlockedAt: null,
+        lastSyncedAt: null,
+        lastSyncedRevision: null,
+        lastSyncedPayloadSha: null,
+        repo: null,
+        rememberedUntil: null
+      })}\n`
+    )
+    const manager = makeManager()
+    manager.init()
+    expect(readdirSync(localDir).filter((name) => name.includes('.corrupt-'))).toEqual([])
+    expect(manager.status().state).toBe('locked')
+    expect(manager.status().slotFingerprint).toBeNull()
+    expect(manager.unlock(PASSPHRASE, false).state).toBe('unlocked')
+    const local = JSON.parse(readFileSync(join(localDir, 'local.json'), 'utf8')) as {
+      version: number
+      createdAt: string | null
+      slot: { fingerprint: string } | null
+    }
+    expect(local.version).toBe(2)
+    expect(local.createdAt).toBe(createdAt)
+    expect(local.slot?.fingerprint).toBe(seededFingerprint)
   })
 })

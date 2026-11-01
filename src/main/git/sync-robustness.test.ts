@@ -5,12 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { IpcCallError, type VaultState } from '@shared'
 import { SCRYPT_TEST } from '../crypto'
 import { VaultManager } from '../vault/manager'
-import { ENVELOPE_FILE, MANIFEST_FILE, listRepoFiles } from '../vault/repo'
+import { ENVELOPE_FILE, MANIFEST_FILE, listRepoFiles, readRepo } from '../vault/repo'
 import { createFileSecretBox, type SecretBox } from '../vault/secret-box'
 import { FIXTURE_HOSTNAMES, hostInput } from '../vault/test-fixtures'
 import { GitEngine, type RemoteAuth } from './engine'
 import { SyncCoordinator } from './sync'
-import { startTestGitServer, type TestGitServer } from './test-git-server'
+import { gitCli, startTestGitServer, type TestGitServer } from './test-git-server'
 
 /**
  * t25 回归：F-1（状态单一真源）、F-2（同目录并发 + 「丢文件不许报 ok」）、F-3（ref 锁重试）。
@@ -20,6 +20,8 @@ import { startTestGitServer, type TestGitServer } from './test-git-server'
  */
 
 const PASSPHRASE = 'correct horse battery staple'
+/** 另一台机器轮换出来的新口令（也是另一把槽） */
+const ROTATED_PASSPHRASE = 'Zebra7Quantum-Lantern-Ferry'
 
 interface Machine {
   dir: string
@@ -368,4 +370,62 @@ describe('F-3｜并发推送撞上远端 ref 锁时必须有限次退避重试',
     expect((error.details as { retryable?: boolean }).retryable).toBe(true)
     expect(engine!.attempts).toBe(3)
   }, 60_000)
+})
+
+/**
+ * AC-21 的另一半：能重读仓库 ≠ 能保槽。
+ *
+ * 锁定态没有 VMK，`reload()` 只会在 local.json 里记一条 `slotDrift`——远端换过的槽就留在仓库里了，
+ * 用户下次用自己那把口令直接开不了库。所以同步必须在动手之前拒绝，并把原因如实报出来，
+ * 而不是「同步成功 + 口令悄悄失效」。
+ */
+describe('AC-21｜锁定态同步不许静默接受远端的口令槽', () => {
+  it('远端快进但本机已锁：pull 报 E_VAULT_LOCKED 且一个字节不落盘；解锁后同一 pull 成功且保槽', async () => {
+    const a = machine('ac21-lock-a')
+    a.manager.create(PASSPHRASE)
+    seedHosts(a, 1)
+    expect((await a.sync.bootstrap({ remoteUrl: server.url, branch: 'main', auth: 'none' })).state).toBe('idle')
+
+    const b = machine('ac21-lock-b')
+    expect((await b.sync.bootstrap({ remoteUrl: server.url, branch: 'main', auth: 'none' })).state).toBe('idle')
+    b.manager.unlock(PASSPHRASE, false)
+    const slotBefore = b.manager.localSlot()
+    expect(slotBefore, 'B 机解锁后必须记下本机权威槽').not.toBeNull()
+    b.manager.lock()
+
+    // A 换口令 + 加一台主机并推送：远端既前进又换了槽，B 这一拉必定要重读仓库
+    a.manager.rotate({ currentPassphrase: PASSPHRASE, newPassphrase: ROTATED_PASSPHRASE })
+    a.manager.createHost(hostInput({ label: 'after-rotate', hostname: FIXTURE_HOSTNAMES[2] }))
+    expect((await a.sync.push()).state).toBe('idle')
+    const remoteHead = gitCli(['-C', server.bareDir, 'rev-parse', 'main']).trim()
+
+    const locked = await b.sync.pull().then(
+      () => {
+        throw new Error('锁定态的 pull 竟然成功了：远端换掉的槽会被静默留在本机')
+      },
+      (error: unknown) => {
+        expect(error).toBeInstanceOf(IpcCallError)
+        return error as IpcCallError
+      }
+    )
+    expect(locked.code).toBe('E_VAULT_LOCKED')
+    expect((locked.details as { reason?: string } | undefined)?.reason).toBe('locked')
+    expect(b.manager.status().state, '被拒的 pull 不许把库偷偷解锁').toBe('locked')
+    // 拒绝必须是「什么都没发生」：本机仓库仍是自己那份，远端也没被碰
+    const untouched = readRepo(b.repoDir)
+    expect(untouched!.manifest.passphraseKey, '锁定态的 pull 不许改本机槽').toEqual(slotBefore!.passphraseKey)
+    expect(gitCli(['-C', server.bareDir, 'rev-parse', 'main']).trim()).toBe(remoteHead)
+
+    // 解锁后同一操作成功：远端新内容进来了，但仓库里那把槽仍是本机的
+    expect(b.manager.unlock(PASSPHRASE, false).state).toBe('unlocked')
+    expect((await b.sync.pull()).state).toBe('idle')
+    expect(b.manager.listLibrary().hosts.map((host) => host.label)).toContain('after-rotate')
+    const kept = readRepo(b.repoDir)
+    expect(kept!.manifest.passphraseKey, '解锁态 pull 必须保本机槽').toEqual(slotBefore!.passphraseKey)
+    expect(kept!.envelope.kdf.salt, '槽与盐必须成对地回写').toBe(slotBefore!.salt)
+    b.manager.lock()
+    expect(b.manager.unlock(PASSPHRASE, false).state, 'pull 之后本机原口令必须仍能解锁').toBe('unlocked')
+    // pull 绝不改写远端
+    expect(gitCli(['-C', server.bareDir, 'rev-parse', 'main']).trim()).toBe(remoteHead)
+  }, 90_000)
 })
