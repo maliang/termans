@@ -142,8 +142,9 @@ textarea {
   z-index: 3;
   display: flex;
   align-items: center;
-  gap: var(--ts-space-2);
-  padding: 0 0 0 var(--ts-space-3);
+  gap: var(--ts-space-1);
+  /* 4px：分隔线到齿轮的间距（主人要求「再小一些」，原来是 12px）。 */
+  padding: 0 0 0 var(--ts-space-1);
   border: 0;
   background: transparent;
 }

@@ -67,6 +67,9 @@
 .ts-vault__search {
   display: flex;
   flex: 1;
+  /* flex 子项默认 `min-width:auto`（= 内容最小宽），窄侧栏下搜索框会把工具栏撑破
+     （实测 208px 宽时溢出 25px）。写 0 才能让占位文字被截断而不是撑宽。 */
+  min-width: 0;
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
@@ -278,17 +281,20 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
+  /* 2px：图标之间的间距（主人要求「再小一些」，原为 4px）。没有 --ts-space-* 这一档，
+     所以写字面量并在此说明来由。 */
+  gap: 2px;
   /* 右侧让出外壳齿轮的位置（`base.css` 的 `.ts-sidebar__tools` 浮在最右边）：
-     27px 按钮 + 7px 间隙，于是「刷新 导入 私钥 … 同步 安全 锁定 | 齿轮」是一条工具栏。 */
-  padding: 6px 34px 0 0;
+     28px 齿轮 + 4px 线→齿轮间距 + 1px 线 + 4px 按钮→线间距 = 36px（实测锁定按钮右缘到
+     分隔线 4px、分隔线到齿轮 3px），于是「刷新 导入 私钥 … 同步 安全 锁定 | 齿轮」是紧凑一条。 */
+  padding: 6px 36px 0 0;
   border-top: 1px solid var(--ts-border);
 }
 
 .ts-vault__foot-group {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 .ts-vault__foot-sep {

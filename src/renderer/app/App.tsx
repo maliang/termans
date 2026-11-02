@@ -24,7 +24,13 @@ import { HostLibraryPane } from './layout/HostLibraryPane'
 import { PanelSplitter } from './layout/PanelSplitter'
 
 /* 面板宽度的边界（t56）：下限对齐主进程 `uiSettingsSchema`，上限受「工作区最小宽」约束 */
-const SIDEBAR_MIN = 220
+/**
+ * 侧栏最小宽度按**底部图标行**的实测自然宽度确定（主人 2026-11-02 要求）：
+ * 5 个页脚图标（各 27px）+ 1px 分隔线 + 5 个 2px 间距 = 146px 内容宽；
+ * 再加右侧给齿轮留的 36px、侧栏左右内边距 20px、右边框 1px = 203px；
+ * 留 5px 余量 → 208。低于此值页脚会出现横向溢出（`scrollWidth > clientWidth`）。
+ */
+const SIDEBAR_MIN = 208
 const SIDEBAR_MAX = 560
 const AI_PANEL_MIN = 320
 const AI_PANEL_MAX = 720
