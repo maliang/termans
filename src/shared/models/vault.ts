@@ -233,3 +233,61 @@ export const syncBootstrapRequestSchema = z.object({
   auth: z.enum(['token', 'ssh-agent', 'none'])
 })
 export type SyncBootstrapRequest = z.infer<typeof syncBootstrapRequestSchema>
+
+/* -------------------------------------------------------------------------- */
+/* Git 令牌（t57）：多条令牌、默认令牌、令牌文件路径、系统令牌自动载入             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * 令牌来源。`migrated` 是旧版单一 `integrations.gitToken` 的只读视图，
+ * 一旦用户真的动了令牌列表它就被物化成一条真实的 `manual` 记录。
+ */
+export const gitTokenSourceSchema = z.enum(['manual', 'env', 'gh', 'git-credentials', 'file', 'migrated'])
+export type GitTokenSource = z.infer<typeof gitTokenSourceSchema>
+
+/**
+ * 已保存的令牌（**值不出主进程**）。渲染层只看得到掩码与来源，
+ * 需要复制时走 `sync:token-reveal` 单独取一次——那一次取用是用户主动动作，有审计价值。
+ */
+export interface GitTokenRecord {
+  id: string
+  label: string
+  source: GitTokenSource
+  /** 掩码（只露尾 4 位；太短则整体遮住，绝不回显） */
+  masked: string
+  createdAt: string
+}
+
+/** 同步真正会用到哪一路令牌 —— UI 用它告诉用户「现在生效的是哪一个」 */
+export type GitTokenActiveSource = 'file' | 'token' | 'local' | 'none'
+
+export interface GitTokenState {
+  tokens: GitTokenRecord[]
+  defaultTokenId: string | null
+  /** 令牌文件路径（优先级最高：设了它就以文件内容为准） */
+  tokenFilePath: string | null
+  activeSource: GitTokenActiveSource
+}
+
+/** 从系统里检测到的令牌候选（`value` 只在主进程内部流转，不下发给渲染层） */
+export interface GitTokenCandidate {
+  id: string
+  label: string
+  source: 'env' | 'gh' | 'git-credentials'
+  masked: string
+}
+
+export const gitTokenAddRequestSchema = z.object({
+  label: z.string().max(120).optional(),
+  token: z.string().min(1).max(8_192)
+})
+export type GitTokenAddRequest = z.infer<typeof gitTokenAddRequestSchema>
+
+export const gitTokenIdRequestSchema = z.object({ id: z.string().min(1).max(64) })
+export type GitTokenIdRequest = z.infer<typeof gitTokenIdRequestSchema>
+
+export const gitTokenPathRequestSchema = z.object({ path: z.string().max(4_096).nullable() })
+export type GitTokenPathRequest = z.infer<typeof gitTokenPathRequestSchema>
+
+export const gitTokenAdoptRequestSchema = z.object({ candidateId: z.string().min(1).max(512) })
+export type GitTokenAdoptRequest = z.infer<typeof gitTokenAdoptRequestSchema>

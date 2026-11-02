@@ -14,6 +14,9 @@ import {
   type SshConfigImportResult,
   type SshConfigParseResult,
   type SshConfigWriteRequest,
+  type GitTokenAddRequest,
+  type GitTokenCandidate,
+  type GitTokenState,
   type SshConfigWriteResult,
   type SyncBootstrapRequest,
   type SyncConflict,
@@ -239,4 +242,51 @@ export function errorReason(error: unknown): string {
 
 export function errorText(error: unknown): string {
   return describeError(error)
+}
+
+/* Git 令牌（t57）------------------------------------------------------- */
+
+export function gitTokenState(): Promise<GitTokenState> {
+  return call('sync:token-state')
+}
+
+export function addGitToken(request: GitTokenAddRequest): Promise<GitTokenState> {
+  return call('sync:token-add', request)
+}
+
+export function removeGitToken(id: string): Promise<GitTokenState> {
+  return call('sync:token-remove', { id })
+}
+
+export function setDefaultGitToken(id: string): Promise<GitTokenState> {
+  return call('sync:token-default', { id })
+}
+
+/** 一次性取明文（用户点「复制」时才调），主进程不留副本 */
+export async function revealGitToken(id: string): Promise<string> {
+  const result = await call('sync:token-reveal', { id })
+  return result.token
+}
+
+export function setGitTokenPath(path: string | null): Promise<GitTokenState> {
+  return call('sync:token-path', { path })
+}
+
+export async function detectGitTokens(): Promise<GitTokenCandidate[]> {
+  const result = await call('sync:token-detect')
+  return result.candidates
+}
+
+export function adoptGitToken(candidateId: string): Promise<GitTokenState> {
+  return call('sync:token-adopt', { candidateId })
+}
+
+/**
+ * 写系统剪贴板。渲染层不能直接用 `navigator.clipboard`：主进程把网页权限一律拒绝了
+ * （`src/main/index.ts:276`），而拒绝是静默的——按钮会「点了没反应」。
+ * 返回 false 表示写入后回读不一致（系统剪贴板被别的程序占着）。
+ */
+export async function writeClipboard(text: string): Promise<boolean> {
+  const result = await call('app:clipboard-write', { text })
+  return result.copied
 }

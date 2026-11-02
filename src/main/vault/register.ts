@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { IpcCallError } from '@shared/errors'
+import { detectSystemGitTokens, readGitTokenFile } from '../git/tokens'
 import {
   hostInputSchema,
   groupInputSchema,
@@ -8,6 +10,10 @@ import {
   sshConfigImportRequestSchema,
   sshConfigParseRequestSchema,
   sshConfigWriteRequestSchema,
+  gitTokenAddRequestSchema,
+  gitTokenAdoptRequestSchema,
+  gitTokenIdRequestSchema,
+  gitTokenPathRequestSchema,
   syncBootstrapRequestSchema,
   syncResolveRequestSchema,
   vaultLibraryCreateRequestSchema,
@@ -267,4 +273,48 @@ export function registerVaultHandlers(context: VaultHandlerContext): void {
   handle(IPC_CHANNELS.sync.conflicts, () => ({ conflicts: sync().conflicts() }))
 
   handle(IPC_CHANNELS.sync.resolve, async (request) => sync().resolve(request), syncResolveRequestSchema)
+
+  /* Git 令牌（t57） ---------------------------------------------------- */
+
+  handle(IPC_CHANNELS.sync.tokenState, () => manager().gitTokenState())
+
+  handle(IPC_CHANNELS.sync.tokenAdd, (request) => manager().addGitToken(request), gitTokenAddRequestSchema)
+
+  handle(IPC_CHANNELS.sync.tokenRemove, (request) => manager().removeGitToken(request.id), gitTokenIdRequestSchema)
+
+  handle(IPC_CHANNELS.sync.tokenDefault, (request) => manager().setDefaultGitToken(request.id), gitTokenIdRequestSchema)
+
+  handle(IPC_CHANNELS.sync.tokenReveal, (request) => ({ token: manager().revealGitToken(request.id) }), gitTokenIdRequestSchema)
+
+  handle(
+    IPC_CHANNELS.sync.tokenPath,
+    (request) => {
+      // 设之前先真读一次：路径打错时当场报错，而不是等到用户点「同步」才失败
+      if (request.path !== null && request.path.trim() !== '') readGitTokenFile(request.path)
+      return manager().setGitTokenFilePath(request.path)
+    },
+    gitTokenPathRequestSchema
+  )
+
+  handle(IPC_CHANNELS.sync.tokenDetect, () => ({
+    candidates: detectSystemGitTokens().map((item) => ({
+      id: item.id,
+      label: item.label,
+      source: item.source,
+      masked: item.masked
+    }))
+  }))
+
+  handle(
+    IPC_CHANNELS.sync.tokenAdopt,
+    (request) => {
+      // 值只在主进程里流转：按 id 重新检测一次再落库，绝不让明文令牌经过渲染层
+      const candidate = detectSystemGitTokens().find((item) => item.id === request.candidateId)
+      if (!candidate) {
+        throw new IpcCallError({ code: 'E_INVALID_ARGUMENT', message: '系统令牌已不可用（可能已登出或被移除）', details: { reason: 'token-candidate-gone' } })
+      }
+      return manager().adoptGitToken({ label: candidate.label, source: candidate.source, token: candidate.token })
+    },
+    gitTokenAdoptRequestSchema
+  )
 }

@@ -1,8 +1,12 @@
+import { maskGitToken } from '../git/tokens'
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import {
   syncRepoSchema,
+  type GitTokenSource,
+  type GitTokenState,
   type GroupInput,
   type GroupRecord,
   type HostInput,
@@ -24,6 +28,7 @@ import {
   type VaultUnlockFailure,
   type VaultVariantNotice
 } from '@shared'
+import { IpcCallError } from '@shared/errors'
 import {
   SCRYPT_PRODUCTION,
   assertSlotBinding,
@@ -1041,6 +1046,186 @@ export class VaultManager {
   }
 
   /* ------------------------------------------------------------------ */
+  /* Git 令牌（t57）：多条令牌 + 默认令牌 + 令牌文件路径                     */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * 为什么令牌列表要放密文包而不是本机 safeStorage：换机器后不用重新贴一遍，
+   * 而它和密码、AI key 一样被端到端加密保护——仓库里只有密文。
+   *
+   * 为什么保留 `integrations.gitToken` 这个旧字段并与「默认令牌」保持同步：
+   * `GitSyncEngine` 只认它（`src/main/git/sync.ts` 的解析顺序），把默认令牌写回旧字段
+   * 就不必改同步引擎的取令牌逻辑，风险最小；旧 vault 也能原样继续工作。
+   */
+  gitTokenState(): GitTokenState {
+    return this.tokenStateOf(this.requireUnlocked())
+  }
+
+  addGitToken(input: { label?: string; token: string; source?: GitTokenSource }): GitTokenState {
+    return this.mutate((payload) => {
+      this.materializeLegacyGitToken(payload)
+      const token = input.token.trim()
+      if (token.length === 0) throw invalidArgument('令牌不能为空', 'token-empty')
+      // 同一条令牌重复添加只会制造困惑：直接返回现状（幂等），不报错也不新增
+      const duplicate = payload.integrations.gitTokens.find((item) => item.token === token)
+      if (duplicate) {
+        payload.integrations.defaultGitTokenId = duplicate.id
+        this.syncActiveGitToken(payload)
+        return this.tokenStateOf(payload)
+      }
+      const record = {
+        id: `tok-${randomUUID()}`,
+        label: (input.label ?? '').trim(),
+        source: input.source ?? ('manual' as GitTokenSource),
+        token,
+        createdAt: this.nowIso()
+      }
+      payload.integrations.gitTokens.push(record)
+      payload.integrations.defaultGitTokenId = record.id
+      this.syncActiveGitToken(payload)
+      return this.tokenStateOf(payload)
+    })
+  }
+
+  removeGitToken(id: string): GitTokenState {
+    return this.mutate((payload) => {
+      this.materializeLegacyGitToken(payload)
+      const before = payload.integrations.gitTokens.length
+      payload.integrations.gitTokens = payload.integrations.gitTokens.filter((item) => item.id !== id)
+      if (payload.integrations.gitTokens.length === before) {
+        throw invalidArgument('要删除的令牌不存在', 'token-not-found')
+      }
+      // 删掉的正好是默认令牌时，默认顺位给剩下的第一条；一条都不剩就清空，
+      // 否则 `defaultGitTokenId` 会指向一个已不存在的 id，界面显示「默认」却没有任何令牌
+      if (payload.integrations.defaultGitTokenId === id) {
+        payload.integrations.defaultGitTokenId = payload.integrations.gitTokens[0]?.id ?? null
+      }
+      this.syncActiveGitToken(payload)
+      return this.tokenStateOf(payload)
+    })
+  }
+
+  setDefaultGitToken(id: string): GitTokenState {
+    return this.mutate((payload) => {
+      this.materializeLegacyGitToken(payload)
+      if (!payload.integrations.gitTokens.some((item) => item.id === id)) {
+        throw invalidArgument('要设为默认的令牌不存在', 'token-not-found')
+      }
+      payload.integrations.defaultGitTokenId = id
+      this.syncActiveGitToken(payload)
+      return this.tokenStateOf(payload)
+    })
+  }
+
+  /** 一次性取明文：只给用户点「复制」用，主进程不留副本、不写日志 */
+  revealGitToken(id: string): string {
+    const payload = this.requireUnlocked()
+    const record = this.findGitToken(payload, id)
+    if (!record) throw invalidArgument('令牌不存在', 'token-not-found')
+    return record.token
+  }
+
+  /**
+   * 设置令牌文件路径。这里**只校验路径形态**（绝对路径），不读内容：
+   * 读取发生在每次同步前（`GitSyncEngine`），这样 CI 轮换令牌文件后不用回来点一次保存。
+   */
+  setGitTokenFilePath(path: string | null): GitTokenState {
+    return this.mutate((payload) => {
+      const next = (path ?? '').trim()
+      if (next !== '' && !isAbsolutePath(next)) {
+        throw invalidArgument('令牌文件路径必须是绝对路径', 'token-file-relative-path')
+      }
+      payload.integrations.gitTokenFilePath = next === '' ? null : next
+      return this.tokenStateOf(payload)
+    })
+  }
+
+  /** 把检测到的系统令牌一条落进密文包（值只在主进程里走过一次） */
+  adoptGitToken(input: { label: string; source: GitTokenSource; token: string }): GitTokenState {
+    return this.addGitToken(input)
+  }
+
+  private findGitToken(payload: VaultPayload, id: string): { id: string; token: string } | null {
+    const found = payload.integrations.gitTokens.find((item) => item.id === id)
+    if (found) return found
+    // 旧 vault 只有单一 `gitToken`：把它当作一条只读的 `legacy` 令牌，允许复制/设为默认
+    if (payload.integrations.gitTokens.length === 0 && (payload.integrations.gitToken ?? '') !== '') {
+      if (id === LEGACY_GIT_TOKEN_ID) return { id: LEGACY_GIT_TOKEN_ID, token: payload.integrations.gitToken ?? '' }
+    }
+    return null
+  }
+
+  private tokenStateOf(payload: VaultPayload): GitTokenState {
+    const { gitTokens, defaultGitTokenId, gitTokenFilePath, gitToken } = payload.integrations
+    const tokens =
+      gitTokens.length > 0
+        ? gitTokens.map((item) => ({
+            id: item.id,
+            label: item.label,
+            source: item.source,
+            masked: maskGitToken(item.token),
+            createdAt: item.createdAt
+          }))
+        : (gitToken ?? '').trim() !== ''
+          ? [
+              {
+                id: LEGACY_GIT_TOKEN_ID,
+                label: '',
+                source: 'migrated' as GitTokenSource,
+                masked: maskGitToken(gitToken ?? ''),
+                createdAt: payload.updatedAt
+              }
+            ]
+          : []
+    const effectiveDefault =
+      gitTokens.length > 0
+        ? (gitTokens.find((item) => item.id === defaultGitTokenId)?.id ?? gitTokens[0]?.id ?? null)
+        : tokens.length > 0
+          ? LEGACY_GIT_TOKEN_ID
+          : null
+    return {
+      tokens,
+      defaultTokenId: effectiveDefault,
+      tokenFilePath: gitTokenFilePath ?? null,
+      activeSource:
+        (gitTokenFilePath ?? '') !== ''
+          ? 'file'
+          : gitTokens.length > 0 || tokens.length > 0
+            ? 'token'
+            : 'none'
+    }
+  }
+
+  /**
+   * 旧 vault 的单一令牌物化成列表里的一条真实记录。
+   *
+   * 只在**真正要写**的操作里调用（新增/删除/设默认）：只读浏览时不该因为「看了一遍」就
+   * 推进 revision、逼用户重新 push 一次。
+   */
+  private materializeLegacyGitToken(payload: VaultPayload): void {
+    const integrations = payload.integrations
+    if (integrations.gitTokens.length > 0) return
+    const legacy = (integrations.gitToken ?? '').trim()
+    if (legacy === '') return
+    const record = {
+      id: `tok-${randomUUID()}`,
+      label: '',
+      source: 'migrated' as GitTokenSource,
+      token: legacy,
+      createdAt: this.nowIso()
+    }
+    integrations.gitTokens = [record]
+    integrations.defaultGitTokenId = record.id
+  }
+
+  /** 把「默认令牌」写回旧字段，供 `GitSyncEngine` 直接取用（令牌文件路径优先级更高） */
+  private syncActiveGitToken(payload: VaultPayload): void {
+    const { gitTokens, defaultGitTokenId } = payload.integrations
+    const record = gitTokens.find((item) => item.id === defaultGitTokenId) ?? gitTokens[0] ?? null
+    payload.integrations.gitToken = record ? record.token : null
+  }
+
+  /* ------------------------------------------------------------------ */
   /* ssh_config（密文里保留完整文本）                                      */
   /* ------------------------------------------------------------------ */
 
@@ -1775,4 +1960,16 @@ function mergeImportedText(payload: VaultPayload, parsed: SshConfigParseResult):
     text = updated.text
   }
   return text
+}
+
+/** 旧 vault 单一令牌在列表里的伪 id：不能被当成真实记录写回（真实 id 一律 `tok-<uuid>`） */
+const LEGACY_GIT_TOKEN_ID = 'legacy-git-token'
+
+function invalidArgument(message: string, reason: string): IpcCallError {
+  return new IpcCallError({ code: 'E_INVALID_ARGUMENT', message, details: { reason } })
+}
+
+function isAbsolutePath(path: string): boolean {
+  // Windows 盘符 + POSIX 绝对路径两种都要接受：本应用跨平台
+  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)
 }

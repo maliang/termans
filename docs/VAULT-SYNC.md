@@ -620,3 +620,45 @@ fingerprint = sha256( Buffer.from(manifest.passphraseKey.ciphertext, 'base64') )
 - **快速排查顺序**：① 看归因类别（是 `bad-passphrase` 还是别的？）；② 展开诊断区，比 8 位槽指纹与本机记录；③ 回想最近是否在**另一台机器**上同步/改过口令（远端内容会进本地，但**不该**换掉本机口令槽）；④ 都排不掉就用恢复码恢复，或另开一个本地库先把工作继续下去，旧库留着排查。
 
 > 与既有章节的关系：§1 / §4 / §5 的仓库布局、解锁 UX 与同步语义**不变**；§11 里那条通道自检的期望值由 **30 变为 33**（新增 `vault:libraries` / `vault:library-create` / `vault:library-switch`），其余通道与「请求一律 zod `.strict()`」的约定不变，且**任何** `reset/clear/wipe/overwrite` 类通道都不允许出现。
+
+## Git 令牌：多个令牌、系统令牌与令牌文件（t57）
+
+在此之前「同步凭据」只有一个来源：本机 `credentials.json` 里的 `git:token`（密文包里的
+`integrations.gitToken` 只被清空、从未被写入）。主人要求「令牌可以复制、可以指定令牌路径、
+软件会查看系统令牌并默认加载、多个令牌可以指定默认令牌」，于是扩展成下面这套：
+
+**存储（全部在加密包内，随仓库同步）**
+
+| 字段 | 含义 |
+| --- | --- |
+| `integrations.gitTokens[]` | 多条令牌：`{id, label, source, token, createdAt}`，`source` ∈ `manual` / `env` / `gh` / `git-credentials` / `file` / `migrated` |
+| `integrations.defaultGitTokenId` | 默认令牌 id；删掉默认时会顺位给剩余第一条 |
+| `integrations.gitTokenFilePath` | 令牌文件路径（绝对路径；**不复制文件内容**，每次同步前实时读） |
+| `integrations.gitToken` | 旧字段，保留兼容。写默认令牌时会同步它，所以老的 `GitSyncEngine` 取法不必改 |
+
+三个新字段都带 `.default(...)`：这是**旧 vault 解包不炸**的前提。`serializePayload` 必须显式
+列出这三个字段并按 id 排序 `gitTokens` —— 漏写等于丢数据，顺序抖动会让 `payload_sha256`
+每次都不一样、乐观锁误判「本地有改动」。
+
+**取令牌优先级（`src/main/git/sync.ts` 的 `resolveToken()`，写进代码而不是文档）**
+
+1. `integrations.gitTokenFilePath`：每次同步前实时读，**轮换文件不需要回来点保存**。
+   读失败（文件被删/权限不足）**退回**第 2 步并记一条 `warn` 日志——一次读不到不该让同步直接失败。
+2. `integrations.gitToken`（默认令牌，随密文包同步到别的机器）。
+3. 本机 `credentials.json` 的 `git:token`：只服务「首次 clone / 还没解锁」的兜底。
+
+**系统令牌检测**（`src/main/git/tokens.ts` 的 `detectSystemGitTokens()`）
+按顺序探测 `GITHUB_TOKEN` / `GH_TOKEN` / `GITLAB_TOKEN` / `TERMANS_GIT_TOKEN` →
+`gh auth token`（3 秒超时）→ `~/.git-credentials`，**按令牌值去重**（否则界面上会出现
+三条一模一样的 `••••abcd`，用户不知道该点哪个）。每个来源单独 try/catch：没装 `gh`、
+没有该文件都是正常情况，不能让一个来源失败毁掉整个检测。
+
+打开设置页时，**只有一条令牌都没有**的情况下才会自动检测并「默认加载」第一条；
+已有令牌时一律不打扰（用户可能正等着用自己那条）。明文令牌只在主进程里流转，
+下发给渲染层的只有掩码；点「复制」走一次性的 `sync:token-reveal`，那是用户主动动作。
+
+**剪贴板为什么走主进程**：`src/main/index.ts:276` 把网页权限统一拒了
+（`setPermissionRequestHandler(… => callback(false))`），渲染层 `navigator.clipboard`
+会**静默失效**——按钮点了什么都不发生。所以 `app:clipboard-write` 在主进程里
+`clipboard.writeText()` 后用 `await clipboard.readText()` 回读校验再返回 `copied`，
+按钮只在真复制成功时才变绿。（Electron 45 的 `readText()` 返回 Promise，不 await 恒 false。）

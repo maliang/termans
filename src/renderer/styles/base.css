@@ -128,25 +128,38 @@ textarea {
    但**动作仍归主机库页脚**（本轮只留布局空间，不新接功能）。
    --------------------------------------------------------------------------- */
 .ts-sidebar__tools {
-  /* 主人反馈「左下角的设置没必要独占一行」：改成浮在侧栏底部工具行最左侧的图标位，
-     不再占一条 45px 的行。主机库页脚给左侧留出 34px（见 vault.css 的 `.ts-vault__foot`），
-     于是「齿轮 | 刷新 导入 私钥 | 同步 安全 锁定」看起来是一条连续的工具栏。 */
+  /* 主人要求（2026-11-02）：设置入口放**最右边**，与左边那排主机库动作之间加一条分隔线，
+     并且和其它按钮垂直对齐。旧写法 `left:10px; bottom:10px` 让齿轮比页脚按钮高 10px，
+     看起来就是「没对齐」；改成 `bottom:0` 后它的底边与页脚按钮同线。
+     主机库页脚相应把留白从左侧改到右侧（见 vault.css 的 `.ts-vault__foot`）。 */
   position: absolute;
-  left: 10px;
-  bottom: 10px;
+  right: 10px;
+  bottom: 0;
   z-index: 3;
   display: flex;
   align-items: center;
   gap: var(--ts-space-2);
-  padding: 0;
+  padding: 0 0 0 var(--ts-space-3);
   border: 0;
   background: transparent;
+}
+
+/* 分隔线：用伪元素画一段 16px 竖线并垂直居中，而不是给容器加 border-left ——
+   后者会拉满整个 27px 高度、贴边显得笨重，与页脚的 `.ts-vault__foot-sep` 也不一致。 */
+.ts-sidebar__tools::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 1px;
+  height: 16px;
+  transform: translateY(-50%);
+  background: var(--ts-border);
 }
 
 /* 工具区里「不属于工具的动作位」——本轮只占位（锁定入口仍在上方页脚），
    `margin-left:auto` 把后续可能加的次要动作推到右侧，和左侧的齿轮分开。 */
 .ts-sidebar__tools-slot {
-  margin-left: auto;
   width: var(--ts-control-h-sm);
   height: var(--ts-control-h-sm);
 }
@@ -449,6 +462,25 @@ textarea {
   color: var(--ts-text-primary);
 }
 
+/* 「已复制」反馈：同一枚按钮就地变成成功色，2 秒后由组件自己恢复常态。
+   不弹 toast 的原因：恢复码页/令牌行本来就是一次性动作，按钮原位变色更不容易被忽略。 */
+.ts-btn--success {
+  border-color: var(--ts-status-ok);
+  background: color-mix(in srgb, var(--ts-status-ok) 18%, transparent);
+  color: var(--ts-status-ok);
+  font-weight: var(--ts-font-weight-strong);
+}
+.ts-btn--success:hover:not(:disabled) {
+  border-color: var(--ts-status-ok);
+  background: color-mix(in srgb, var(--ts-status-ok) 26%, transparent);
+  color: var(--ts-status-ok);
+}
+.ts-btn--copied {
+  border-color: var(--ts-status-ok);
+  background: color-mix(in srgb, var(--ts-status-ok) 16%, transparent);
+  color: var(--ts-status-ok);
+}
+
 .ts-btn--danger {
   border-color: var(--ts-status-error);
   background: transparent;
@@ -479,9 +511,25 @@ textarea {
     background var(--ts-motion-fast) ease,
     color var(--ts-motion-fast) ease;
 }
+/**
+ * 悬停反馈（主人 2026-11-02 反馈「刷新按钮鼠标指上状态没有变化」）。
+ *
+ * 原来的 `background: var(--ts-bg-elevated)` 在深色主题里与侧栏底色几乎同值——
+ * 严格说「变了」，但人眼看不出来，等于没有反馈。改成前景色叠一层：
+ * 与底色无关地保证约 12% 的明度差，hover/active 两档可辨。
+ */
 .ts-icon-btn:hover:not(:disabled) {
-  background: var(--ts-bg-elevated);
+  background: color-mix(in srgb, var(--ts-text-primary) 12%, transparent);
   color: var(--ts-text-primary);
+}
+.ts-icon-btn:active:not(:disabled) {
+  background: color-mix(in srgb, var(--ts-text-primary) 20%, transparent);
+}
+
+/* 复制成功态：绿色描边 + 绿字（主人要求「复制成功按钮改变颜色」） */
+.ts-icon-btn--copied {
+  background: color-mix(in srgb, var(--ts-status-ok) 20%, transparent);
+  color: var(--ts-status-ok);
 }
 .ts-icon-btn:disabled {
   opacity: 0.45;

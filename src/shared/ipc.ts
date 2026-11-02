@@ -33,6 +33,12 @@ import type {
   TerminalSize
 } from './models/terminal'
 import type {
+  GitTokenAddRequest,
+  GitTokenAdoptRequest,
+  GitTokenCandidate,
+  GitTokenIdRequest,
+  GitTokenPathRequest,
+  GitTokenState,
   SyncBootstrapRequest,
   SyncConflict,
   SyncResolveRequest,
@@ -72,7 +78,9 @@ import type { ThemeDefinition } from './theme'
 export const IPC_CHANNELS = {
   app: {
     info: 'app:info',
-    openExternal: 'app:open-external'
+    openExternal: 'app:open-external',
+    /** 写系统剪贴板（恢复码 / 令牌复制）。渲染层 `navigator.clipboard` 被权限处理器统一拒绝，走 IPC */
+    clipboardWrite: 'app:clipboard-write'
   },
   settings: {
     get: 'settings:get',
@@ -138,7 +146,16 @@ export const IPC_CHANNELS = {
     pull: 'sync:pull',
     push: 'sync:push',
     conflicts: 'sync:conflicts',
-    resolve: 'sync:resolve'
+    resolve: 'sync:resolve',
+    /** 多条 Git 令牌（t57）：列表 / 新增 / 删除 / 设默认 / 令牌文件路径 / 取明文复制 / 检测系统令牌 */
+    tokenState: 'sync:token-state',
+    tokenAdd: 'sync:token-add',
+    tokenRemove: 'sync:token-remove',
+    tokenDefault: 'sync:token-default',
+    tokenPath: 'sync:token-path',
+    tokenReveal: 'sync:token-reveal',
+    tokenDetect: 'sync:token-detect',
+    tokenAdopt: 'sync:token-adopt'
   },
   ai: {
     listProviders: 'ai:list-providers',
@@ -176,6 +193,7 @@ export interface IpcInvokeContract {
   /* app */
   'app:info': { request: void; response: AppInfo }
   'app:open-external': { request: { url: string }; response: { opened: boolean } }
+  'app:clipboard-write': { request: { text: string }; response: { copied: boolean } }
 
   /* settings */
   'settings:get': { request: void; response: Settings }
@@ -244,6 +262,15 @@ export interface IpcInvokeContract {
   'sync:push': { request: void; response: SyncStatus }
   'sync:conflicts': { request: void; response: { conflicts: SyncConflict[] } }
   'sync:resolve': { request: SyncResolveRequest; response: SyncStatus }
+  'sync:token-state': { request: void; response: GitTokenState }
+  'sync:token-add': { request: GitTokenAddRequest; response: GitTokenState }
+  'sync:token-remove': { request: GitTokenIdRequest; response: GitTokenState }
+  'sync:token-default': { request: GitTokenIdRequest; response: GitTokenState }
+  'sync:token-path': { request: GitTokenPathRequest; response: GitTokenState }
+  /** 明文只在这一趟 IPC 里存在（用户点「复制」），主进程不留副本、不写日志 */
+  'sync:token-reveal': { request: GitTokenIdRequest; response: { token: string } }
+  'sync:token-detect': { request: void; response: { candidates: GitTokenCandidate[] } }
+  'sync:token-adopt': { request: GitTokenAdoptRequest; response: GitTokenState }
 
   /* ai */
   'ai:list-providers': { request: void; response: { providers: AiProvider[] } }

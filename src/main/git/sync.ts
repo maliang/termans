@@ -2,6 +2,7 @@ import * as nodeFs from 'node:fs'
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import gitClient from 'isomorphic-git'
 import { join } from 'node:path'
+import { readGitTokenFile } from './tokens'
 import {
   type ConflictStrategy,
   type SyncBootstrapRequest,
@@ -47,6 +48,8 @@ export interface SyncCoordinatorOptions {
   engine?: GitEngine
   clock?: () => number
   onStatus?: (status: SyncStatus) => void
+  /** 诊断日志（可选）。令牌文件读失败这类「降级但继续」的事件必须留痕，不能静默 */
+  onLog?: (level: 'info' | 'warn', message: string) => void
   commitMessage?: (revision: number) => string
 }
 
@@ -206,11 +209,35 @@ export class SyncCoordinator {
     if (!this.manager.isUnlocked()) throw lockedError()
   }
 
+  /**
+   * 取同步用的令牌。**优先级写在代码里，不靠调用方约定**：
+   * ① 令牌文件路径（t57）——设了它就以文件内容为准，每次同步前实时读，CI 轮换后不必回来点保存；
+   *    读失败时**退回**密文里的令牌而不是让整趟同步失败（文件被临时挪走不该阻断同步）；
+   * ② 密文包里的令牌（默认令牌，列表里可以切换）；
+   * ③ 本机 `credentials.json` 兜底（首次 clone / 未解锁时的旧路径）。
+   */
   private async auth(repo: SyncRepo): Promise<RemoteAuth> {
     if (repo.auth === 'none') return { token: null }
-    const fromVault = this.manager.isUnlocked() ? this.manager.payloadForSync().integrations.gitToken : null
-    const token = fromVault ?? this.readLocalToken()
+    const token = this.resolveToken()
     return { token }
+  }
+
+  private resolveToken(): string | null {
+    if (this.manager.isUnlocked()) {
+      const integrations = this.manager.payloadForSync().integrations
+      const filePath = integrations.gitTokenFilePath ?? ''
+      if (filePath !== '') {
+        try {
+          return readGitTokenFile(filePath)
+        } catch (error) {
+          // 退回到密文里的令牌，但要留下痕迹：否则「文件读不到」会被静默成「用了别的令牌」
+          this.options.onLog?.('warn', `令牌文件读取失败，改用密文包里的令牌：${String(error)}`)
+        }
+      }
+      const fromVault = integrations.gitToken
+      if (fromVault !== null && fromVault !== '') return fromVault
+    }
+    return this.readLocalToken()
   }
 
   private readLocalToken(): string | null {

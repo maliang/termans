@@ -35,7 +35,15 @@ describe('payload 模型', () => {
     expect(empty.hosts).toEqual([])
     expect(empty.settings).toEqual(DEFAULT_SETTINGS)
     expect(empty.sshConfig).toEqual({ text: '', aliasMap: {}, sourcePath: null })
-    expect(empty.integrations).toEqual({ gitToken: null, aiApiKeys: {}, aiProvidersConfig: null })
+    expect(empty.integrations).toEqual({
+      gitToken: null,
+      aiApiKeys: {},
+      aiProvidersConfig: null,
+      // t57：多条令牌 + 默认令牌 + 令牌文件路径。三个 `.default()` 保证旧 vault 解包不炸
+      gitTokens: [],
+      defaultGitTokenId: null,
+      gitTokenFilePath: null
+    })
     expect(empty.hostNotes).toEqual({})
     expect(empty.secrets).toEqual({})
     expect(empty.updatedAt).toBe(NOW)

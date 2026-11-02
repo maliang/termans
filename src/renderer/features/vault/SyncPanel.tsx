@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GitBranch, RefreshCw, ShieldCheck, Upload, X } from 'lucide-react'
-import type { ConflictStrategy, SyncRepo } from '@shared'
+import { Check, Copy, FileText, GitBranch, RefreshCw, ShieldCheck, Star, Trash2, Upload, X } from 'lucide-react'
+import type { ConflictStrategy, GitTokenCandidate, GitTokenState, SyncRepo } from '@shared'
 import * as api from './api'
 import { useVaultErrorText, useVaultStore } from './store'
 
@@ -38,6 +38,113 @@ export function SyncPanel({ onClose, embedded = false }: SyncPanelProps): JSX.El
   const [token, setToken] = useState('')
 
   const repo = syncStatus?.repo ?? null
+
+  /* ---- Git 令牌（t57）：多条令牌 / 默认令牌 / 令牌文件 / 系统令牌自动载入 ---- */
+  const [tokenState, setTokenState] = useState<GitTokenState | null>(null)
+  const [tokenPath, setTokenPath] = useState('')
+  const [candidates, setCandidates] = useState<GitTokenCandidate[]>([])
+  const [detecting, setDetecting] = useState(false)
+  /** 哪一枚按钮刚刚复制成功（'input' 表示上方输入框）—— 只影响那一枚的文案与配色 */
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [tokenNotice, setTokenNotice] = useState<string | null>(null)
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const flashCopied = useCallback((key: string) => {
+    setCopiedKey(key)
+    if (copiedTimer.current !== null) clearTimeout(copiedTimer.current)
+    copiedTimer.current = setTimeout(() => setCopiedKey(null), 2_000)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimer.current !== null) clearTimeout(copiedTimer.current)
+    }
+  }, [])
+
+  /**
+   * 首次渲染就去看系统里有没有令牌（主人要求「软件会查看系统令牌并默认加载」）。
+   *
+   * 只在**一条令牌都没有**时才自动载入：已经有令牌的用户不该因为打开一次设置
+   * 就被悄悄换掉默认令牌（那会让同步换成另一个账号的权限）。
+   */
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      try {
+        const state = await api.gitTokenState()
+        if (!alive) return
+        setTokenState(state)
+        setTokenPath(state.tokenFilePath ?? '')
+        if (state.tokens.length > 0) return
+        const found = await api.detectGitTokens()
+        if (!alive || found.length === 0) return
+        setCandidates(found)
+        const adopted = await api.adoptGitToken(found[0]!.id)
+        if (!alive) return
+        setTokenState(adopted)
+        setTokenNotice(t('sync.token.detected', { label: found[0]!.label }))
+      } catch {
+        // 未解锁 / 锁定态下这两个通道会抛 E_VAULT_LOCKED：令牌区本来就只在已解锁时渲染
+      }
+    })()
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function copyText(key: string, text: string): Promise<void> {
+    const copied = await api.writeClipboard(text)
+    if (copied) flashCopied(key)
+    else setTokenNotice(t('sync.token.copyFailed'))
+  }
+
+  async function copySavedToken(id: string): Promise<void> {
+    const token = await api.revealGitToken(id)
+    await copyText(id, token)
+  }
+
+  async function saveTypedToken(): Promise<void> {
+    const value = token.trim()
+    if (value === '') return
+    const next = await api.addGitToken({ token: value })
+    setTokenState(next)
+    setTokenNotice(t('sync.token.saved'))
+  }
+
+  async function makeDefault(id: string): Promise<void> {
+    setTokenState(await api.setDefaultGitToken(id))
+    setTokenNotice(null)
+  }
+
+  async function removeToken(id: string): Promise<void> {
+    setTokenState(await api.removeGitToken(id))
+    setTokenNotice(null)
+  }
+
+  async function saveTokenPath(path: string | null): Promise<void> {
+    const next = await api.setGitTokenPath(path)
+    setTokenState(next)
+    setTokenPath(next.tokenFilePath ?? '')
+    setTokenNotice(path === null ? t('sync.token.pathCleared') : t('sync.token.pathSaved'))
+  }
+
+  async function detectNow(): Promise<void> {
+    setDetecting(true)
+    try {
+      const found = await api.detectGitTokens()
+      setCandidates(found)
+      setTokenNotice(found.length === 0 ? t('sync.token.detectEmpty') : null)
+    } finally {
+      setDetecting(false)
+    }
+  }
+
+  async function adoptCandidate(candidateId: string): Promise<void> {
+    const next = await api.adoptGitToken(candidateId)
+    setTokenState(next)
+    setTokenNotice(t('sync.token.saved'))
+  }
 
   async function connect(): Promise<void> {
     const status = await run(async () => {
@@ -120,16 +227,173 @@ export function SyncPanel({ onClose, embedded = false }: SyncPanelProps): JSX.El
               </select>
             </label>
             {auth === 'token' ? (
-              <label className="ts-field ts-field--wide">
+              <div className="ts-field ts-field--wide ts-vault__token-section" data-testid="sync-token-section">
                 <span className="ts-field__label">{t('sync.token')}</span>
-                <input
-                  type="password"
-                  value={token}
-                  onChange={(event) => setToken(event.target.value)}
-                  placeholder="ghp_…"
-                  data-testid="sync-token"
-                />
-              </label>
+                <div className="ts-vault__token-row">
+                  <input
+                    type="password"
+                    value={token}
+                    onChange={(event) => setToken(event.target.value)}
+                    placeholder="ghp_…"
+                    aria-label={t('sync.token')}
+                    autoComplete="off"
+                    data-testid="sync-token"
+                  />
+                  <button
+                    type="button"
+                    className={copiedKey === 'input' ? 'ts-btn ts-btn--sm ts-btn--copied' : 'ts-btn ts-btn--sm'}
+                    onClick={() => void copyText('input', token.trim())}
+                    disabled={token.trim() === ''}
+                    data-testid="sync-token-copy"
+                  >
+                    {copiedKey === 'input' ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+                    {copiedKey === 'input' ? t('sync.token.copied') : t('sync.token.copy')}
+                  </button>
+                  <button
+                    type="button"
+                    className="ts-btn ts-btn--sm"
+                    onClick={() => void saveTypedToken()}
+                    disabled={token.trim() === ''}
+                    data-testid="sync-token-save"
+                  >
+                    {t('sync.token.save')}
+                  </button>
+                </div>
+
+                {/* 说明放在「连接」这些字段下面（主人要求）：讲清三种令牌获取方式与「谁跟着同步」 */}
+                <p className="ts-vault__hint" data-testid="sync-token-hint">
+                  {t('sync.token.hint')}
+                </p>
+                {tokenState !== null ? (
+                  <p className="ts-vault__hint" data-testid="sync-token-active">
+                    {t(`sync.token.active.${tokenState.activeSource}`)}
+                  </p>
+                ) : null}
+
+                {tokenState !== null && tokenState.tokens.length > 0 ? (
+                  <ul className="ts-vault__token-list" data-testid="sync-token-list">
+                    {tokenState.tokens.map((item) => (
+                      <li
+                        key={item.id}
+                        className={
+                          item.id === tokenState.defaultTokenId ? 'ts-vault__token is-default' : 'ts-vault__token'
+                        }
+                        data-testid={`sync-token-item-${item.id}`}
+                      >
+                        <span className="ts-vault__token-name">
+                          {item.label.trim() !== '' ? item.label : t('sync.token.untitled')}
+                        </span>
+                        <span className="ts-vault__token-mask" data-testid={`sync-token-mask-${item.id}`}>
+                          {item.masked}
+                        </span>
+                        <span className="ts-vault__token-source">{t(`sync.token.source.${item.source}`)}</span>
+                        {item.id === tokenState.defaultTokenId ? (
+                          <span className="ts-vault__token-badge">
+                            <Star size={11} aria-hidden="true" /> {t('sync.token.default')}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="ts-btn ts-btn--sm ts-btn--ghost"
+                            onClick={() => void makeDefault(item.id)}
+                            data-testid={`sync-token-default-${item.id}`}
+                          >
+                            {t('sync.token.makeDefault')}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className={copiedKey === item.id ? 'ts-icon-btn ts-icon-btn--copied' : 'ts-icon-btn'}
+                          onClick={() => void copySavedToken(item.id)}
+                          title={copiedKey === item.id ? t('sync.token.copied') : t('sync.token.copy')}
+                          aria-label={copiedKey === item.id ? t('sync.token.copied') : t('sync.token.copy')}
+                          data-testid={`sync-token-copy-${item.id}`}
+                        >
+                          {copiedKey === item.id ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+                        </button>
+                        <button
+                          type="button"
+                          className="ts-icon-btn"
+                          onClick={() => void removeToken(item.id)}
+                          title={t('sync.token.remove')}
+                          aria-label={t('sync.token.remove')}
+                          data-testid={`sync-token-remove-${item.id}`}
+                        >
+                          <Trash2 size={13} aria-hidden="true" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+
+                {/* 令牌文件路径：设了就以文件为准，每次同步前重新读 */}
+                <div className="ts-vault__token-row">
+                  <input
+                    value={tokenPath}
+                    onChange={(event) => setTokenPath(event.target.value)}
+                    placeholder="/run/secrets/git-token"
+                    aria-label={t('sync.token.path')}
+                    data-testid="sync-token-path"
+                  />
+                  <button
+                    type="button"
+                    className="ts-btn ts-btn--sm"
+                    onClick={() => void saveTokenPath(tokenPath.trim() === '' ? null : tokenPath.trim())}
+                    data-testid="sync-token-path-save"
+                  >
+                    {t('sync.token.pathSave')}
+                  </button>
+                  {tokenState?.tokenFilePath !== null && tokenState?.tokenFilePath !== undefined ? (
+                    <button
+                      type="button"
+                      className="ts-btn ts-btn--sm ts-btn--ghost"
+                      onClick={() => void saveTokenPath(null)}
+                      data-testid="sync-token-path-clear"
+                    >
+                      {t('sync.token.pathClear')}
+                    </button>
+                  ) : null}
+                </div>
+                <p className="ts-vault__hint">{t('sync.token.pathHint')}</p>
+
+                <div className="ts-vault__token-row">
+                  <button
+                    type="button"
+                    className="ts-btn ts-btn--sm ts-btn--ghost"
+                    onClick={() => void detectNow()}
+                    disabled={detecting}
+                    data-testid="sync-token-detect"
+                  >
+                    <FileText size={13} aria-hidden="true" />
+                    {detecting ? t('sync.token.detecting') : t('sync.token.detect')}
+                  </button>
+                </div>
+
+                {candidates.length > 0 ? (
+                  <ul className="ts-vault__token-list" data-testid="sync-token-candidates">
+                    {candidates.map((candidate) => (
+                      <li key={candidate.id} className="ts-vault__token" data-testid={`sync-token-candidate-${candidate.id}`}>
+                        <span className="ts-vault__token-name">{candidate.label}</span>
+                        <span className="ts-vault__token-mask">{candidate.masked}</span>
+                        <button
+                          type="button"
+                          className="ts-btn ts-btn--sm ts-btn--ghost"
+                          onClick={() => void adoptCandidate(candidate.id)}
+                          data-testid={`sync-token-adopt-${candidate.id}`}
+                        >
+                          {t('sync.token.adopt')}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+
+                {tokenNotice !== null ? (
+                  <p className="ts-vault__ok" data-testid="sync-token-notice">
+                    {tokenNotice}
+                  </p>
+                ) : null}
+              </div>
             ) : null}
             <div className="ts-vault__actions">
               <span className="ts-vault__spacer" />

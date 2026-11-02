@@ -73,7 +73,31 @@ export const vaultIntegrationsSchema = z.object({
   gitToken: z.string().max(8_192).nullable(),
   aiApiKeys: z.record(z.string(), z.string()),
   /** t5 的 ai/providers.json 全文；**必须 nullable 且带默认 null**，否则旧 vault 解包会校验失败 */
-  aiProvidersConfig: z.string().max(1_000_000).nullable().default(null)
+  aiProvidersConfig: z.string().max(1_000_000).nullable().default(null),
+  /**
+   * 多条 Git 令牌（t57）。`token` 只有密文包里有；界面只看得到掩码，复制走一次性 reveal。
+   *
+   * 为什么不用「一条 gitToken + 一堆 label」的写法：仓库可能同时推 GitHub（个人）与内网 GitLab
+   * （公司）两个远端，换环境时改的是「用哪一条」，不是「重新贴一遍」。
+   * 三个 `.default()` 都是必需的：旧 vault 解包时这些键不存在，没有默认值会 zod 校验失败。
+   */
+  gitTokens: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(64),
+        label: z.string().max(120),
+        source: z.enum(['manual', 'env', 'gh', 'git-credentials', 'file', 'migrated']),
+        token: z.string().min(1).max(8_192),
+        createdAt: isoTimestampSchema
+      })
+    )
+    .default([]),
+  defaultGitTokenId: z.string().max(64).nullable().default(null),
+  /**
+   * 令牌文件路径：设了它就以文件内容为准（同步时实时读取）。
+   * 这样 CI / 密钥管理工具写出来的令牌文件可以直接被吃掉，不必每次手动粘贴。
+   */
+  gitTokenFilePath: z.string().max(4_096).nullable().default(null)
 })
 export type VaultIntegrations = z.infer<typeof vaultIntegrationsSchema>
 
@@ -111,7 +135,14 @@ export function emptyPayload(now: string): VaultPayload {
     secrets: {},
     settings: structuredClone(DEFAULT_SETTINGS),
     sshConfig: { text: '', aliasMap: {}, sourcePath: null },
-    integrations: { gitToken: null, aiApiKeys: {}, aiProvidersConfig: null },
+    integrations: {
+      gitToken: null,
+      aiApiKeys: {},
+      aiProvidersConfig: null,
+      gitTokens: [],
+      defaultGitTokenId: null,
+      gitTokenFilePath: null
+    },
     updatedAt: now
   }
 }
@@ -132,7 +163,12 @@ export function serializePayload(payload: VaultPayload): string {
     integrations: {
       gitToken: payload.integrations.gitToken,
       aiApiKeys: Object.fromEntries(Object.entries(payload.integrations.aiApiKeys).sort(([a], [b]) => a.localeCompare(b))),
-      aiProvidersConfig: payload.integrations.aiProvidersConfig ?? null
+      aiProvidersConfig: payload.integrations.aiProvidersConfig ?? null,
+      // 稳定键序同样覆盖令牌列表：否则「同一逻辑内容」会因数组顺序产生不同 payload_sha256，
+      // 乐观锁会误判成「有改动」，同步每次都要用户确认。按 id 排序可消除这个抖动。
+      gitTokens: [...(payload.integrations.gitTokens ?? [])].sort((a, b) => a.id.localeCompare(b.id)),
+      defaultGitTokenId: payload.integrations.defaultGitTokenId ?? null,
+      gitTokenFilePath: payload.integrations.gitTokenFilePath ?? null
     },
     updatedAt: payload.updatedAt
   }

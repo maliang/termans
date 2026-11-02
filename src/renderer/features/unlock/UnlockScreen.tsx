@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
+  Check,
   ChevronDown,
   CircleAlert,
+  Copy,
   Download,
   FileX,
   HardDrive,
@@ -393,6 +395,8 @@ export function UnlockScreen(): JSX.Element {
   const [remember, setRemember] = useState(true)
   const [recoveryCode, setRecoveryCode] = useState('')
   const [issuedRecoveryCode, setIssuedRecoveryCode] = useState<string | null>(null)
+  /** 恢复码「复制成功」态：按钮变绿 + 文案变「已复制」，2 秒后自己回到常态 */
+  const [recoveryCopied, setRecoveryCopied] = useState(false)
   const [weakConfirmed, setWeakConfirmed] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
   const [newLibraryName, setNewLibraryName] = useState('')
@@ -540,6 +544,22 @@ export function UnlockScreen(): JSX.Element {
 
   const creating = mode === 'create' || mode === 'new-library-created'
   const recovering = mode === 'recover'
+  /**
+   * 复制恢复码。
+   *
+   * 为什么不能直接用 `navigator.clipboard`：主进程把所有网页权限统一拒了
+   * （`src/main/index.ts:276`），而拒绝是静默的——按钮点了什么都不会发生。
+   * 所以走 `app:clipboard-write`，并用回读校验过的结果决定是否显示「已复制」。
+   */
+  async function copyRecoveryCode(): Promise<void> {
+    const code = issuedRecoveryCode ?? ''
+    if (code === '') return
+    const copied = await api.writeClipboard(code)
+    if (!copied) return
+    setRecoveryCopied(true)
+    setTimeout(() => setRecoveryCopied(false), 2_000)
+  }
+
   const savingRecovery = mode === 'recovery-saved'
   const confirmingLibrary = mode === 'new-library-confirm'
   const namingLibrary = mode === 'new-library-create'
@@ -623,8 +643,19 @@ export function UnlockScreen(): JSX.Element {
             <div className="ts-unlock__row">
               <button
                 type="button"
+                className={recoveryCopied ? 'ts-btn ts-btn--success' : 'ts-btn ts-btn--ghost'}
+                onClick={() => void copyRecoveryCode()}
+                data-testid="unlock-recovery-copy"
+                aria-live="polite"
+              >
+                {recoveryCopied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+                {recoveryCopied ? t('unlock.recoveryCopied') : t('unlock.recoveryCopy')}
+              </button>
+              <button
+                type="button"
                 className="ts-btn ts-btn--ghost"
                 onClick={() => downloadTextFile('termans-recovery-code.txt', issuedRecoveryCode ?? '')}
+                data-testid="unlock-recovery-download"
               >
                 <Download size={14} aria-hidden="true" /> {t('unlock.recoveryDownload')}
               </button>

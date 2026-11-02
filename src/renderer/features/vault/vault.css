@@ -279,9 +279,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 4px;
-  /* 左侧让出外壳齿轮的位置（`base.css` 的 `.ts-sidebar__tools` 浮在这里）：
-     27px 按钮 + 7px 间隙，于是「齿轮 | 刷新 导入 私钥 … 同步 安全 锁定」是一条工具栏。 */
-  padding: 6px 0 0 34px;
+  /* 右侧让出外壳齿轮的位置（`base.css` 的 `.ts-sidebar__tools` 浮在最右边）：
+     27px 按钮 + 7px 间隙，于是「刷新 导入 私钥 … 同步 安全 锁定 | 齿轮」是一条工具栏。 */
+  padding: 6px 34px 0 0;
   border-top: 1px solid var(--ts-border);
 }
 
@@ -306,7 +306,8 @@
 }
 
 .ts-vault__foot .ts-icon-btn:hover:not(:disabled) {
-  background: var(--ts-bg-elevated);
+  /* 与 base.css 的 .ts-icon-btn:hover 保持一致：前景色叠层，深色主题下也看得出变化 */
+  background: color-mix(in srgb, var(--ts-text-primary) 12%, transparent);
   color: var(--ts-text-primary);
 }
 
@@ -1273,4 +1274,90 @@
 .ts-vault__host-delete:hover {
   background: color-mix(in srgb, var(--ts-status-error) 16%, transparent);
   color: var(--ts-status-error);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Git 令牌区（t57）                                                           */
+/* -------------------------------------------------------------------------- */
+
+/* 说明文字：比正文小一号、弱一档色，但要保证可读（不是 0.5 透明度的灰雾） */
+.ts-vault__hint {
+  margin: 0;
+  color: var(--ts-text-muted);
+  font-size: var(--ts-font-size-xs);
+  line-height: var(--ts-line-height);
+}
+
+/* 输入框 + 就地动作（复制 / 保存为令牌）排一行；输入框吃掉剩余宽度 */
+.ts-vault__token-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ts-space-2);
+  min-width: 0;
+}
+
+.ts-vault__token-row > input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ts-vault__token-section {
+  gap: var(--ts-space-2);
+}
+
+.ts-vault__token-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ts-vault__token {
+  display: flex;
+  align-items: center;
+  gap: var(--ts-space-2);
+  min-width: 0;
+  padding: 4px var(--ts-space-2);
+  border: 1px solid var(--ts-border);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-elevated);
+  font-size: var(--ts-font-size-xs);
+}
+
+/* 默认令牌：只换描边色，不加底色——默认是「用哪一条」的状态，不是警告 */
+.ts-vault__token.is-default {
+  border-color: color-mix(in srgb, var(--ts-accent) 45%, var(--ts-border));
+}
+
+.ts-vault__token-name {
+  overflow: hidden;
+  font-weight: var(--ts-font-weight-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ts-vault__token-mask {
+  color: var(--ts-text-muted);
+  font-family: var(--ts-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.ts-vault__token-source {
+  margin-left: auto;
+  color: var(--ts-text-muted);
+  white-space: nowrap;
+}
+
+.ts-vault__token-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ts-accent) 18%, transparent);
+  color: var(--ts-accent);
+  font-size: 10px;
+  font-weight: var(--ts-font-weight-strong);
+  white-space: nowrap;
 }
