@@ -133,8 +133,12 @@ textarea {
      看起来就是「没对齐」；改成 `bottom:0` 后它的底边与页脚按钮同线。
      主机库页脚相应把留白从左侧改到右侧（见 vault.css 的 `.ts-vault__foot`）。 */
   position: absolute;
-  right: 10px;
-  bottom: 0;
+  /* 11px = 侧栏 10px 内边距 + 1px 右边框：这样齿轮右边缘与页脚按钮右边缘**同一条线**。
+     直接写 10px 会往右凸 1px（实测 gearRight 254 vs 按钮 253）。 */
+  right: 11px;
+  /* 8px：页脚按钮的底边比外壳层底边高 8px（`.ts-sidebar` 的 `padding-bottom:10px` 与
+     页脚自身 `padding-top:6px` 叠加后的实测差），写 `bottom:0` 会让齿轮比按钮低 8px。 */
+  bottom: var(--ts-space-2);
   z-index: 3;
   display: flex;
   align-items: center;
@@ -159,10 +163,8 @@ textarea {
 
 /* 工具区里「不属于工具的动作位」——本轮只占位（锁定入口仍在上方页脚），
    `margin-left:auto` 把后续可能加的次要动作推到右侧，和左侧的齿轮分开。 */
-.ts-sidebar__tools-slot {
-  width: var(--ts-control-h-sm);
-  height: var(--ts-control-h-sm);
-}
+/* `.ts-sidebar__tools-slot`（锁定动作预留位）已随组件一起删除：它只是让齿轮左边永远空出
+   28px，反而像少了一个图标。锁定动作一直在主机库页脚的 `lock-vault` 上。 */
 
 /* 锁定态下的兜底设置入口（侧栏不渲染时的唯一出口，见 App.tsx 的 `.ts-lock-tools`）。
    z-index 必须高于解锁屏的 60，否则被它整块盖住。 */

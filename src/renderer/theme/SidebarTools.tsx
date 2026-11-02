@@ -18,8 +18,9 @@ import { SettingsEntry } from './SettingsDialogHost'
  * `data-testid`：
  * - `open-settings`：齿轮按钮本身——e2e（`e2e/fixtures/ui.ts:291`）依赖这个名字，不许改；
  * - `sidebar-tools`：这条工具带；
- * - `sidebar-lock-slot`：锁定动作的**预留位**（本轮只留空间，不新接功能；
- *   真正的锁定动作仍在主机库页脚的 `lock-vault` 上）。
+ * 历史：这里原本还有一个 28px 的「锁定动作预留位」（`sidebar-lock-slot`）。锁定动作始终
+ * 留在主机库页脚（`lock-vault`），那个空位只是在齿轮左边多出一段 28px 空白，看着像漏了
+ * 一个图标——已删除（2026-11-02）。
  *
  * 位置（主人 2026-11-02 定）：**设置入口在最右边**，与左侧那排主机库动作之间有一条分隔线，
  * 并且和它们垂直对齐。旧实现把齿轮放在 `left:10px; bottom:10px`，比页脚按钮高 10px，
@@ -28,7 +29,6 @@ import { SettingsEntry } from './SettingsDialogHost'
 export function SidebarTools(): JSX.Element {
   return (
     <div className="ts-sidebar__tools" data-testid="sidebar-tools">
-      <span className="ts-sidebar__tools-slot" data-testid="sidebar-lock-slot" aria-hidden="true" />
       <SettingsEntry testId="open-settings" className="ts-icon-btn" />
     </div>
   )
