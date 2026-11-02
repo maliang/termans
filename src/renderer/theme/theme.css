@@ -292,6 +292,33 @@
   outline-offset: 1px;
 }
 
+/* 终端字体（设置 → 外观，t59）：字号步进器与等宽预览 */
+.ts-settings__stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--ts-space-1);
+}
+
+.ts-settings__input--num {
+  width: 68px;
+  text-align: center;
+  font-family: var(--ts-font-mono);
+}
+
+/* 预览用**用户选的字体与字号本身**渲染，所以这里不设 font-family/font-size，
+   由组件用 inline style 注入（`terminal.fontFamily` / `terminal.fontSize`）。 */
+.ts-term-font-preview {
+  margin-top: var(--ts-space-1);
+  padding: var(--ts-space-2) var(--ts-control-px);
+  border: 1px dashed var(--ts-border-strong);
+  border-radius: var(--ts-radius-sm);
+  background: var(--ts-bg-app);
+  color: var(--ts-text-primary);
+  line-height: var(--ts-line-height-tight);
+  overflow-x: auto;
+  white-space: pre;
+}
+
 /* 按钮语汇不在这里重复定义：唯一真源是 src/renderer/styles/base.css 的 .ts-btn
    （此前这里另写了一套，导致「弹窗里的按钮」与「弹窗外的按钮」高度/字号/边框都不同）。 */
 

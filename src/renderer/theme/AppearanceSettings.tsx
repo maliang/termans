@@ -1,6 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { ThemeDefinition } from '@shared'
+import type { SettingsPatch, ThemeDefinition } from '@shared'
+import { DEFAULT_SETTINGS } from '@shared/models/settings'
+import { useShellStore } from '@renderer/app/store'
+import { call, describeError } from '@renderer/platform/ipc'
 import { useLocale } from '../i18n/useLocale'
 import { BUILTIN_THEMES, isBuiltinTheme, resolveThemeDefinition } from './builtin'
 import { useActiveTheme, useThemeStorage } from './hooks'
@@ -12,6 +15,25 @@ import { useThemeStore } from './store'
  * 所有交互元素都带 `data-testid`：QA 的 Playwright 断言「切主题/切语言真的生效」靠它，
  * 比按文案定位稳（文案会随语言变）。
  */
+
+/**
+ * 终端字体预设。第一项是**默认值**：`var(--ts-font-mono)` 会由主题解析成具体字体栈，
+ * 所以「跟随主题」永远和当前主题的等宽字体一致。其余是常见等宽字体的字体栈，
+ * 用户机器上没装也会按顺序回退，不会变成豆腐块。
+ */
+const FONT_PRESETS: Array<{ value: string; label: string }> = [
+  { value: 'var(--ts-font-mono)', label: '跟随主题' },
+  { value: '"SF Mono", ui-monospace, Menlo, monospace', label: 'SF Mono' },
+  { value: 'Menlo, Monaco, monospace', label: 'Menlo' },
+  { value: 'Monaco, Menlo, monospace', label: 'Monaco' },
+  { value: '"JetBrains Mono", ui-monospace, monospace', label: 'JetBrains Mono' },
+  { value: '"Fira Code", ui-monospace, monospace', label: 'Fira Code' },
+  { value: '"Cascadia Code", Consolas, monospace', label: 'Cascadia Code' },
+  { value: 'Consolas, "Courier New", monospace', label: 'Consolas' }
+]
+
+const FONT_SIZE_MIN = 8
+const FONT_SIZE_MAX = 40
 
 interface ThemeCardData {
   theme: ThemeDefinition
@@ -40,6 +62,45 @@ export function AppearanceSettings(): JSX.Element {
   const importThemeFromText = useThemeStore((state) => state.importThemeFromText)
   const exportThemeToText = useThemeStore((state) => state.exportThemeToText)
   const clearError = useThemeStore((state) => state.clearError)
+
+  const terminal = useShellStore((state) => state.settings.terminal)
+  const [fontError, setFontError] = useState<string | null>(null)
+  const [familyDraft, setFamilyDraft] = useState<string | null>(null)
+
+  /**
+   * 只提交 terminal 这一段：`settings:update` 是浅合并，别的段不会被覆盖；
+   * 但 `ui.aiPanelVisible` 只活在内存里，所以照 AiSettings 的做法一起带上，
+   * 否则「在设置里改字体」会把已展开的 AI 面板判成关闭（t47 踩过）。
+   */
+  const patchTerminal = useCallback(async (next: SettingsPatch): Promise<void> => {
+    setFontError(null)
+    try {
+      const visible = useShellStore.getState().aiPanelVisible
+      const updated = await call('settings:update', { ...next, ui: { aiPanelVisible: visible } })
+      useShellStore.getState().setSettings(updated)
+    } catch (error) {
+      setFontError(describeError(error))
+    }
+  }, [])
+
+  const commitFontSize = useCallback(
+    (raw: number): void => {
+      const clamped = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, Math.round(raw)))
+      if (clamped === terminal.fontSize) return
+      void patchTerminal({ terminal: { fontSize: clamped } })
+    },
+    [patchTerminal, terminal.fontSize]
+  )
+
+  const commitFontFamily = useCallback((): void => {
+    if (familyDraft === null) return
+    const next = familyDraft.trim()
+    setFamilyDraft(null)
+    // 空值不允许（schema 是 min(1)）：回退到默认值，界面回到初始态而不是留一个空框
+    const normalized = next.length > 0 ? next : DEFAULT_SETTINGS.terminal.fontFamily
+    if (normalized === terminal.fontFamily) return
+    void patchTerminal({ terminal: { fontFamily: normalized } })
+  }, [familyDraft, patchTerminal, terminal.fontFamily])
 
   const [importText, setImportText] = useState('')
   const [exportText, setExportText] = useState('')
@@ -92,6 +153,94 @@ export function AppearanceSettings(): JSX.Element {
           ))}
         </select>
         <p className="ts-settings__hint">{t('settings:locale.hint')}</p>
+      </div>
+
+      <div className="ts-settings__field">
+        <label className="ts-settings__label" htmlFor="ts-font-family">
+          {t('settings:appearance.font.family')}
+        </label>
+        <input
+          id="ts-font-family"
+          className="ts-settings__input"
+          data-testid="terminal-font-family"
+          list="ts-font-presets"
+          spellCheck={false}
+          value={familyDraft ?? terminal.fontFamily}
+          onChange={(event) => setFamilyDraft(event.target.value)}
+          onBlur={() => commitFontFamily()}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') commitFontFamily()
+            if (event.key === 'Escape') setFamilyDraft(null)
+          }}
+        />
+        <datalist id="ts-font-presets">
+          {FONT_PRESETS.map((preset) => (
+            <option key={preset.value} value={preset.value}>
+              {preset.label}
+            </option>
+          ))}
+        </datalist>
+        <p className="ts-settings__hint">{t('settings:appearance.font.familyHint')}</p>
+      </div>
+
+      <div className="ts-settings__field">
+        <div className="ts-settings__row">
+          <label className="ts-settings__label" htmlFor="ts-font-size">
+            {t('settings:appearance.font.size')}
+          </label>
+          <div className="ts-settings__stepper">
+            <button
+              type="button"
+              className="ts-btn ts-btn--ghost ts-btn--icon"
+              data-testid="terminal-font-size-dec"
+              disabled={terminal.fontSize <= FONT_SIZE_MIN}
+              onClick={() => commitFontSize(terminal.fontSize - 1)}
+              aria-label={t('settings:appearance.font.decrease')}
+            >
+              −
+            </button>
+            <input
+              id="ts-font-size"
+              className="ts-settings__input ts-settings__input--num"
+              data-testid="terminal-font-size"
+              type="number"
+              min={FONT_SIZE_MIN}
+              max={FONT_SIZE_MAX}
+              step={1}
+              value={terminal.fontSize}
+              onChange={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10)
+                if (!Number.isNaN(parsed)) commitFontSize(parsed)
+              }}
+            />
+            <button
+              type="button"
+              className="ts-btn ts-btn--ghost ts-btn--icon"
+              data-testid="terminal-font-size-inc"
+              disabled={terminal.fontSize >= FONT_SIZE_MAX}
+              onClick={() => commitFontSize(terminal.fontSize + 1)}
+              aria-label={t('settings:appearance.font.increase')}
+            >
+              +
+            </button>
+          </div>
+        </div>
+        <p className="ts-settings__hint">{t('settings:appearance.font.sizeHint')}</p>
+        <div
+          className="ts-term-font-preview"
+          data-testid="terminal-font-preview"
+          style={{
+            fontFamily: terminal.fontFamily,
+            fontSize: `${terminal.fontSize}px`
+          }}
+        >
+          {t('settings:appearance.font.previewText')}
+        </div>
+        {fontError !== null ? (
+          <p className="ts-settings__error" role="alert" data-testid="terminal-font-error">
+            {fontError}
+          </p>
+        ) : null}
       </div>
 
       <div className="ts-settings__field">
