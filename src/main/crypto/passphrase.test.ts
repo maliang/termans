@@ -17,6 +17,23 @@ describe('口令强度：挡住三类真实事故', () => {
     expect(short.requiresConfirmation).toBe(false)
   })
 
+  it('下限 8 位（主人 2026-11-02 定）：8 位可用、7 位拒绝', () => {
+    expect(MIN_PASSPHRASE_LENGTH).toBe(8)
+    expect(assessPassphrase('aB3$efg7').acceptable).toBe(true)
+    const seven = assessPassphrase('aB3$efg')
+    expect(seven.acceptable).toBe(false)
+    expect(seven.warnings).toContain('too-short')
+  })
+
+  it('字符类型只建议不强制：纯小写 8 位可用，只是被提示 low-variety 且需二次确认', () => {
+    const onlyLower = assessPassphrase('mypasswd')
+    expect(onlyLower.acceptable, '不许因为“没有大写/数字/符号”直接拒绝').toBe(true)
+    expect(onlyLower.warnings).toContain('low-variety')
+    expect(onlyLower.requiresConfirmation, '弱口令走二次确认而不是拒绝').toBe(true)
+    // 对照：同样长度但混了类型 → 不再提示 low-variety
+    expect(assessPassphrase('MyPassw0rd').warnings).not.toContain('low-variety')
+  })
+
   it('长口令（多词）判 strong，无需二次确认', () => {
     const strong = assessPassphrase('correct horse battery staple')
     expect(strong.acceptable).toBe(true)

@@ -168,7 +168,9 @@ interface Sample {
  * 界面没渲染出来（或 testid 改名导致停在别的屏）时立刻红，而不是「0 个元素 0 违规」假绿。
  */
 const MIN_SCANNED: Record<(typeof STATES)[number], number> = {
-  setup: 6,
+  // 5（原 6）：0.1.3 删掉了解锁屏的「以预览模式继续」死按钮，那一屏真的少了一个带文字的
+  // 元素。这不是放宽守卫的门槛去迁就界面，而是把实测值改成新的真实值——空白屏仍然是 0。
+  setup: 5,
   'weak-warn': 6,
   shell: 10,
   'settings-appearance': 15,

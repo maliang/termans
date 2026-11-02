@@ -76,7 +76,7 @@ sudo dpkg -i termans_0.1.0_amd64.deb && termans                   # deb
 ## 3. 第一次运行：主口令与恢复码
 
 1. 首启是**锁定态**：没有任何主机信息可看。第一次需要「创建主口令」。
-2. 主口令 **≥ 12 个字符**。弱口令（如 `password1234`、`aaaaaaaaaaaa`、`qwertyuiopas`）会给出熵值警告，
+2. 主口令 **≥ 8 个字符**（字符类型只建议、不强制）。弱口令（如 `password1234`、`aaaaaaaaaaaa`、`qwertyuiopas`）会给出熵值警告，
    并要求**同一口令再提交一次**才算确认——这是刻意的摩擦，不是 bug。
 3. 创建后会**一次性显示 32 位恢复码**（`XXXX-XXXX-…`，Crockford base32，约 160 bit）。请立刻保存：
    界面提供「下载」按钮，存成文件或抄进密码管理器。

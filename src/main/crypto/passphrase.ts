@@ -10,9 +10,13 @@ export { RECOVERY_CODE_CHARS, formatRecoveryCode, generateRecoveryCode, normaliz
  *
  * 判定分三档：`weak` 需要二次确认才允许提交（任务书要求），`fair` 只提示，`strong` 直接过。
  * 长度不足直接拒绝（`acceptable=false`），与 SPEC S-02 一致。
+ *
+ * 2026-11-02 主人定：**下限 8 位**（原 12 位太苛刻），**字符类型只建议不强制**——
+ * 单类字符（只有小写等）只产生 `low-variety` 提示并把强度压到 weak（需二次确认），
+ * 绝不因为「没有大写/数字/符号」直接拒绝。真正会硬拒的只有「短于下限」这一条。
  */
 
-export const MIN_PASSPHRASE_LENGTH = 12
+export const MIN_PASSPHRASE_LENGTH = 8
 /** 「强」的门槛：估算熵 ≥ 80bit */
 export const STRONG_ENTROPY_BITS = 80
 /** 「可接受」的门槛：估算熵 ≥ 50bit */
@@ -24,6 +28,7 @@ export type PassphraseWarning =
   | 'common-pattern'
   | 'repeated-character'
   | 'keyboard-sequence'
+  | 'low-variety'
 
 export interface PassphraseAssessment {
   length: number
@@ -105,6 +110,12 @@ export function assessPassphrase(value: string): PassphraseAssessment {
 
   if (length < MIN_PASSPHRASE_LENGTH) {
     warnings.push('too-short')
+  }
+
+  // 字符类型只建议不强制：只用了一类字符（例如全小写）时给出提示，并让强度落到 weak
+  // → 上层走「同口令再提交一次」的二次确认，而不是拒绝。
+  if (length > 0 && size <= 26) {
+    warnings.push('low-variety')
   }
 
   if (entropyBits < FAIR_ENTROPY_BITS && !warnings.includes('too-short')) {
