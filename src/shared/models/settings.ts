@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { LOCALES } from '../i18n'
+import { LOCALE_MODES } from '../i18n'
 import { REASONING_EFFORT_DEFAULT, reasoningEffortSchema } from '../reasoning'
 import { knownHostsPolicySchema } from './known-host'
 import { conflictStrategySchema } from './vault'
@@ -13,7 +13,7 @@ import { conflictStrategySchema } from './vault'
  * 新增字段流程：加 schema → 加 default → 旧配置文件靠 `settings:migrate` 补默认值（缺失即补）。
  */
 
-export const localeSchema = z.enum(LOCALES)
+export const localeSchema = z.enum(LOCALE_MODES)
 export type LocaleCode = z.infer<typeof localeSchema>
 
 export const terminalSettingsSchema = z.object({
@@ -122,7 +122,7 @@ export const settingsPatchSchema = z
 export type SettingsPatch = z.infer<typeof settingsPatchSchema>
 
 export const DEFAULT_SETTINGS: Settings = {
-  locale: 'en',
+  locale: 'system',
   themeId: 'termans-dark',
   terminal: {
     fontFamily: 'var(--ts-font-mono)',

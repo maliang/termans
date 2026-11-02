@@ -10,7 +10,9 @@ import {
   formatRelativeTime,
   formatTime
 } from '@renderer/i18n/format'
-import { detectSystemLocale, isRtlLocale, matchLocale, resolveInitialLocale } from '@renderer/i18n/locale'
+import { detectSystemLocale, isRtlLocale, matchLocale, resolveInitialLocale,
+  resolveLocaleMode
+} from '@renderer/i18n/locale'
 
 /**
  * Intl 格式化与语言匹配（SPEC L-01 的「日期/数字跟随语言」）。
@@ -119,8 +121,9 @@ describe('语言匹配与首启决策', () => {
 
   it('按 candidates 顺序取第一个命中的语言', () => {
     expect(detectSystemLocale(['ja-JP', 'zh-Hans', 'en-US'])).toBe('zh-CN')
-    expect(detectSystemLocale(['ja-JP', 'de-DE'])).toBe('en')
-    expect(detectSystemLocale([])).toBe('en')
+    // 系统语言不在支持列表里 → 回落到 DEFAULT_LOCALE（主人 2026-11-02 定的简体中文，此前是 en）
+    expect(detectSystemLocale(['ja-JP', 'de-DE'])).toBe('zh-CN')
+    expect(detectSystemLocale([])).toBe('zh-CN')
   })
 
   it('有本机偏好时用户选择优先，且不 adoptSystem', () => {
@@ -137,11 +140,21 @@ describe('语言匹配与首启决策', () => {
       locale: 'zh-CN',
       adoptSystem: false
     })
-    // 系统语言不认识 → 回退 en；此时若已存 zh-CN，只切到 en 一次
+    // 系统语言不认识 → 回退简体中文；此时若已存 zh-CN，等于没变
     expect(resolveInitialLocale('zh-CN', { preference: null, candidates: ['ja-JP'] })).toEqual({
-      locale: 'en',
-      adoptSystem: true
+      locale: 'zh-CN',
+      adoptSystem: false
     })
+  })
+
+  it('语言偏好：system 每次按系统探测，具体语言原样返回', () => {
+    // 缺省 'system'：支持的语言就用，不支持回落简体中文（不是 en）
+    expect(resolveLocaleMode('system', ['ja-JP', 'zh-CN'])).toBe('zh-CN')
+    expect(resolveLocaleMode('system', ['de-DE'])).toBe('zh-CN')
+    expect(resolveLocaleMode('system', ['en-GB'])).toBe('en')
+    // 显式选择不受系统语言影响
+    expect(resolveLocaleMode('en', ['ja-JP'])).toBe('en')
+    expect(resolveLocaleMode('zh-CN', [])).toBe('zh-CN')
   })
 
   it('RTL 语言白名单', () => {

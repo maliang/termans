@@ -1,13 +1,13 @@
-import type { Locale } from '@shared'
+import type { Locale, LocaleMode } from '@shared'
 import { DEFAULT_LOCALE, LOCALES } from '@shared'
 
 /**
  * 语言探测与首启决策。
  *
- * 规则（与 docs/i18n.md「首启与持久化」一致）：
- * 1. 用户显式切换过语言 → 永久记住（localStorage 打标 + `settings.locale` 落盘），不再跟随系统。
- * 2. 从未切换过 → 用系统语言匹配支持的 locale；匹配不到用 `DEFAULT_LOCALE`（en）。
- * 3. 只有 [[`LOCALES`]] 里的语言会被采用，其它系统语言一律回落到 en。
+ * 规则（主人 2026-11-02 定，取代原先「首启探测一次就固化」的做法）：
+ * 1. `settings.locale === 'system'`（缺省）→ 每次启动按系统语言解析，支持就采用。
+ * 2. 系统语言不在 [[`LOCALES`]] 里 → 回落 `DEFAULT_LOCALE`（简体中文）。
+ * 3. 用户选了具体语言 → 就用那个语言（显式选择优先，且随配置同步/跨机器一致）。
  */
 
 export const LOCALE_PREFERENCE_KEY = 'termans:locale:v1'
@@ -34,6 +34,20 @@ function systemCandidates(): string[] {
   } catch {
     return []
   }
+}
+
+/**
+ * 语言偏好 → 真正要加载的 locale。
+ *
+ * `system` 走系统探测（`navigator.languages` 顺序匹配），其余原样返回。
+ * 探测不到支持的语言时由 [[`detectSystemLocale`]] 回落到 `DEFAULT_LOCALE`（简体中文）。
+ */
+export function resolveLocaleMode(
+  mode: LocaleMode,
+  candidates: readonly string[] = systemCandidates()
+): Locale {
+  if (mode === 'system') return detectSystemLocale(candidates)
+  return mode
 }
 
 /** 按 navigator.languages 顺序匹配，第一个命中的胜出 */

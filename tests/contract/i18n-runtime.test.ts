@@ -162,9 +162,10 @@ describe('humanizeKey', () => {
 })
 
 describe('fallback 链', () => {
-  it('zh-CN → en，en 无回退，且总以 en 收尾', () => {
+  it('zh-CN → en；链条末尾总会补上 DEFAULT_LOCALE（现为 zh-CN）', () => {
     expect(buildFallbackLng('zh-CN')).toEqual(['zh-CN', 'en'])
-    expect(buildFallbackLng('en')).toEqual(['en'])
+    // en 自身没有显式回退，但默认语言（zh-CN）作为最后一跳补在末尾：新语言缺 key 时先落 en 再落 zh-CN
+    expect(buildFallbackLng('en')).toEqual(['en', 'zh-CN'])
   })
 
   it('init 选项把契约值原样带上（改这些会静默坏掉界面）', () => {

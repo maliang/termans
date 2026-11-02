@@ -46,7 +46,7 @@ interface ThemeCardData {
 
 export function AppearanceSettings(): JSX.Element {
   const { t } = useTranslation(['settings', 'common'])
-  const { locale, locales, setLocale } = useLocale()
+  const { mode, locales, detected, setLocale } = useLocale()
   const storage = useThemeStorage()
   const activeTheme = useActiveTheme()
 
@@ -141,18 +141,22 @@ export function AppearanceSettings(): JSX.Element {
           id="ts-locale-select"
           className="ts-settings__select"
           data-testid="locale-select"
-          value={locale}
+          value={mode}
           onChange={(event) => {
             void setLocale(event.target.value as (typeof locales)[number]['value'])
           }}
         >
           {locales.map((option) => (
             <option key={option.value} value={option.value}>
-              {option.label}
+              {option.value === 'system'
+                ? t('settings:locale.system', { language: t(`settings:locale.${detected}`) })
+                : option.label}
             </option>
           ))}
         </select>
-        <p className="ts-settings__hint">{t('settings:locale.hint')}</p>
+        <p className="ts-settings__hint" data-testid="locale-hint">
+          {t('settings:locale.hint')}
+        </p>
       </div>
 
       <div className="ts-settings__field">

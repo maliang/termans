@@ -11,11 +11,33 @@
 export const LOCALES = ['en', 'zh-CN'] as const
 export type Locale = (typeof LOCALES)[number]
 
-export const DEFAULT_LOCALE: Locale = 'en'
+/**
+ * 语言偏好：在具体语言之外多一个 `system`（跟随系统语言）。
+ *
+ * 为什么不用「首次启动探测一次然后固化成具体语言」：用户换了系统语言、或者把配置同步到
+ * 另一台语言不同的机器上，固化值就变成错的。`system` 每次启动按当前系统语言重新解析，
+ * 解析不到支持的语言时回落到 [[`DEFAULT_LOCALE`]]（简体中文）。
+ */
+export const LOCALE_MODES = ['system', ...LOCALES] as const
+export type LocaleMode = (typeof LOCALE_MODES)[number]
+
+export const DEFAULT_LOCALE_MODE: LocaleMode = 'system'
+
+/** 系统语言不支持时的兜底语言（主人明确要求缺省是简体中文） */
+export const DEFAULT_LOCALE: Locale = 'zh-CN'
 
 export const LOCALE_LABELS: Record<Locale, string> = {
   en: 'English',
   'zh-CN': '简体中文'
+}
+
+export const LOCALE_MODE_LABELS: Record<LocaleMode, string> = {
+  system: '跟随系统',
+  ...LOCALE_LABELS
+}
+
+export function isLocaleMode(value: string): value is LocaleMode {
+  return (LOCALE_MODES as readonly string[]).includes(value)
 }
 
 /** 语言回退链：zh-CN → en */
